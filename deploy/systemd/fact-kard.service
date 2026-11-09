@@ -1,0 +1,41 @@
+# FACT-KARD — Gunicorn como servicio (copiar a /etc/systemd/system/fact-kard.service)
+#   sudo systemctl daemon-reload && sudo systemctl enable --now fact-kard
+# La configuración (SECRET_KEY, DB_PASSWORD, ...) está en /srv/fact-kard/app/backend/.env
+# (propietario fact-kard, permisos 600): no se repite aquí ni queda en `systemctl show`.
+[Unit]
+Description=FACT-KARD (Django + Gunicorn)
+After=network-online.target postgresql.service redis-server.service
+Wants=network-online.target postgresql.service redis-server.service
+
+[Service]
+Type=simple
+User=fact-kard
+Group=fact-kard
+WorkingDirectory=/srv/fact-kard/app/backend
+ExecStart=/srv/fact-kard/venv/bin/gunicorn config.wsgi:application -c gunicorn.conf.py
+# Recarga sin cortar peticiones (relee el código después de un despliegue).
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=30
+
+# Logs de Gunicorn y Django → journald (journalctl -u fact-kard).
+StandardOutput=journal
+StandardError=journal
+# Directorio opcional para LOG_FILE=/var/log/fact-kard/fact-kard.log
+LogsDirectory=fact-kard
+
+# Endurecimiento
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

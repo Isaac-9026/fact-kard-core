@@ -1,0 +1,41 @@
+{
+  "name": "frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "test": "node --experimental-strip-types --test src/context/authState.test.ts src/utils/date.test.ts src/utils/kardexFiltros.test.ts src/utils/notaInternaForm.test.ts src/utils/reaperturaPeriodo.test.ts src/utils/tipoCambioForm.test.ts src/utils/sesion.test.ts src/utils/afectacionIgv.test.ts src/utils/formato131Saldos.test.ts src/utils/kardexVista.test.ts src/utils/paginacion.test.ts src/utils/errores.test.ts src/navegacion.test.ts src/utils/vistaDocumentos.test.ts src/utils/dashboard.test.ts src/utils/stockActual.test.ts src/utils/decimal.test.ts src/utils/precisionDocumentos.test.ts src/utils/credencialSesion.test.ts src/utils/sinFloatMonetario.test.ts src/utils/operacionesComerciales.test.ts src/utils/descargaArchivo.test.ts src/utils/capturaArchivos.test.ts src/utils/contraparteDocumento.test.ts src/utils/finanzas.test.ts src/utils/devolucionNota.test.ts src/utils/tributario.test.ts src/utils/consultaRuc.test.ts src/utils/identidadEmpresa.test.ts",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "axios": "^1.20.0",
+    "big.js": "7.0.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.61.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-router-dom": "^7.18.4",
+    "tailwind-merge": "^3.7.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/big.js": "6.2.2",
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "eslint": "^10.13.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "globals": "^17.13.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.71.2",
+    "vite": "^8.3.4"
+  }
+}

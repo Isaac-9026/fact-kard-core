@@ -1,0 +1,107 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+backend/.venv/
+.venv/
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Django
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+backend/.secret_key.dev
+
+# Entornos y secretos
+.env
+.env.*
+*.env.local
+!.env.example
+!**/.env.example
+
+# Configuración pública del frontend ya versionada
+!frontend/.env.production
+
+# Node / Frontend
+frontend/node_modules/
+node_modules/
+frontend/dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Bloque 17B: certificados, claves y credenciales. NUNCA versionar.
+*.pfx
+*.p12
+*.pem
+*.key
+*.crt
+*.cer
+*.der
+*.csr
+*.jks
+*.keystore
+certificados/
+certificates/
+secrets/
+private/
+credentials/
+
+# Static & Logs
+staticfiles/
+backend/staticfiles/
+*.log
+
+# Archivos multimedia subidos (logos de empresa, etc.)
+media/
+backend/media/
+
+# IDEs y Sistema
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Backups locales
+*.backup
+
+# Bloque 17B: copias de la base de datos (contienen datos reales)
+backups/
+*.dump
+
+# Bloque 17D: Padrón Reducido del RUC (SUNAT). Cientos de MB / millones de filas:
+# se descarga del portal de SUNAT y se importa con `manage.py importar_padron_ruc`.
+# NUNCA se versiona.
+padron_reducido*.zip
+padron_reducido*.txt
+padron_ruc/
+padron_sunat/
+datos_sunat/
+
+# Bloque 19: artefactos electrónicos (XML UBL sin firma, firmados, ZIP, CDR)
+# y material oficial de SUNAT usado solo como referencia local. NUNCA se versionan.
+artefactos_sunat/
+sunat_ubl/
+*-sin-firma.xml
+R-*.zip
+*.xsd
+*.xsl

@@ -1,0 +1,17 @@
+# Bloque 24 — respaldo COMPLETO diario (copiar a /etc/systemd/system/). Lo dispara fact-kard-backup.timer.
+# Incluye PostgreSQL + artefactos SUNAT (XML, XML firmado, ZIP, CDR, PDF) + MEDIA_ROOT, con manifest
+# SHA-256, copia externa (FACT_KARD_BACKUP_EXTERNAL_PATH) y retención. Ver docs/RESPALDO_Y_RESTAURACION.md.
+# Corre como fact-kard (dueño de los artefactos y de backend/.env); la clave de PostgreSQL se lee de
+# backend/.env y solo viaja en PGPASSWORD del proceso hijo, nunca en la línea de comandos.
+# Código de salida: 0 OK · 1 respaldo NO creado · 2 local OK pero copia externa/retención falló.
+[Unit]
+Description=FACT-KARD respaldo completo (base + artefactos SUNAT + media)
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=fact-kard
+Group=fact-kard
+UMask=0077
+WorkingDirectory=/srv/fact-kard/app/backend
+ExecStart=/srv/fact-kard/venv/bin/python manage.py respaldo crear

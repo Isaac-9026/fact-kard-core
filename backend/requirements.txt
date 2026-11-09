@@ -1,0 +1,33 @@
+asgiref==3.12.1
+attrs==26.1.0
+Django==6.1.2
+django-cors-headers==4.9.0
+djangorestframework==3.18.3
+drf-spectacular==0.30.0
+inflection==0.5.1
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+psycopg==3.3.6
+psycopg-binary==3.3.6
+python-decouple==3.8
+PyYAML==6.0.3
+referencing==0.37.0
+rpds-py==2026.9.1
+sqlparse==0.6.0
+tzdata==2026.5
+uritemplate==4.2.0
+openpyxl==3.1.5
+# Bloque 19: XML UBL 2.1 (construcción segura sin XXE), canonicalización C14N para la firma XMLDSig del
+# Bloque 20 y validación XSD en pruebas. Versión fijada (wheels oficiales para Linux y Windows cp313).
+lxml==6.0.2
+# Bloque 20: firma XMLDSig. cryptography (PyCA) abre el PKCS#12 (.pfx/.p12), lee X.509 y firma/verifica
+# RSA PKCS#1 v1.5; no se implementa criptografía a mano. cffi y pycparser son sus dependencias fijadas.
+# Versiones con wheels oficiales para Linux y Windows (cp313).
+cryptography==46.0.7
+cffi==2.1.1
+pycparser==3.12
+et-xmlfile==2.0.0
+Pillow==13.0.0
+# Bloque 22: representacion PDF y QR. Implementaciones Python puras, sin HTML ni binarios externos.
+reportlab==4.4.10
+qrcode==8.2

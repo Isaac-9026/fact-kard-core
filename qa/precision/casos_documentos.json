@@ -1,0 +1,410 @@
+[
+  {
+    "id": "auditoria_0_00004875",
+    "descripcion": "Caso de la auditoría: IGV con float sin redondear a céntimos (0.03004875) vs Decimal HALF_UP (0.03).",
+    "clase": "COMPRA",
+    "tipo": "FACTURA",
+    "moneda": "PEN",
+    "fecha": "2026-01-10",
+    "tasa_pct": "18.00",
+    "lineas": [
+      {
+        "operacion": "COMPRA",
+        "cantidad": "2.5",
+        "precio": "0.066775",
+        "afectacion": "GRAVADO"
+      }
+    ],
+    "antes": {
+      "igv_lineas": [
+        "0.03004875"
+      ],
+      "total": "0.19698625",
+      "diferencia_total": "0.00004875"
+    },
+    "esperado": {
+      "lineas": [
+        {
+          "igv": "0.03000000",
+          "cantidad_base": "2.50000000",
+          "importe": "0.16693750"
+        }
+      ],
+      "subtotal": "0.16693750",
+      "igv": "0.03000000",
+      "total": "0.19693750",
+      "total_2d": "0.20",
+      "subtotal_2d": "0.17"
+    }
+  },
+  {
+    "id": "suma_0_1_mas_0_2",
+    "descripcion": "0.1 + 0.2 en dos líneas inafectas.",
+    "clase": "COMPRA",
+    "tipo": "FACTURA",
+    "moneda": "PEN",
+    "fecha": "2026-01-10",
+    "tasa_pct": "18.00",
+    "lineas": [
+      {
+        "operacion": "COMPRA",
+        "cantidad": "1",
+        "precio": "0.1",
+        "afectacion": "INAFECTO"
+      },
+      {
+        "operacion": "COMPRA",
+        "cantidad": "1",
+        "precio": "0.2",
+        "afectacion": "INAFECTO"
+      }
+    ],
+    "esperado": {
+      "lineas": [
+        {
+          "igv": "0.00000000",
+          "cantidad_base": "1.00000000",
+          "importe": "0.10000000"
+        },
+        {
+          "igv": "0.00000000",
+          "cantidad_base": "1.00000000",
+          "importe": "0.20000000"
+        }
+      ],
+      "subtotal": "0.30000000",
+      "igv": "0.00000000",
+      "total": "0.30000000",
+      "total_2d": "0.30",
+      "subtotal_2d": "0.30"
+    }
+  },
+  {
+    "id": "compra_fraccionaria_precios_6_dec",
+    "descripcion": "Cantidades fraccionarias, precios de 4–6 decimales, factor de conversión, varias afectaciones.",
+    "clase": "COMPRA",
+    "tipo": "FACTURA",
+    "moneda": "PEN",
+    "fecha": "2026-01-10",
+    "tasa_pct": "18.00",
+    "lineas": [
+      {
+        "operacion": "COMPRA",
+        "cantidad": "3.333",
+        "precio": "12.345678",
+        "afectacion": "GRAVADO"
+      },
+      {
+        "operacion": "COMPRA",
+        "cantidad": "7.25",
+        "precio": "0.0105",
+        "afectacion": "GRAVADO",
+        "factor": "12.5"
+      },
+      {
+        "operacion": "COMPRA",
+        "cantidad": "0.125",
+        "precio": "99.9999",
+        "afectacion": "EXONERADO"
+      },
+      {
+        "operacion": "COMPRA",
+        "cantidad": "1.5",
+        "precio": "1.005",
+        "afectacion": "INAFECTO",
+        "factor": "0.333333"
+      }
+    ],
+    "esperado": {
+      "lineas": [
+        {
+          "igv": "7.41000000",
+          "cantidad_base": "3.33300000",
+          "importe": "41.14814477"
+        },
+        {
+          "igv": "0.01000000",
+          "cantidad_base": "90.62500000",
+          "importe": "0.07612500"
+        },
+        {
+          "igv": "0.00000000",
+          "cantidad_base": "0.12500000",
+          "importe": "12.49998750"
+        },
+        {
+          "igv": "0.00000000",
+          "cantidad_base": "0.50000000",
+          "importe": "1.50750000"
+        }
+      ],
+      "subtotal": "55.23175727",
+      "igv": "7.42000000",
+      "total": "62.65175727",
+      "total_2d": "62.65",
+      "subtotal_2d": "55.23"
+    }
+  },
+  {
+    "id": "redondeo_mitad_hacia_arriba",
+    "descripcion": "Empates exactos: IGV 0.045 → 0.05 (HALF_UP; HALF_EVEN daría 0.04) y subtotal 1.267345665 → 1.26734567.",
+    "clase": "COMPRA",
+    "tipo": "FACTURA",
+    "moneda": "PEN",
+    "fecha": "2026-01-10",
+    "tasa_pct": "18.00",
+    "lineas": [
+      {
+        "operacion": "COMPRA",
+        "cantidad": "1",
+        "precio": "0.25",
+        "afectacion": "GRAVADO"
+      },
+      {
+        "operacion": "COMPRA",
+        "cantidad": "0.1",
+        "precio": "0.12345665",
+        "afectacion": "EXONERADO"
+      },
+      {
+        "operacion": "COMPRA",
+        "cantidad": "1",
+        "precio": "1.005",
+        "afectacion": "INAFECTO"
+      }
+    ],
+    "esperado": {
+      "lineas": [
+        {
+          "igv": "0.05000000",
+          "cantidad_base": "1.00000000",
+          "importe": "0.25000000"
+        },
+        {
+          "igv": "0.00000000",
+          "cantidad_base": "0.10000000",
+          "importe": "0.01234567"
+        },
+        {
+          "igv": "0.00000000",
+          "cantidad_base": "1.00000000",
+          "importe": "1.00500000"
+        }
+      ],
+      "subtotal": "1.26734567",
+      "igv": "0.05000000",
+      "total": "1.31734567",
+      "total_2d": "1.32",
+      "subtotal_2d": "1.27"
+    }
+  },
+  {
+    "id": "compra_usd_tc",
+    "descripcion": "Compra en USD con tipo de cambio de 3 decimales (los totales se guardan en USD).",
+    "clase": "COMPRA",
+    "tipo": "FACTURA",
+    "moneda": "USD",
+    "tc_venta": "3.751",
+    "fecha": "2026-01-12",
+    "tasa_pct": "18.00",
+    "lineas": [
+      {
+        "operacion": "COMPRA",
+        "cantidad": "12.5",
+        "precio": "8.3333",
+        "afectacion": "GRAVADO"
+      },
+      {
+        "operacion": "COMPRA",
+        "cantidad": "4",
+        "precio": "19.995",
+        "afectacion": "GRAVADO"
+      }
+    ],
+    "esperado": {
+      "lineas": [
+        {
+          "igv": "18.75000000",
+          "cantidad_base": "12.50000000",
+          "importe": "104.16625000"
+        },
+        {
+          "igv": "14.40000000",
+          "cantidad_base": "4.00000000",
+          "importe": "79.98000000"
+        }
+      ],
+      "subtotal": "184.14625000",
+      "igv": "33.15000000",
+      "total": "217.29625000",
+      "total_2d": "217.30",
+      "subtotal_2d": "184.15"
+    }
+  },
+  {
+    "id": "tasa_historica_16",
+    "descripcion": "Tasa histórica configurada (16 % desde 2026-01-15): no se asume 18 %.",
+    "clase": "COMPRA",
+    "tipo": "FACTURA",
+    "moneda": "PEN",
+    "fecha": "2026-01-20",
+    "tasa_pct": "16.00",
+    "tasa_historica": {
+      "vigente_desde": "2026-01-15",
+      "tasa_pct": "16.00"
+    },
+    "lineas": [
+      {
+        "operacion": "COMPRA",
+        "cantidad": "3",
+        "precio": "33.33",
+        "afectacion": "GRAVADO"
+      },
+      {
+        "operacion": "COMPRA",
+        "cantidad": "2.75",
+        "precio": "4.4444",
+        "afectacion": "GRAVADO"
+      }
+    ],
+    "esperado": {
+      "lineas": [
+        {
+          "igv": "16.00000000",
+          "cantidad_base": "3.00000000",
+          "importe": "99.99000000"
+        },
+        {
+          "igv": "1.96000000",
+          "cantidad_base": "2.75000000",
+          "importe": "12.22210000"
+        }
+      ],
+      "subtotal": "112.21210000",
+      "igv": "17.96000000",
+      "total": "130.17210000",
+      "total_2d": "130.17",
+      "subtotal_2d": "112.21"
+    }
+  },
+  {
+    "id": "venta_exportacion_gratuito",
+    "descripcion": "Venta con línea gravada, exportación y bonificación gratuita.",
+    "clase": "VENTA",
+    "tipo": "FACTURA",
+    "moneda": "PEN",
+    "fecha": "2026-01-15",
+    "tasa_pct": "18.00",
+    "requiere_stock": true,
+    "lineas": [
+      {
+        "operacion": "VENTA",
+        "cantidad": "1.5",
+        "precio": "45.678912",
+        "afectacion": "GRAVADO"
+      },
+      {
+        "operacion": "VENTA",
+        "cantidad": "2",
+        "precio": "30.125",
+        "afectacion": "EXPORTACION"
+      },
+      {
+        "operacion": "VENTA",
+        "cantidad": "1",
+        "precio": "0",
+        "afectacion": "GRATUITO",
+        "bonificacion": true
+      }
+    ],
+    "esperado": {
+      "lineas": [
+        {
+          "igv": "12.33000000",
+          "cantidad_base": "1.50000000",
+          "importe": "68.51836800"
+        },
+        {
+          "igv": "0.00000000",
+          "cantidad_base": "2.00000000",
+          "importe": "60.25000000"
+        },
+        {
+          "igv": "0.00000000",
+          "cantidad_base": "1.00000000",
+          "importe": "0.00000000"
+        }
+      ],
+      "subtotal": "128.76836800",
+      "igv": "12.33000000",
+      "total": "141.09836800",
+      "total_2d": "141.10",
+      "subtotal_2d": "128.77"
+    }
+  },
+  {
+    "id": "nc_descuento_compra",
+    "descripcion": "Nota de crédito de compra (descuento, ajuste de valor) sobre una factura.",
+    "clase": "COMPRA",
+    "tipo": "NC",
+    "moneda": "PEN",
+    "fecha": "2026-01-16",
+    "tasa_pct": "18.00",
+    "origen": "COMPRA",
+    "lineas": [
+      {
+        "operacion": "NC_DESCUENTO_COMPRA",
+        "cantidad": "1",
+        "precio": "3.456789",
+        "afectacion": "GRAVADO"
+      }
+    ],
+    "esperado": {
+      "lineas": [
+        {
+          "igv": "0.62000000",
+          "cantidad_base": "1.00000000",
+          "importe": "3.45678900"
+        }
+      ],
+      "subtotal": "3.45678900",
+      "igv": "0.62000000",
+      "total": "4.07678900",
+      "total_2d": "4.08",
+      "subtotal_2d": "3.46"
+    }
+  },
+  {
+    "id": "nd_cargo_venta",
+    "descripcion": "Nota de débito de venta (cargo, ajuste de valor) sobre una factura.",
+    "clase": "VENTA",
+    "tipo": "ND",
+    "moneda": "PEN",
+    "fecha": "2026-01-16",
+    "tasa_pct": "18.00",
+    "origen": "VENTA",
+    "requiere_stock": true,
+    "lineas": [
+      {
+        "operacion": "ND_CARGO_VENTA",
+        "cantidad": "1",
+        "precio": "12.3456",
+        "afectacion": "GRAVADO"
+      }
+    ],
+    "esperado": {
+      "lineas": [
+        {
+          "igv": "2.22000000",
+          "cantidad_base": "1.00000000",
+          "importe": "12.34560000"
+        }
+      ],
+      "subtotal": "12.34560000",
+      "igv": "2.22000000",
+      "total": "14.56560000",
+      "total_2d": "14.57",
+      "subtotal_2d": "12.35"
+    }
+  }
+]

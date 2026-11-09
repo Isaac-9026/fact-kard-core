@@ -1,0 +1,1 @@
+"""FACT-KARD applications package."""

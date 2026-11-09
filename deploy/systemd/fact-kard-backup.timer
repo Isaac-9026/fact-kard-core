@@ -1,0 +1,12 @@
+# Backup diario a las 02:30 (hora del servidor). Copiar a /etc/systemd/system/ y:
+#   sudo systemctl enable --now fact-kard-backup.timer
+[Unit]
+Description=FACT-KARD backup diario de PostgreSQL
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

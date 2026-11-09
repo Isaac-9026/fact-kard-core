@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: fact_kard_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: fact_kard
+      POSTGRES_USER: fact_kard_user
+      POSTGRES_PASSWORD: cambiar_esto
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

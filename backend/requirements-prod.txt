@@ -1,0 +1,5 @@
+-r requirements.txt
+# Bloque 7: caché compartida (throttling de login) en producción. Opcional en local.
+redis==6.4.0
+# Bloque 8: servidor WSGI de producción (nunca `manage.py runserver`).
+gunicorn==23.0.0

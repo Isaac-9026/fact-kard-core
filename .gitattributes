@@ -1,0 +1,4 @@
+# Bloque 8: los archivos de despliegue se ejecutan en Linux (VPS). Siempre con LF, aunque
+# el repositorio se edite o se haga commit desde Windows (un CRLF rompe bash y systemd).
+*.sh        text eol=lf
+deploy/**   text eol=lf
