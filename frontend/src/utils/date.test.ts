@@ -8,7 +8,10 @@ test('conserva el dia calendario local aunque UTC pueda estar en el dia siguient
   const nocheLocal = new Date(2026, 9, 21, 23, 30, 0);
 
   assert.equal(fechaCalendarioLocal(nocheLocal), '2026-10-21');
-  assert.equal(nocheLocal.toISOString().slice(0, 10), '2026-10-22');
+  if (nocheLocal.getTimezoneOffset() > 0) {
+    // En zonas horarias al oeste de UTC (ej. America/Lima UTC-5), las 23:30 corresponden al día siguiente en UTC
+    assert.equal(nocheLocal.toISOString().slice(0, 10), '2026-10-22');
+  }
 });
 
 test('conserva exactamente la fecha calendario usada en el payload', () => {
