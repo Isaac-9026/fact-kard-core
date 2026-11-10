@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   AlertCircle,
   Loader2,
-  Lock,
   Eye,
   EyeOff,
+  Info,
+  X,
 } from 'lucide-react'
 import { useAuth } from '../../context/useAuth'
 import { RUTA_INICIAL } from '../../navegacion'
@@ -27,30 +28,23 @@ export const LoginPage: React.FC = () => {
     return localStorage.getItem(STORAGE_KEY_RECORDAR) !== null
   })
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
-  const [ayudaModal, setAyudaModal] = useState(false)
+  const [infoMsg, setInfoMsg] = useState<React.ReactNode | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [capsLockActive, setCapsLockActive] = useState(false)
 
   const { login } = useAuth()
   const navigate = useNavigate()
 
-  useEffect(() => {
-    if (!ayudaModal) return
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setAyudaModal(false)
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [ayudaModal])
-
   const handleUsernameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setUsername(e.target.value)
     if (errorMsg) setErrorMsg(null)
+    if (infoMsg) setInfoMsg(null)
   }
 
   const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setPassword(e.target.value)
     if (errorMsg) setErrorMsg(null)
+    if (infoMsg) setInfoMsg(null)
   }
 
   const handlePasswordKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -60,6 +54,7 @@ export const LoginPage: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setErrorMsg(null)
+    setInfoMsg(null)
 
     const userTrim = username.trim()
     if (!userTrim || !password) {
@@ -153,6 +148,26 @@ export const LoginPage: React.FC = () => {
             >
               <AlertCircle className="h-4 w-4 shrink-0 text-rose-600 mt-0.5" />
               <span className="font-medium leading-relaxed">{errorMsg}</span>
+            </div>
+          )}
+
+          {/* Mensaje Informativo (Restablecer contraseña / Soporte) */}
+          {infoMsg && (
+            <div
+              className="mb-5 flex items-start gap-2.5 rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs text-sky-800 animate-in fade-in duration-150"
+              role="status"
+            >
+              <Info className="h-4 w-4 shrink-0 text-sky-600 mt-0.5" />
+              <span className="flex-1 font-medium leading-relaxed">{infoMsg}</span>
+              <button
+                type="button"
+                onClick={() => setInfoMsg(null)}
+                className="text-sky-500 hover:text-sky-800 transition-colors p-0.5 rounded cursor-pointer"
+                aria-label="Cerrar mensaje"
+                title="Cerrar"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
             </div>
           )}
 
@@ -254,7 +269,10 @@ export const LoginPage: React.FC = () => {
 
               <button
                 type="button"
-                onClick={() => setAyudaModal(true)}
+                onClick={() => {
+                  setErrorMsg(null)
+                  setInfoMsg('Pide a tu administrador que restablezca tu contraseña.')
+                }}
                 className="font-medium text-slate-950 hover:text-slate-800 hover:underline transition-colors cursor-pointer"
               >
                 ¿Olvidó su contraseña?
@@ -282,30 +300,34 @@ export const LoginPage: React.FC = () => {
             {/* Enlace de Soporte */}
             <div className="pt-3 text-center text-xs text-slate-500">
               ¿No tiene una cuenta?{' '}
-              <a
-                href="#"
-                onClick={(e) => {
-                  e.preventDefault()
-                  alert('El registro de usuarios lo gestiona el administrador de su empresa.')
+              <button
+                type="button"
+                onClick={() => {
+                  setErrorMsg(null)
+                  setInfoMsg(
+                    <span>
+                      Para asistencia técnica o soporte de la plataforma, escribe a{' '}
+                      <a
+                        href="mailto:contacto@asescon.pe"
+                        className="font-semibold text-sky-900 underline hover:text-sky-950"
+                      >
+                        contacto@asescon.pe
+                      </a>
+                    </span>
+                  )
                 }}
-                className="font-semibold text-slate-950 hover:text-slate-800 hover:underline transition-colors"
+                className="font-semibold text-slate-950 hover:text-slate-800 hover:underline transition-colors cursor-pointer"
               >
                 Contactar soporte
-              </a>
+              </button>
             </div>
           </form>
         </div>
 
-        {/* 3. Footer de la Columna Izquierda (Fiel a la Referencia) */}
+        {/* 3. Footer de la Columna Izquierda */}
         <div className="flex items-center justify-between text-xs text-slate-400 pt-6 border-t border-slate-100">
           <span>&copy; {new Date().getFullYear()} FACT-KARD Inc.</span>
-          <a
-            href="#"
-            onClick={(e) => e.preventDefault()}
-            className="hover:text-slate-600 transition-colors"
-          >
-            Política de Privacidad
-          </a>
+          <span>Todos los derechos reservados</span>
         </div>
       </div>
 
@@ -338,53 +360,6 @@ export const LoginPage: React.FC = () => {
           </div>
         </div>
       </div>
-
-      {/* Modal Limpio de Ayuda para Contraseña */}
-      {ayudaModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-xs overscroll-contain animate-in fade-in duration-150"
-          onClick={() => setAyudaModal(false)}
-        >
-          <div
-            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl animate-in zoom-in-95 duration-150"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-950">
-                <Lock className="h-5 w-5" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-slate-900">Restablecer Contraseña</h3>
-                <p className="text-xs text-slate-500">Administración de accesos</p>
-              </div>
-            </div>
-
-            <p className="mt-4 text-xs text-slate-600 leading-relaxed">
-              Por políticas de seguridad contable y multiempresa, las contraseñas son administradas internamente.
-            </p>
-
-            <div className="mt-3 rounded-xl bg-slate-50 p-3.5 text-xs text-slate-700 border border-slate-100 space-y-1">
-              <p className="font-semibold text-slate-900">¿Cómo solicitar una nueva contraseña?</p>
-              <ul className="list-disc pl-4 space-y-0.5 text-slate-600">
-                <li>Contacte al usuario con rol <strong>Administrador</strong> de su empresa.</li>
-                <li>El administrador puede reasignar su contraseña desde la gestión de usuarios.</li>
-              </ul>
-            </div>
-
-            <div className="mt-5 flex justify-end">
-              <Button
-                type="button"
-                variant="primary"
-                size="sm"
-                onClick={() => setAyudaModal(false)}
-                className="h-9 px-4 rounded-lg bg-slate-950 hover:bg-slate-900 text-white font-medium cursor-pointer shadow-xs"
-              >
-                Entendido
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
