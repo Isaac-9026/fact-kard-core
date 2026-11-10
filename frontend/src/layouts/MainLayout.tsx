@@ -36,9 +36,14 @@ import {
   Minimize,
   BookText,
   Banknote,
+  KeyRound,
+  CheckCircle2,
+  AlertCircle,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuth } from '../context/useAuth'
+import { Modal } from '../components/ui/modal'
+import { cambiarPasswordPropioApi } from '../api/usuarios'
 import {
   Sidebar,
   SidebarHeader,
@@ -373,8 +378,61 @@ export const MainLayout: React.FC = () => {
     navigate('/login')
   }
 
+  // Estado para Modal Cambiar Mi Contraseña
+  const [modalClaveAbierto, setModalClaveAbierto] = useState(false)
+  const [claveActual, setClaveActual] = useState('')
+  const [claveNueva, setClaveNueva] = useState('')
+  const [claveConfirmar, setClaveConfirmar] = useState('')
+  const [claveError, setClaveError] = useState<string | null>(null)
+  const [claveExito, setClaveExito] = useState<string | null>(null)
+  const [claveGuardando, setClaveGuardando] = useState(false)
+
+  const handleCambiarClave = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setClaveError(null)
+    setClaveExito(null)
+
+    if (claveNueva.length < 8) {
+      setClaveError('La nueva contraseña debe tener al menos 8 caracteres.')
+      return
+    }
+    if (claveNueva !== claveConfirmar) {
+      setClaveError('Las nuevas contraseñas no coinciden.')
+      return
+    }
+    if (claveNueva === claveActual) {
+      setClaveError('La nueva contraseña debe ser diferente de la actual.')
+      return
+    }
+
+    try {
+      setClaveGuardando(true)
+      await cambiarPasswordPropioApi({
+        password_actual: claveActual,
+        password_nuevo: claveNueva,
+      })
+      setClaveExito('Contraseña actualizada correctamente.')
+      setClaveActual('')
+      setClaveNueva('')
+      setClaveConfirmar('')
+      setTimeout(() => {
+        setModalClaveAbierto(false)
+        setClaveExito(null)
+      }, 2000)
+    } catch (err: unknown) {
+      const respData = (err as { response?: { data?: { detail?: string; password_nuevo?: string } } })?.response?.data
+      const msg = respData?.detail || respData?.password_nuevo || 'No se pudo actualizar la contraseña. Verifique los datos.'
+      setClaveError(msg)
+    } finally {
+      setClaveGuardando(false)
+    }
+  }
+
   // Sección y opción activas para el encabezado
   const getActiveInfo = () => {
+    if (location.pathname === '/usuarios') {
+      return { section: 'CONFIGURACIÓN', item: 'Usuarios y Accesos', Icon: Users }
+    }
     const activo = itemActivo(location.pathname)
     if (activo) return { section: activo.seccion.title, item: activo.item.label, Icon: ICONOS[activo.item.icono] }
     return { section: 'INICIO', item: 'Dashboard', Icon: LayoutDashboard }
@@ -382,6 +440,7 @@ export const MainLayout: React.FC = () => {
 
   const activeInfo = getActiveInfo()
   const esAdmin = Boolean(usuario?.es_admin_global || empresaActiva?.rol === 'ADMIN')
+  const esAdminGlobal = Boolean(usuario?.es_admin_global)
 
   const themingTokens = React.useMemo(() => {
     return generarThemingSidebar(empresaActiva?.color_tema)
@@ -487,6 +546,28 @@ export const MainLayout: React.FC = () => {
               themingTokens={themingTokens}
             />
           ))}
+
+          {esAdminGlobal && (
+            <div className="pt-2 px-2">
+              <NavLink
+                to="/usuarios"
+                onClick={() => setMenuMovilAbierto(false)}
+                title="Gestión de Usuarios del Estudio"
+                className={({ isActive }) =>
+                  `flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-all ${
+                    isActive
+                      ? 'bg-indigo-50 text-indigo-700 shadow-2xs'
+                      : themingTokens
+                      ? 'text-[var(--tenant-sidebar-text)] hover:bg-white/10'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  }`
+                }
+              >
+                <Users className="h-4 w-4 shrink-0 text-indigo-600" strokeWidth={1.75} />
+                {!compacto && <span>Usuarios y Accesos</span>}
+              </NavLink>
+            </div>
+          )}
         </SidebarContent>
 
         {/* Sidebar Footer: Cápsula Unificada de Usuario + Logout */}
@@ -536,18 +617,31 @@ export const MainLayout: React.FC = () => {
                 </div>
               </div>
 
-              {/* Botón Salir integrado ergonómicamente al pie del sidebar */}
-              <button
-                type="button"
-                onClick={handleLogout}
-                title="Cerrar sesión"
-                aria-label="Cerrar sesión"
-                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 enabled:active:scale-[0.96] transition-all duration-150 cursor-pointer ${
-                  themingTokens ? 'hover:bg-white/10 hover:text-rose-300' : ''
-                }`}
-              >
-                <LogOut className="h-3.5 w-3.5" strokeWidth={1.75} />
-              </button>
+              {/* Botones de acción de perfil: Cambiar Clave y Salir */}
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setModalClaveAbierto(true)}
+                  title="Cambiar contraseña"
+                  aria-label="Cambiar contraseña"
+                  className={`flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 enabled:active:scale-[0.96] transition-all duration-150 cursor-pointer ${
+                    themingTokens ? 'hover:bg-white/10 hover:text-indigo-300' : ''
+                  }`}
+                >
+                  <KeyRound className="h-3.5 w-3.5" strokeWidth={1.75} />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  title="Cerrar sesión"
+                  aria-label="Cerrar sesión"
+                  className={`flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 enabled:active:scale-[0.96] transition-all duration-150 cursor-pointer ${
+                    themingTokens ? 'hover:bg-white/10 hover:text-rose-300' : ''
+                  }`}
+                >
+                  <LogOut className="h-3.5 w-3.5" strokeWidth={1.75} />
+                </button>
+              </div>
             </div>
           ) : (
             <div className="flex flex-col items-center gap-2">
@@ -560,6 +654,15 @@ export const MainLayout: React.FC = () => {
               >
                 {usuario?.username?.charAt(0).toUpperCase() || 'U'}
               </div>
+              <button
+                type="button"
+                onClick={() => setModalClaveAbierto(true)}
+                title="Cambiar contraseña"
+                aria-label="Cambiar contraseña"
+                className="flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 enabled:active:scale-[0.96] transition-all duration-150 cursor-pointer"
+              >
+                <KeyRound className="h-3.5 w-3.5" strokeWidth={1.75} />
+              </button>
               <button
                 type="button"
                 onClick={handleLogout}
@@ -663,6 +766,100 @@ export const MainLayout: React.FC = () => {
           <Outlet />
         </main>
       </div>
+
+      {/* MODAL CAMBIAR CONTRASEÑA */}
+      <Modal
+        isOpen={modalClaveAbierto}
+        onClose={() => {
+          if (!claveGuardando) {
+            setModalClaveAbierto(false)
+            setClaveActual('')
+            setClaveNueva('')
+            setClaveConfirmar('')
+            setClaveError(null)
+            setClaveExito(null)
+          }
+        }}
+        title="Cambiar Contraseña"
+        description="Actualice la clave de acceso de su cuenta personal."
+        maxWidth="md"
+      >
+        <form onSubmit={handleCambiarClave} className="space-y-4">
+          {claveError && (
+            <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-lg text-xs font-medium flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
+              <span>{claveError}</span>
+            </div>
+          )}
+          {claveExito && (
+            <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg text-xs font-medium flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+              <span>{claveExito}</span>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Contraseña actual <span className="text-rose-500">*</span>
+            </label>
+            <input
+              type="password"
+              required
+              autoFocus
+              value={claveActual}
+              onChange={(e) => setClaveActual(e.target.value)}
+              placeholder="••••••••"
+              className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Nueva contraseña <span className="text-rose-500">* (mínimo 8 caracteres)</span>
+            </label>
+            <input
+              type="password"
+              required
+              value={claveNueva}
+              onChange={(e) => setClaveNueva(e.target.value)}
+              placeholder="••••••••"
+              className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Confirmar nueva contraseña <span className="text-rose-500">*</span>
+            </label>
+            <input
+              type="password"
+              required
+              value={claveConfirmar}
+              onChange={(e) => setClaveConfirmar(e.target.value)}
+              placeholder="••••••••"
+              className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
+            <button
+              type="button"
+              disabled={claveGuardando}
+              onClick={() => setModalClaveAbierto(false)}
+              className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={claveGuardando}
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 active:scale-[0.98] transition-all disabled:opacity-50"
+            >
+              <span>{claveGuardando ? 'Actualizando...' : 'Cambiar Contraseña'}</span>
+            </button>
+          </div>
+        </form>
+      </Modal>
     </div>
   )
 }

@@ -5,10 +5,12 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 from config.health import health
 from apps.consulta_ruc.views import ConsultaRucEstadoView, ConsultaRucView
+from apps.usuarios.views import CambiarPasswordView
 
 urlpatterns = [
     path('api/health/', health, name='health'),
     path('api/usuarios/', include('apps.usuarios.urls')),
+    path('api/auth/cambiar-password/', CambiarPasswordView.as_view(), name='auth-cambiar-password'),
     path('api/empresas/', include('apps.empresas.urls')),
     path('api/catalogos/', include('apps.catalogos.urls')),
     path('api/inventario/', include('apps.inventario.urls')),
