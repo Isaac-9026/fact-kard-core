@@ -130,6 +130,12 @@ class ComposeCoreTests(SimpleTestCase):
         self.assertEqual(self.servicios['db']['environment']['POSTGRES_PASSWORD'],
                          '${DB_PASSWORD:?Define DB_PASSWORD en deploy/docker/.env}')
 
+    def test_web_publica_solo_logos(self):
+        self.assertIn('media:/srv/fact-kard/datos/media:ro', self.servicios['web']['volumes'])
+        conf = (DOCKER / 'web-nginx.conf').read_text(encoding='utf-8')
+        self.assertIn('location ~ "^/media/(empresas/[0-9]+/logos/[0-9a-f]{32}\\.webp)$"', conf)
+        self.assertIn('location /media/ {'+chr(10)+'        return 404;', conf)
+
     def test_limites_de_memoria_y_reinicio(self):
         for nombre, servicio in self.servicios.items():
             self.assertIn('mem_limit', servicio, nombre)

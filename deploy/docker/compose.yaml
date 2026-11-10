@@ -123,6 +123,8 @@ services:
     restart: unless-stopped
     volumes:
       - static:/srv/fact-kard/static:ro
+      # Solo para servir los logos de empresa (ver web-nginx.conf), de solo lectura.
+      - media:/srv/fact-kard/datos/media:ro
     depends_on:
       backend:
         condition: service_healthy
