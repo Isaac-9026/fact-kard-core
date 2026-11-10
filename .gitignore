@@ -105,3 +105,6 @@ sunat_ubl/
 R-*.zip
 *.xsd
 *.xsl
+
+# Docker (deploy/docker): respaldos y datos locales del stack, nunca a Git
+deploy/docker/datos/

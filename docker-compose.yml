@@ -1,16 +1,78 @@
+# ======================================================================
+# Fact-Kard Core — entorno de DESARROLLO en la laptop (NO es para el VPS).
+#
+#   copy .env.example .env      (completar DEV_DB_PASSWORD y DEMO_PASSWORD)
+#   docker compose up -d --build
+#   → frontend http://localhost:5173   API http://localhost:8000/api
+#
+# - Django con runserver y DEBUG=True, Vite en modo dev: solo para programar y probar.
+# - Las contraseñas salen de .env (ignorado por Git), nunca de este archivo.
+# - Los puertos se publican solo en 127.0.0.1 (no quedan abiertos a la red).
+# - Producción (Gunicorn + Nginx + Redis + respaldos): deploy/docker/ → docs/DESPLIEGUE_DOCKER.md
+# ======================================================================
+name: factkard-core-dev
+
 services:
   db:
     image: postgres:16-alpine
-    container_name: fact_kard_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: fact_kard
-      POSTGRES_USER: fact_kard_user
-      POSTGRES_PASSWORD: cambiar_esto
+      POSTGRES_DB: ${DEV_DB_NAME:-fact_kard}
+      POSTGRES_USER: ${DEV_DB_USER:-fact_kard_user}
+      POSTGRES_PASSWORD: ${DEV_DB_PASSWORD:?Define DEV_DB_PASSWORD en .env (copia .env.example)}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${DEV_DB_PUERTO:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      DEBUG: "True"
+      ALLOWED_HOSTS: localhost,127.0.0.1,backend
+      CORS_ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      DB_NAME: ${DEV_DB_NAME:-fact_kard}
+      DB_USER: ${DEV_DB_USER:-fact_kard_user}
+      DB_PASSWORD: ${DEV_DB_PASSWORD:?Define DEV_DB_PASSWORD en .env}
+      DB_HOST: db
+      DB_PORT: "5432"
+      # Empresa y usuario de demostración (FK_DEMO=1). Solo funcionan con DEBUG=True.
+      FK_DEMO: ${FK_DEMO:-1}
+      DEMO_USERNAME: ${DEMO_USERNAME:-admin_demo}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-}
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - media_data:/app/media
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: http://localhost:8000/api
+    ports:
+      - "127.0.0.1:5173:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
 
 volumes:
   postgres_data:
+  media_data:

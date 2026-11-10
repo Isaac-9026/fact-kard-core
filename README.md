@@ -192,6 +192,19 @@ cd fact-kard-core
    ```
    La aplicacion web estara disponible en `http://localhost:5173`.
 
+### 4. Alternativa: todo con Docker (desarrollo)
+
+Levanta PostgreSQL, el backend (runserver) y el frontend (Vite) sin instalar Python ni Node:
+
+```bash
+cp .env.example .env        # en Windows: copy .env.example .env  → completar DEV_DB_PASSWORD y DEMO_PASSWORD
+docker compose up -d --build
+```
+
+- Frontend: `http://localhost:5173`; API: `http://localhost:8000/api`.
+- Con `FK_DEMO=1` se crea la empresa demo y el usuario `DEMO_USERNAME` con la contrasena `DEMO_PASSWORD`.
+- Es **solo para desarrollo**. Para el servidor (VPS) se usa `deploy/docker/`: ver `docs/DESPLIEGUE_DOCKER.md`.
+
 ---
 
 ## Documentacion de la API (OpenAPI / Swagger)

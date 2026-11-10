@@ -1,0 +1,8 @@
+# SOLO para probar la versión de producción en la laptop, sin el proxy:
+#   docker compose -f compose.yaml -f compose.local.yaml up -d
+#   → http://localhost:8083   (8081 = sistema del turno mañana, 8082 = FACT-KARD)
+# Publica únicamente en 127.0.0.1 (nunca en el VPS: allí el tráfico entra por el proxy).
+services:
+  web:
+    ports:
+      - "127.0.0.1:${FK_PUERTO_LOCAL:-8083}:80"

@@ -1,0 +1,43 @@
+# Contexto de las imágenes Docker de PRODUCCIÓN de Fact-Kard Core (raíz del repositorio).
+# Nada de secretos, datos, dependencias instaladas ni compilados locales entra a una imagen.
+.git
+.gitignore
+.gitattributes
+.agents
+.vscode
+.idea
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/*.log
+
+# Secretos y configuración local (nunca dentro de una imagen)
+**/.env
+**/.env.*
+!frontend/.env.production
+backend/.secret_key.dev
+**/*.pfx
+**/*.p12
+**/*.pem
+**/*.key
+**/*.crt
+**/*.cer
+
+# Entornos y dependencias locales (se instalan dentro de la imagen)
+backend/.venv
+**/venv
+**/node_modules
+frontend/dist
+
+# Datos locales: base, media, respaldos, padrón
+backend/media
+backend/staticfiles
+backups
+padron_sunat
+deploy/docker/datos
+qa
+docs
+**/*.dump
+**/*.sql
+**/*.sql.gz
+**/*.zip

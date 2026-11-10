@@ -1,0 +1,13 @@
+.venv
+__pycache__
+*.py[cod]
+.env
+.env.*
+!.env.example
+.secret_key.dev
+staticfiles
+media
+*.pfx
+*.p12
+*.pem
+*.key
