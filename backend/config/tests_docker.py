@@ -15,7 +15,7 @@ Si deploy/ no existe (p. ej. dentro de la imagen del backend) las pruebas de arc
 import os
 import shutil
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from unittest import skipUnless
 
 import yaml
@@ -119,9 +119,9 @@ class ComposeCoreTests(SimpleTestCase):
     def test_datos_fuera_del_codigo(self):
         backend = self.servicios['backend']
         env = backend['environment']
-        codigo = Path('/srv/fact-kard/app')
+        codigo = PurePosixPath('/srv/fact-kard/app')
         for clave in ('MEDIA_ROOT', 'FACT_KARD_BACKUP_DIR', 'STATIC_ROOT'):
-            ruta = Path(env[clave])
+            ruta = PurePosixPath(env[clave])
             self.assertTrue(ruta.is_absolute(), clave)
             self.assertNotEqual(codigo, ruta)
             self.assertNotIn(codigo, ruta.parents, f'{clave} no puede estar dentro del código')

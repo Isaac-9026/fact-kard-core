@@ -25,6 +25,7 @@ const CapturaHomologacionPage = lazy(() => import('./pages/captura/CapturaHomolo
 const CuentasPage = lazy(() => import('./pages/finanzas/CuentasPage').then((m) => ({ default: m.CuentasPage })));
 const RegistroComercialPage = lazy(() => import('./pages/finanzas/RegistroComercialPage').then((m) => ({ default: m.RegistroComercialPage })));
 const Formato131Page = lazy(() => import('./pages/formato131/Formato131Page').then((m) => ({ default: m.Formato131Page })));
+const UsuariosPage = lazy(() => import('./pages/usuarios/UsuariosPage').then((m) => ({ default: m.UsuariosPage })));
 
 const CargandoModulo: React.FC = () => (
   <div className="py-20 text-center text-sm text-slate-500" role="status">Cargando módulo...</div>
@@ -105,6 +106,7 @@ export const App: React.FC = () => {
               <Route path="registro-ventas-compras" element={diferido(RegistroComercialPage)} />
               {/* SEGURIDAD */}
               <Route path="auditoria" element={diferido(AuditoriaPage)} />
+              <Route path="usuarios" element={diferido(UsuariosPage)} />
               {/* Rutas anteriores (enlaces guardados) */}
               {Object.entries(RUTAS_ANTERIORES).map(([desde, hacia]) => (
                 <Route key={desde} path={desde.slice(1)} element={<RedireccionAnterior hacia={hacia} />} />

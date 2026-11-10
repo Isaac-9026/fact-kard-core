@@ -169,3 +169,28 @@ class EsAdminOEsAdminGlobal(BasePermission):
             return True
 
         raise PermissionDenied(self.message)
+
+
+class EsAdminEstudio(BasePermission):
+    """
+    Permite acceso EXCLUSIVAMENTE a Administradores Globales del Estudio
+    (es_admin_global=True, is_staff=True o is_superuser=True).
+    Un administrador de empresa cliente no tiene acceso a la gestión global de usuarios
+    ni a la matriz multiempresa de la cartera del estudio.
+    """
+    message = "Operación restringida: se requieren privilegios de Administrador Global del Estudio."
+
+    def has_permission(self, request, view):
+        usuario = getattr(request, 'user', None)
+        if not usuario or not getattr(usuario, 'is_authenticated', False) or not getattr(usuario, 'activo', False):
+            raise NotAuthenticated("Se requiere autenticación para acceder a este recurso.")
+
+        if (
+            getattr(usuario, 'es_admin_global', False) or
+            getattr(usuario, 'is_staff', False) or
+            getattr(usuario, 'is_superuser', False)
+        ):
+            return True
+
+        raise PermissionDenied(self.message)
+

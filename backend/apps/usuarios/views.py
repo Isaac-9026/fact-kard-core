@@ -17,12 +17,17 @@ from apps.usuarios.authentication import (
     LoginRateThrottle, UsuarioTokenAuthentication, borrar_cookie_sesion, cookie_sesion_activa,
     duracion_token, establecer_cookie_sesion, generar_token, leer_token,
 )
-from apps.usuarios.permissions import TieneEmpresaActiva, EsAdminEmpresa
+from apps.usuarios.permissions import TieneEmpresaActiva, EsAdminEmpresa, EsAdminEstudio
 from apps.usuarios.serializers import (
     LoginRequestSerializer,
     UsuarioResponseSerializer,
     UsuarioEmpresaItemSerializer,
     AsignarUsuarioRequestSerializer,
+    UsuarioEstudioListSerializer,
+    UsuarioCreateSerializer,
+    UsuarioUpdateSerializer,
+    ResetPasswordAdminSerializer,
+    CambiarPasswordSerializer,
 )
 from apps.auditoria.services import registrar_auditoria
 from apps.empresas.models import Empresa
@@ -302,3 +307,226 @@ class AsignacionesView(APIView):
         res_serializer = UsuarioEmpresaItemSerializer(ue)
         status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
         return Response(res_serializer.data, status=status_code)
+
+
+class UsuarioGestionListCreateView(APIView):
+    permission_classes = [EsAdminEstudio]
+    authentication_classes = [UsuarioTokenAuthentication]
+
+    @extend_schema(
+        summary="Listar usuarios del estudio",
+        description="Retorna la lista de usuarios con sus asignaciones multiempresa. Requiere EsAdminEstudio.",
+        responses={200: UsuarioEstudioListSerializer(many=True)}
+    )
+    def get(self, request):
+        usuarios = Usuario.objects.prefetch_related('empresas_asignadas__empresa').order_by('username')
+        serializer = UsuarioEstudioListSerializer(usuarios, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="Crear nuevo usuario",
+        description="Crea un nuevo usuario con contraseña inicial y asignaciones multiempresa opcionales.",
+        request=UsuarioCreateSerializer,
+        responses={201: UsuarioEstudioListSerializer}
+    )
+    def post(self, request):
+        serializer = UsuarioCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        with transaction.atomic():
+            usuario = Usuario(
+                username=data['username'],
+                email=data['email'],
+                activo=True
+            )
+            usuario.set_password(data['password_inicial'])
+            usuario.save()
+
+            asignaciones_data = data.get('asignaciones', [])
+            for asig in asignaciones_data:
+                empresa_id = asig['empresa_id']
+                rol = asig.get('rol', 'USUARIO')
+                activo = asig.get('activo', True)
+                if Empresa.objects.filter(id=empresa_id).exists():
+                    UsuarioEmpresa.objects.create(
+                        usuario=usuario,
+                        empresa_id=empresa_id,
+                        rol=rol,
+                        activo=activo
+                    )
+
+            try:
+                registrar_auditoria(
+                    empresa_id=None,
+                    usuario_id=request.user.id,
+                    accion='CREAR_USUARIO',
+                    entidad='USUARIO',
+                    registro_id=usuario.id,
+                    valor_nuevo={'username': usuario.username, 'email': usuario.email, 'activo': usuario.activo},
+                    motivo=f"Creación de usuario '{usuario.username}' por administrador."
+                )
+            except Exception:
+                pass
+
+        usuario.refresh_from_db()
+        res = UsuarioEstudioListSerializer(usuario)
+        return Response(res.data, status=status.HTTP_201_CREATED)
+
+
+class UsuarioGestionDetailView(APIView):
+    permission_classes = [EsAdminEstudio]
+    authentication_classes = [UsuarioTokenAuthentication]
+
+    def get_object(self, pk):
+        try:
+            return Usuario.objects.prefetch_related('empresas_asignadas__empresa').get(pk=pk)
+        except Usuario.DoesNotExist:
+            return None
+
+    @extend_schema(
+        summary="Detalle de usuario",
+        responses={200: UsuarioEstudioListSerializer, 404: OpenApiResponse(description="No encontrado")}
+    )
+    def get(self, request, pk):
+        usuario = self.get_object(pk)
+        if not usuario:
+            return Response({'detail': 'Usuario no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = UsuarioEstudioListSerializer(usuario)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        summary="Actualizar usuario",
+        description="Actualiza datos y asignaciones de un usuario. Prohíbe desactivar la propia cuenta en sesión.",
+        request=UsuarioUpdateSerializer,
+        responses={200: UsuarioEstudioListSerializer}
+    )
+    def patch(self, request, pk):
+        usuario = self.get_object(pk)
+        if not usuario:
+            return Response({'detail': 'Usuario no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = UsuarioUpdateSerializer(data=request.data, context={'usuario_id': usuario.id})
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        # Candado de seguridad obligatorio:
+        nuevo_activo = data.get('activo') if 'activo' in data else data.get('is_active')
+        if nuevo_activo is False and request.user.id == usuario.id:
+            return Response(
+                {'detail': 'No puedes desactivar tu propia cuenta en sesión'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        with transaction.atomic():
+            valor_anterior = {'email': usuario.email, 'activo': usuario.activo}
+
+            if 'email' in data:
+                usuario.email = data['email']
+            if nuevo_activo is not None:
+                usuario.activo = nuevo_activo
+            usuario.save()
+
+            if 'asignaciones' in data:
+                for asig in data['asignaciones']:
+                    empresa_id = asig['empresa_id']
+                    rol = asig.get('rol', 'USUARIO')
+                    activo = asig.get('activo', True)
+                    if Empresa.objects.filter(id=empresa_id).exists():
+                        UsuarioEmpresa.objects.update_or_create(
+                            usuario=usuario,
+                            empresa_id=empresa_id,
+                            defaults={'rol': rol, 'activo': activo}
+                        )
+
+            try:
+                registrar_auditoria(
+                    empresa_id=None,
+                    usuario_id=request.user.id,
+                    accion='ACTUALIZAR_USUARIO',
+                    entidad='USUARIO',
+                    registro_id=usuario.id,
+                    valor_anterior=valor_anterior,
+                    valor_nuevo={'email': usuario.email, 'activo': usuario.activo},
+                    motivo=f"Actualización de usuario '{usuario.username}'."
+                )
+            except Exception:
+                pass
+
+        usuario.refresh_from_db()
+        return Response(UsuarioEstudioListSerializer(usuario).data, status=status.HTTP_200_OK)
+
+
+class UsuarioResetPasswordView(APIView):
+    permission_classes = [EsAdminEstudio]
+    authentication_classes = [UsuarioTokenAuthentication]
+
+    @extend_schema(
+        summary="Reseteo administrativo de contraseña",
+        request=ResetPasswordAdminSerializer,
+        responses={200: OpenApiResponse(description="Contraseña reseteada")}
+    )
+    def post(self, request, pk):
+        try:
+            usuario = Usuario.objects.get(pk=pk)
+        except Usuario.DoesNotExist:
+            return Response({'detail': 'Usuario no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = ResetPasswordAdminSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        password_nuevo = serializer.validated_data['password_nuevo']
+        usuario.set_password(password_nuevo)
+        usuario.save()
+
+        try:
+            registrar_auditoria(
+                empresa_id=None,
+                usuario_id=request.user.id,
+                accion='RESETEAR_PASSWORD',
+                entidad='USUARIO',
+                registro_id=usuario.id,
+                motivo=f"Reseteo administrativo de contraseña para '{usuario.username}'."
+            )
+        except Exception:
+            pass
+
+        return Response({'detail': 'Contraseña actualizada exitosamente.'}, status=status.HTTP_200_OK)
+
+
+class CambiarPasswordView(APIView):
+    permission_classes = [IsAuthenticated]
+    authentication_classes = [UsuarioTokenAuthentication]
+
+    @extend_schema(
+        summary="Cambio de contraseña propio",
+        request=CambiarPasswordSerializer,
+        responses={200: OpenApiResponse(description="Contraseña cambiada exitosamente")}
+    )
+    def post(self, request):
+        serializer = CambiarPasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        password_actual = serializer.validated_data['password_actual']
+        password_nuevo = serializer.validated_data['password_nuevo']
+
+        if not request.user.check_password(password_actual):
+            return Response({'detail': 'La contraseña actual es incorrecta.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        request.user.set_password(password_nuevo)
+        request.user.save()
+
+        try:
+            registrar_auditoria(
+                empresa_id=None,
+                usuario_id=request.user.id,
+                accion='CAMBIAR_PASSWORD',
+                entidad='USUARIO',
+                registro_id=request.user.id,
+                motivo=f"Cambio voluntario de contraseña del usuario '{request.user.username}'."
+            )
+        except Exception:
+            pass
+
+        return Response({'detail': 'Contraseña actualizada exitosamente.'}, status=status.HTTP_200_OK)
+
