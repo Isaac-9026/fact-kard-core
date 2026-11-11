@@ -21,6 +21,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 
 from apps.catalogos.models import Moneda, TipoComprobante, TipoOperacion
 from apps.documentos.captura_services import (
+    corregir_campo_captura,
     extraer_ocr_basico,
     generar_borrador_desde_captura,
     procesar_subida_captura,
@@ -467,7 +468,13 @@ class OcrGeminiApiUploadIntegrationTests(TestCase):
         CapturaCampo.objects.create(documento_captura=captura, seccion="CABECERA", nombre_campo="tipo_comprobante", valor_extraido="01")
         CapturaCampo.objects.create(documento_captura=captura, seccion="CABECERA", nombre_campo="serie", valor_extraido="F001")
         CapturaCampo.objects.create(documento_captura=captura, seccion="CABECERA", nombre_campo="numero", valor_extraido="100")
-        CapturaCampo.objects.create(documento_captura=captura, seccion="CABECERA", nombre_campo="ruc_emisor", valor_extraido="20258963241")  # Falso
+        CapturaCampo.objects.create(
+            documento_captura=captura,
+            seccion="CABECERA",
+            nombre_campo="ruc_emisor",
+            valor_extraido="20258963241",  # Falso (marcado con 50% por módulo 11 de Gemini)
+            confianza=Decimal("50.0000"),
+        )
         CapturaCampo.objects.create(documento_captura=captura, seccion="CABECERA", nombre_campo="ruc_cliente", valor_extraido="20454439491")
         CapturaCampo.objects.create(documento_captura=captura, seccion="CABECERA", nombre_campo="moneda", valor_extraido="PEN")
         CapturaCampo.objects.create(documento_captura=captura, seccion="CABECERA", nombre_campo="fecha_emision", valor_extraido="2026-03-15")
@@ -481,6 +488,80 @@ class OcrGeminiApiUploadIntegrationTests(TestCase):
             )
 
         self.assertIn("módulo 11", str(ctx.exception))
+
+    def test_generar_borrador_rechaza_ruc_corregido_invalido(self):
+        """Si el RUC venía observado y el usuario ingresa un valor_corregido inválido, lo rechaza."""
+        captura = DocumentoCaptura.objects.create(
+            empresa=self.empresa,
+            subido_por=self.usuario,
+            ruta_archivo="fake_ruc_corr_inv.jpg",
+            tipo="IMAGEN",
+            hash_sha256="fake_sha256_ruc_corr_inv",
+            estado_proceso="PENDIENTE",
+        )
+        CapturaCampo.objects.create(documento_captura=captura, seccion="CABECERA", nombre_campo="tipo_comprobante", valor_extraido="01")
+        CapturaCampo.objects.create(documento_captura=captura, seccion="CABECERA", nombre_campo="serie", valor_extraido="F001")
+        CapturaCampo.objects.create(documento_captura=captura, seccion="CABECERA", nombre_campo="numero", valor_extraido="100")
+        CapturaCampo.objects.create(
+            documento_captura=captura,
+            seccion="CABECERA",
+            nombre_campo="ruc_emisor",
+            valor_extraido="20258963241",
+            valor_corregido="20258963242",  # También inválido
+            confianza=Decimal("50.0000"),
+        )
+        CapturaCampo.objects.create(documento_captura=captura, seccion="CABECERA", nombre_campo="ruc_cliente", valor_extraido="20454439491")
+        CapturaCampo.objects.create(documento_captura=captura, seccion="CABECERA", nombre_campo="moneda", valor_extraido="PEN")
+        CapturaCampo.objects.create(documento_captura=captura, seccion="CABECERA", nombre_campo="fecha_emision", valor_extraido="2026-03-15")
+
+        with self.assertRaises(ValidationError) as ctx:
+            generar_borrador_desde_captura(
+                captura_id=captura.id,
+                empresa_id=self.empresa.id,
+                usuario=self.usuario,
+                almacen_id=self.almacen.id,
+            )
+
+        self.assertIn("módulo 11", str(ctx.exception))
+
+    def test_corregir_campo_ruc_observado_rechaza_invalido_y_acepta_valido(self):
+        """corregir_campo_captura rechaza RUCs inválidos en campos con baja confianza y acepta válidos."""
+        captura = DocumentoCaptura.objects.create(
+            empresa=self.empresa,
+            subido_por=self.usuario,
+            ruta_archivo="fake_corregir_ruc.jpg",
+            tipo="IMAGEN",
+            hash_sha256="fake_sha256_corregir_ruc",
+            estado_proceso="PENDIENTE",
+        )
+        campo = CapturaCampo.objects.create(
+            documento_captura=captura,
+            seccion="CABECERA",
+            nombre_campo="ruc_emisor",
+            valor_extraido="20258963241",
+            confianza=Decimal("50.0000"),
+        )
+
+        # 1. Intentar corregir con otro RUC inválido -> ValidationError
+        with self.assertRaises(ValidationError) as ctx:
+            corregir_campo_captura(
+                captura_id=captura.id,
+                campo_id=campo.id,
+                valor_corregido="20258963242",
+                empresa_id=self.empresa.id,
+                usuario=self.usuario,
+            )
+        self.assertIn("módulo 11", str(ctx.exception))
+
+        # 2. Corregir con RUC real válido -> 200 OK
+        campo_actualizado = corregir_campo_captura(
+            captura_id=captura.id,
+            campo_id=campo.id,
+            valor_corregido="20600900855",
+            empresa_id=self.empresa.id,
+            usuario=self.usuario,
+        )
+        self.assertEqual(campo_actualizado.valor_corregido, "20600900855")
 
     def test_generar_borrador_rechaza_linea_descuadrada(self):
         """Bloquea la generación si una línea no cuadra cantidad x precio = total."""

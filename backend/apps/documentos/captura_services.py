@@ -342,19 +342,9 @@ def _extraer_ocr_local(texto: str) -> Dict[str, Any]:
     # distinto, el receptor. Sin dato no se inventa: queda vacío y con confianza 0.
     rucs = list(dict.fromkeys(re.findall(r'\b(10\d{9}|20\d{9})\b', texto)))
     ruc_emisor = rucs[0] if rucs else ''
-    if ruc_emisor and es_ruc_valido(ruc_emisor):
-        conf_ruc = Decimal('95.0000')
-    elif ruc_emisor:
-        conf_ruc = Decimal('50.0000')
-    else:
-        conf_ruc = Decimal('0.0000')
+    conf_ruc = Decimal('95.0000') if rucs else Decimal('0.0000')
     ruc_cliente = rucs[1] if len(rucs) > 1 else ''
-    if ruc_cliente and es_ruc_valido(ruc_cliente):
-        conf_ruc_cliente = Decimal('80.0000')
-    elif ruc_cliente:
-        conf_ruc_cliente = Decimal('50.0000')
-    else:
-        conf_ruc_cliente = Decimal('0.0000')
+    conf_ruc_cliente = Decimal('80.0000') if ruc_cliente else Decimal('0.0000')
 
     # Tipo Comprobante (Bloque 5: sin palabra clave no se supone factura)
     tipo_comp, conf_tipo = '', Decimal('0.0000')
@@ -1169,6 +1159,19 @@ def corregir_campo_captura(
     if campo is None:
         raise ValidationError({'campo_id': 'Campo de captura no encontrado para esta empresa.'})
 
+    if (
+        campo.nombre_campo in ('ruc_emisor', 'ruc_cliente')
+        and campo.confianza is not None
+        and campo.confianza < Decimal('70.0000')
+    ):
+        ruc_corr_limpio = ''.join(ch for ch in (valor_corregido or '') if ch.isdigit())
+        if len(ruc_corr_limpio) == 11 and not es_ruc_valido(ruc_corr_limpio):
+            raise ValidationError({
+                'valor_corregido': (
+                    f"El RUC corregido '{valor_corregido}' no es válido según el algoritmo de verificación de SUNAT (módulo 11)."
+                )
+            })
+
     val_ant = campo.valor_corregido or campo.valor_extraido
     campo.valor_corregido = valor_corregido
     campo.corregido_por = usuario
@@ -1245,13 +1248,39 @@ def generar_borrador_desde_captura(
     # 2. Tercero: proveedor (compra) o cliente (venta).
     doc_tercero = clasificacion['contraparte_documento']
     doc_limpio = ''.join(ch for ch in (doc_tercero or '') if ch.isdigit())
-    if captura.tipo != 'XML' and len(doc_limpio) == 11 and not es_ruc_valido(doc_limpio):
-        raise ValidationError({
-            'ruc_emisor': (
-                f"El RUC '{doc_limpio}' no es válido según el algoritmo de verificación de SUNAT (módulo 11). "
-                "Corrija el RUC en la vista previa antes de generar el comprobante en borrador."
-            )
-        })
+
+    # Bloqueo por baja confianza / error de IA no corregido:
+    # Si el RUC fue extraído por IA con baja confianza (marcado en rojo < 70%) por no pasar
+    # módulo 11 o estar observado:
+    # a) Si no se corrigió: obliga a revisión y corrección humana antes de convertir a borrador.
+    # b) Si se ingresó valor_corregido: valida que el nuevo RUC digitado cumpla con los 11 dígitos y módulo 11.
+    campo_ruc = CapturaCampo.objects.filter(
+        documento_captura=captura,
+        seccion='CABECERA',
+        nombre_campo='ruc_emisor',
+    ).first()
+    if (
+        campo_ruc
+        and campo_ruc.confianza is not None
+        and campo_ruc.confianza < Decimal('70.0000')
+    ):
+        if not campo_ruc.valor_corregido:
+            if len(doc_limpio) == 11 and not es_ruc_valido(doc_limpio):
+                raise ValidationError({
+                    'ruc_emisor': (
+                        f"El RUC '{doc_limpio}' no es válido según el algoritmo de verificación de SUNAT (módulo 11). "
+                        "Corrija el RUC en la vista previa antes de generar el comprobante en borrador."
+                    )
+                })
+        else:
+            ruc_corr_limpio = ''.join(ch for ch in campo_ruc.valor_corregido if ch.isdigit())
+            if len(ruc_corr_limpio) != 11 or not es_ruc_valido(ruc_corr_limpio):
+                raise ValidationError({
+                    'ruc_emisor': (
+                        f"El RUC corregido '{campo_ruc.valor_corregido}' no es válido según el algoritmo de verificación de SUNAT (módulo 11). "
+                        "Ingrese un RUC válido de 11 dígitos antes de generar el comprobante en borrador."
+                    )
+                })
     tercero = tercero_por_documento(
         empresa_id=empresa_id, documento=doc_tercero, crear=True,
         nombre=clasificacion['contraparte_nombre'] or '', clase=clase,
