@@ -28,6 +28,7 @@ from apps.documentos.clasificacion_captura import clasificar_comprobante
 from apps.documentos.models import Documento, DocumentoCaptura, DocumentoDetalle, CapturaCampo
 from apps.empresas.models import Empresa
 from apps.empresas.periodos import parsear_fecha_calendario, periodo_abierto_para_fecha
+from apps.inventario.documentos_identidad import es_ruc_valido
 from apps.inventario.homologacion import homologar_linea, tercero_por_documento, valores_captura
 from apps.inventario.models import Almacen
 from apps.kardex.models import Incidencia
@@ -341,9 +342,19 @@ def _extraer_ocr_local(texto: str) -> Dict[str, Any]:
     # distinto, el receptor. Sin dato no se inventa: queda vacío y con confianza 0.
     rucs = list(dict.fromkeys(re.findall(r'\b(10\d{9}|20\d{9})\b', texto)))
     ruc_emisor = rucs[0] if rucs else ''
-    conf_ruc = Decimal('95.0000') if rucs else Decimal('0.0000')
+    if ruc_emisor and es_ruc_valido(ruc_emisor):
+        conf_ruc = Decimal('95.0000')
+    elif ruc_emisor:
+        conf_ruc = Decimal('50.0000')
+    else:
+        conf_ruc = Decimal('0.0000')
     ruc_cliente = rucs[1] if len(rucs) > 1 else ''
-    conf_ruc_cliente = Decimal('80.0000') if ruc_cliente else Decimal('0.0000')
+    if ruc_cliente and es_ruc_valido(ruc_cliente):
+        conf_ruc_cliente = Decimal('80.0000')
+    elif ruc_cliente:
+        conf_ruc_cliente = Decimal('50.0000')
+    else:
+        conf_ruc_cliente = Decimal('0.0000')
 
     # Tipo Comprobante (Bloque 5: sin palabra clave no se supone factura)
     tipo_comp, conf_tipo = '', Decimal('0.0000')
@@ -509,9 +520,14 @@ def _extraer_ocr_gemini(
     model: str = 'gemini-3.5-flash-lite',
 ) -> Dict[str, Any]:
     """
-    Extracción multimodal de comprobantes peruanos (SUNAT) mediante Gemini 2.5 Flash.
+    Extracción multimodal de comprobantes peruanos (SUNAT) mediante Gemini.
     Utiliza HTTPS puro vía urllib.request (cero dependencias de SO, cero binarios).
-    Convierte todo importe y cantidad a Decimal exacto con ROUND_HALF_UP.
+    Aplica motor estricto de validación contable y consistencia:
+      - Validación matemática de RUC emisor y cliente mediante módulo 11 de SUNAT.
+      - Normalización de serie y número (desglose de guiones, validación de series físicas y electrónicas).
+      - Cuadre matemático estricto por cada línea: cantidad × valor_unitario = valor_total.
+      - Cuadre de totales: suma de líneas = subtotal, subtotal × 18% = IGV, subtotal + IGV = total.
+      - Alertas automáticas y degradación de confianza a rojo (< 70%) ante incoherencias.
     """
     b64_content = base64.b64encode(content).decode('ascii')
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
@@ -519,39 +535,42 @@ def _extraer_ocr_gemini(
     prompt = (
         "Eres un Senior Contable peruano y extractor experto de comprobantes de pago autorizados "
         "por la SUNAT (Facturas, Boletas de Venta, Notas de Crédito, Notas de Débito).\n"
-        "Analiza detalladamente el comprobante adjunto y extrae todos los datos estructurados en "
-        "un único objeto JSON estricto con la siguiente estructura exacta:\n"
+        "Analiza detalladamente la imagen adjunta y extrae con máxima fidelidad literal todos los "
+        "datos estructurados en un único objeto JSON estricto con la siguiente estructura exacta:\n"
         "{\n"
-        '  "ruc_emisor": "RUC del proveedor/emisor (11 dígitos numéricos que inician en 10 o 20)",\n'
+        '  "ruc_emisor": "RUC de 11 dígitos que figura en el recuadro oficial de RUC del comprobante (arriba a la derecha o membrete principal)",\n'
         '  "razon_social_emisor": "Nombre comercial o razón social completa del emisor",\n'
-        '  "ruc_cliente": "RUC o DNI del receptor/cliente si existe (o cadena vacía)",\n'
-        '  "razon_social_cliente": "Razón social o nombre del cliente si existe (o cadena vacía)",\n'
+        '  "ruc_cliente": "RUC o DNI del receptor/cliente si figura en el comprobante (o cadena vacía)",\n'
+        '  "razon_social_cliente": "Razón social o nombre del cliente si figura (o cadena vacía)",\n'
         '  "tipo_comprobante": "Código SUNAT de 2 dígitos: 01 (Factura), 03 (Boleta), 07 (Nota de Crédito), 08 (Nota de Débito)",\n'
-        '  "serie": "Serie del comprobante, ej. F001, E001, B001, FC01, etc.",\n'
-        '  "numero": "Número correlativo del comprobante sin serie, ej. 450, 123456",\n'
+        '  "serie": "Serie del comprobante tal como está impresa (ej. F001, B001, o física 001, 002). NUNCA inventes letras si no están impresas",\n'
+        '  "numero": "Número correlativo ÚNICAMENTE dígitos sin serie ni guiones (ej. si dice 001-201, serie=\"001\" y numero=\"201\")",\n'
         '  "fecha_emision": "Fecha de emisión en formato estricto YYYY-MM-DD",\n'
-        '  "moneda": "Código de moneda: PEN (para Soles S/) o USD (para Dólares $)",\n'
-        '  "subtotal": "Base imponible u operación gravada como string decimal con 2 o más decimales, ej. 100.00",\n'
-        '  "igv": "Monto del IGV 18% como string decimal, ej. 18.00 (o 0.00 si es exonerado o inafecto)",\n'
-        '  "total": "Importe total a pagar como string decimal, ej. 118.00",\n'
+        '  "moneda": "Código de moneda: PEN (Soles S/) o USD (Dólares $)",\n'
+        '  "subtotal": "Base imponible u operación gravada (sin IGV) tal como figura en el comprobante como string decimal, ej. \"180.00\"",\n'
+        '  "igv": "Monto del IGV 18% como string decimal, ej. \"32.40\" (o \"0.00\" si es exonerado o inafecto)",\n'
+        '  "total": "Importe total a pagar como string decimal, ej. \"212.40\"",\n'
         '  "afectacion_igv": "GRAVADO, EXONERADO o INAFECTO según aplique",\n'
         '  "items": [\n'
         "    {\n"
         '      "codigo": "Código de producto o SKU si figura, o cadena vacía",\n'
         '      "descripcion": "Descripción del bien o servicio",\n'
         '      "unidad_medida": "Código de unidad de medida SUNAT (ej. NIU, KGM, ZZ, BX, etc., o NIU por defecto)",\n'
-        '      "cantidad": "Cantidad como string decimal, ej. 2.00",\n'
-        '      "valor_unitario": "Valor unitario sin IGV como string decimal",\n'
-        '      "precio_unitario": "Precio unitario con IGV como string decimal",\n'
-        '      "importe_total": "Importe o valor total de la línea como string decimal"\n'
+        '      "cantidad": "Cantidad como string decimal, ej. \"10.00\"",\n'
+        '      "valor_unitario": "Valor unitario SIN IGV impreso en el comprobante como string decimal, ej. \"18.00\"",\n'
+        '      "precio_unitario": "Precio unitario CON IGV si figura impreso como string decimal, ej. \"21.24\" (o vacío si no figura)",\n'
+        '      "valor_total": "Valor total o venta de la línea SIN IGV como string decimal, ej. \"180.00\"",\n'
+        '      "importe_total": "Importe total de la línea CON IGV si figura impreso como string decimal"\n'
         "    }\n"
         "  ],\n"
         '  "confianza": 95\n'
         "}\n\n"
-        "Reglas estrictas:\n"
-        "1. No inventes RUCs, series o números que no estén en el documento.\n"
-        "2. No devuelvas números de punto flotante en el JSON: todos los importes y cantidades deben ser strings con punto decimal (ej. \"150.00\").\n"
-        "3. No agregues explicaciones ni bloques de markdown (```json), entrega únicamente el JSON puro."
+        "Reglas contables estrictas (CERO invenciones):\n"
+        "1. Serie y correlativo: Si el comprobante dice '001-201', '001-000201' o 'N° 001 - 201', la serie es '001' y el número es '201'. NUNCA antepongas la letra 'F' o 'B' a la serie si no está explícitamente impresa. El campo 'numero' debe contener EXCLUSIVAMENTE dígitos correlativos, jamás guiones ni partes de la serie.\n"
+        "2. RUC del Emisor: Debe ser única y exclusivamente el RUC que figura dentro del recuadro oficial del comprobante ('R.U.C. N° ...'). NUNCA tomes números de RUC de enunciados externos, ejercicios académicos o membretes ajenos.\n"
+        "3. Líneas de detalle: 'valor_unitario' y 'valor_total' son valores SIN IGV. 'precio_unitario' e 'importe_total' son valores CON IGV. En facturas comerciales, cantidad × valor_unitario DEBE ser igual a valor_total.\n"
+        "4. No inventes cálculos ni completes datos que no sean legibles en la imagen. Si un dato no figura, déjalo como cadena vacía (\"\").\n"
+        "5. Todos los números deben entregarse como strings con punto decimal (ej. \"18.00\"). Cero bloques markdown, solo JSON puro."
     )
 
     payload = {
@@ -572,7 +591,7 @@ def _extraer_ocr_gemini(
         ],
         "generationConfig": {
             "responseMimeType": "application/json",
-            "temperature": 0.1,
+            "temperature": 0.0,
         }
     }
 
@@ -611,20 +630,43 @@ def _extraer_ocr_gemini(
     def _txt(val: Optional[Decimal]) -> str:
         return str(val) if val is not None else ''
 
-    # RUCs
-    ruc_emisor = str(parsed.get('ruc_emisor') or '').strip()
-    if ruc_emisor and not re.match(r'^(10|20)\d{9}$', ruc_emisor):
-        m_ruc = re.search(r'\b(10\d{9}|20\d{9})\b', ruc_emisor)
-        ruc_emisor = m_ruc.group(1) if m_ruc else ''
-    conf_ruc = Decimal('98.0000') if ruc_emisor else Decimal('0.0000')
+    alertas: List[str] = []
 
-    ruc_cliente = str(parsed.get('ruc_cliente') or '').strip()
-    if ruc_cliente and not re.match(r'^\d{8,11}$', ruc_cliente):
-        m_cli = re.search(r'\b(\d{8,11})\b', ruc_cliente)
-        ruc_cliente = m_cli.group(1) if m_cli else ''
-    conf_ruc_cliente = Decimal('92.0000') if ruc_cliente else Decimal('0.0000')
+    # 1. RUC Emisor con validación estricta de módulo 11 de SUNAT
+    raw_ruc_emisor = str(parsed.get('ruc_emisor') or '').strip()
+    m_ruc_e = re.search(r'\b(10\d{9}|15\d{9}|16\d{9}|17\d{9}|20\d{9})\b', raw_ruc_emisor)
+    ruc_emisor = m_ruc_e.group(1) if m_ruc_e else re.sub(r'\D', '', raw_ruc_emisor)
 
-    # Tipo Comprobante
+    if len(ruc_emisor) == 11 and es_ruc_valido(ruc_emisor):
+        conf_ruc = Decimal('98.0000')
+    elif ruc_emisor:
+        conf_ruc = Decimal('50.0000')  # ROJO: no pasa módulo 11 o formato
+        alertas.append(f"RUC del emisor '{ruc_emisor}' inválido: no supera el algoritmo de validación de SUNAT (módulo 11).")
+    else:
+        conf_ruc = Decimal('0.0000')
+        alertas.append("No se detectó RUC del emisor en el comprobante.")
+
+    # 2. RUC Cliente con validación
+    raw_ruc_cli = str(parsed.get('ruc_cliente') or '').strip()
+    m_ruc_c = re.search(r'\b(\d{8}|\d{11})\b', raw_ruc_cli)
+    ruc_cliente = m_ruc_c.group(1) if m_ruc_c else re.sub(r'\D', '', raw_ruc_cli)
+
+    if ruc_cliente:
+        if len(ruc_cliente) == 11:
+            if es_ruc_valido(ruc_cliente):
+                conf_ruc_cliente = Decimal('95.0000')
+            else:
+                conf_ruc_cliente = Decimal('50.0000')  # ROJO
+                alertas.append(f"RUC del cliente '{ruc_cliente}' inválido según SUNAT (módulo 11).")
+        elif len(ruc_cliente) == 8:
+            conf_ruc_cliente = Decimal('90.0000')
+        else:
+            conf_ruc_cliente = Decimal('50.0000')
+            alertas.append(f"Documento del cliente '{ruc_cliente}' no tiene 8 u 11 dígitos.")
+    else:
+        conf_ruc_cliente = Decimal('0.0000')
+
+    # 3. Tipo Comprobante
     tipo_comp = str(parsed.get('tipo_comprobante') or '').strip()
     if tipo_comp not in ('01', '03', '07', '08'):
         tipo_upper = tipo_comp.upper()
@@ -640,18 +682,48 @@ def _extraer_ocr_gemini(
             tipo_comp = ''
     conf_tipo = Decimal('98.0000') if tipo_comp else Decimal('0.0000')
 
-    # Serie y Número
-    serie = str(parsed.get('serie') or '').strip().upper()
-    numero = str(parsed.get('numero') or '').strip().lstrip('0') or '0'
-    if not serie or not re.match(r'^[FEB0-9][A-Z0-9]{1,3}$', serie):
-        m_sn = re.match(r'^([FEB][0-9A-Z]{3})[- ]?([0-9]{1,8})$', f"{serie}-{numero}")
-        if m_sn:
-            serie, numero = m_sn.group(1), m_sn.group(2)
-    conf_serie_num = Decimal('98.0000') if serie and numero and numero != '0' else Decimal('0.0000')
-    if not conf_serie_num:
-        serie, numero = (serie, numero) if (serie or numero) else ('', '')
+    # 4. Serie y Número con desambiguación y limpieza de guiones
+    raw_serie = str(parsed.get('serie') or '').strip().upper()
+    raw_numero = str(parsed.get('numero') or '').strip()
 
-    # Fecha
+    # Si en numero viene algo como "1-201" o "001-201"
+    if '-' in raw_numero:
+        partes_sn = raw_numero.split('-', 1)
+        raw_numero = partes_sn[1].strip()
+        prefijo_extraido = partes_sn[0].strip().upper()
+        if not raw_serie:
+            raw_serie = prefijo_extraido
+
+    # Si en serie viene con guión pero numero venía vacío
+    if '-' in raw_serie and not raw_numero:
+        partes_sn = raw_serie.split('-', 1)
+        raw_serie = partes_sn[0].strip()
+        raw_numero = partes_sn[1].strip()
+
+    serie_limpia = re.sub(r'[^A-Z0-9]', '', raw_serie)
+    if re.match(r'^\d+$', serie_limpia) and len(serie_limpia) < 3:
+        serie_limpia = serie_limpia.zfill(3)
+
+    numero_limpio = re.sub(r'\D', '', raw_numero)
+    numero = numero_limpio.lstrip('0') or '0' if numero_limpio else ''
+    serie = serie_limpia
+
+    # Validación de formato SUNAT:
+    # Electrónica: F\w{3}, B\w{3}, E\w{3}
+    # Física: 1 a 4 caracteres alfanuméricos (ej. 001, 0001, 1, 01)
+    es_serie_valida = bool(re.match(r'^(?:[FEB][0-9A-Z]{3}|[0-9]{1,4}|[A-Z0-9]{1,4})$', serie))
+    es_numero_valido = bool(numero and numero != '0' and len(numero) <= 8)
+
+    if es_serie_valida and es_numero_valido:
+        conf_serie_num = Decimal('98.0000')
+    else:
+        conf_serie_num = Decimal('50.0000')  # ROJO
+        if not es_serie_valida:
+            alertas.append(f"Serie '{serie}' con formato no reconocido.")
+        if not es_numero_valido:
+            alertas.append(f"Número correlativo '{numero}' no válido (debe contener solo dígitos, 1-8 dígitos).")
+
+    # 5. Fecha de emisión
     fecha_emision = str(parsed.get('fecha_emision') or '').strip()
     if fecha_emision:
         m_f = re.search(r'\b(\d{4}[-/]\d{2}[-/]\d{2})\b', fecha_emision)
@@ -662,7 +734,7 @@ def _extraer_ocr_gemini(
             fecha_emision = f"{m_alt.group(3)}-{m_alt.group(2)}-{m_alt.group(1)}" if m_alt else ''
     conf_fecha = Decimal('96.0000') if fecha_emision else Decimal('0.0000')
 
-    # Moneda
+    # 6. Moneda
     moneda_raw = str(parsed.get('moneda') or '').strip().upper()
     if 'USD' in moneda_raw or 'DOLAR' in moneda_raw or '$' in moneda_raw:
         moneda = 'USD'
@@ -672,14 +744,12 @@ def _extraer_ocr_gemini(
         moneda = ''
     conf_moneda = Decimal('96.0000') if moneda else Decimal('0.0000')
 
-    # Razón Social Emisor
+    # 7. Razón Social Emisor
     razon_social = str(parsed.get('razon_social_emisor') or '').strip()
     conf_rz = Decimal('94.0000') if razon_social else Decimal('0.0000')
 
-    # Importes
+    # 8. Importes globales
     total_dec = _dec(parsed.get('total'))
-    conf_total = Decimal('96.0000') if total_dec is not None else Decimal('0.0000')
-
     igv_dec = _dec(parsed.get('igv'))
     subtotal_dec = _dec(parsed.get('subtotal'))
 
@@ -690,48 +760,103 @@ def _extraer_ocr_gemini(
         elif igv_dec is not None and igv_dec == DECIMAL_CERO:
             afectacion = 'EXONERADO'
 
-    if subtotal_dec is None and total_dec is not None and igv_dec is not None:
-        subtotal_dec = (total_dec - igv_dec).quantize(Q8, rounding=ROUND_HALF_UP)
-
-    conf_subtotal = Decimal('94.0000') if subtotal_dec is not None else Decimal('0.0000')
     conf_afectacion = Decimal('94.0000') if afectacion else Decimal('0.0000')
 
-    # Ítems / Detalles
+    # 9. Ítems / Detalles con cuadre y resolución de valor unitario sin IGV
     raw_items = parsed.get('items') or []
     detalles: List[Dict[str, Any]] = []
-    for item in raw_items:
+
+    for idx, item in enumerate(raw_items, start=1):
         cant = _dec(item.get('cantidad')) or DECIMAL_UNO
-        pu = _dec(item.get('precio_unitario')) or _dec(item.get('valor_unitario')) or DECIMAL_CERO
-        imp = _dec(item.get('importe_total'))
-        if imp is None and cant and pu:
-            imp = (cant * pu).quantize(Q8, rounding=ROUND_HALF_UP)
-        elif imp is None:
-            imp = DECIMAL_CERO
+        vu = _dec(item.get('valor_unitario'))
+        pu = _dec(item.get('precio_unitario'))
+        vt = _dec(item.get('valor_total'))
+        it = _dec(item.get('importe_total'))
+
+        # Resolución matemática del valor unitario sin IGV para Kardex:
+        # Caso A: vu y vt ya cuadran directamente (cant * vu ≈ vt)
+        if vu is not None and vt is not None and abs((cant * vu) - vt) <= Decimal('0.05'):
+            unit_val = vu
+            tot_val = vt
+        # Caso B: vt sin IGV dado, pero pu fue extraído con IGV (ej. vt=180, cant=10 -> vu=18, pu=21.24)
+        elif vt is not None and cant > DECIMAL_CERO:
+            vu_derivado = (vt / cant).quantize(Q8, rounding=ROUND_HALF_UP)
+            if pu is not None and abs((vu_derivado * Decimal('1.18')).quantize(Q8, rounding=ROUND_HALF_UP) - pu) <= Decimal('0.05'):
+                # pu incluía IGV; usamos el verdadero valor unitario sin IGV
+                unit_val = vu_derivado
+                tot_val = vt
+            elif vu is not None and abs((cant * vu) - vt) <= Decimal('0.05'):
+                unit_val = vu
+                tot_val = vt
+            elif vu is not None:
+                unit_val = vu
+                tot_val = vt
+            elif pu is not None:
+                unit_val = pu
+                tot_val = vt
+            else:
+                unit_val = vu_derivado
+                tot_val = vt
+        # Caso C: vu dado pero no vt
+        elif vu is not None:
+            unit_val = vu
+            tot_val = (cant * vu).quantize(Q8, rounding=ROUND_HALF_UP)
+        # Caso D: comprobantes con desglose completo con IGV
+        elif pu is not None:
+            if it is not None:
+                if abs((cant * pu) - it) <= Decimal('0.05'):
+                    unit_val = (pu / Decimal('1.18')).quantize(Q8, rounding=ROUND_HALF_UP)
+                    tot_val = (cant * unit_val).quantize(Q8, rounding=ROUND_HALF_UP)
+                else:
+                    unit_val = (pu / Decimal('1.18')).quantize(Q8, rounding=ROUND_HALF_UP)
+                    tot_val = (it / Decimal('1.18')).quantize(Q8, rounding=ROUND_HALF_UP)
+            else:
+                unit_val = pu
+                tot_val = (cant * pu).quantize(Q8, rounding=ROUND_HALF_UP)
+        else:
+            unit_val = DECIMAL_CERO
+            tot_val = DECIMAL_CERO
+
+        # Cuadre estricto de la línea: cant * unit_val ≈ tot_val
+        diff_linea = abs((cant * unit_val) - tot_val)
+        if diff_linea <= Decimal('0.05'):
+            conf_linea = Decimal('95.0000')
+        else:
+            conf_linea = Decimal('50.0000')  # ROJO
+            alertas.append(
+                f"Línea #{idx}: Incoherencia en cálculo de línea: cantidad ({cant}) × valor unitario ({unit_val}) = "
+                f"{(cant * unit_val).quantize(Decimal('0.01'))} ≠ valor total ({tot_val.quantize(Decimal('0.01'))})."
+            )
 
         cod = str(item.get('codigo') or item.get('codigo_externo') or '').strip()
         desc = str(item.get('descripcion') or '').strip()
         um = str(item.get('unidad_medida') or 'NIU').strip().upper() or 'NIU'
 
         detalles.append({
+            'numero_linea': idx,
             'codigo_externo': cod,
             'descripcion': desc,
             'unidad_medida': um,
             'cantidad': cant.quantize(Q8),
-            'precio_unitario': pu.quantize(Q8),
-            'valor_total': imp.quantize(Q8),
+            'valor_unitario': unit_val.quantize(Q8),
+            'precio_unitario': unit_val.quantize(Q8),
+            'valor_total': tot_val.quantize(Q8),
             'igv': _txt(igv_dec) if len(raw_items) == 1 else '',
             'afectacion_igv': afectacion,
-            'confianza': Decimal('95.0000'),
-            'confianzas': {'igv': conf_afectacion, 'afectacion_igv': conf_afectacion},
+            'confianza': conf_linea,
+            'confianzas': {
+                'cantidad': conf_linea,
+                'valor_unitario': conf_linea,
+                'precio_unitario': conf_linea,
+                'valor_total': conf_linea,
+                'igv': conf_afectacion,
+                'afectacion_igv': conf_afectacion,
+            },
         })
 
-    if detalles:
-        suma_items = sum((d['valor_total'] for d in detalles), DECIMAL_CERO)
-        if subtotal_dec is None:
-            subtotal_dec = suma_items
-            conf_subtotal = Decimal('94.0000')
-    else:
+    if not detalles:
         detalles = [{
+            'numero_linea': 1,
             'codigo_externo': '',
             'descripcion': '',
             'unidad_medida': 'NIU',
@@ -740,12 +865,71 @@ def _extraer_ocr_gemini(
             'valor_total': subtotal_dec if subtotal_dec is not None else DECIMAL_CERO,
             'igv': _txt(igv_dec),
             'afectacion_igv': afectacion,
-            'confianza': Decimal('0.0000'),
+            'confianza': Decimal('50.0000'),
             'confianzas': {'igv': conf_afectacion, 'afectacion_igv': conf_afectacion},
         }]
 
-    for idx, d in enumerate(detalles, start=1):
-        d['numero_linea'] = idx
+    # 10. Cuadre de Totales (Suma de líneas, IGV 18% y Total general)
+    suma_items = sum((d['valor_total'] for d in detalles), DECIMAL_CERO)
+    if subtotal_dec is None:
+        subtotal_dec = suma_items
+        conf_subtotal = Decimal('94.0000')
+    else:
+        diff_subtotal = abs(suma_items - subtotal_dec)
+        if diff_subtotal > Decimal('0.05'):
+            conf_subtotal = Decimal('50.0000')  # ROJO
+            alertas.append(
+                f"Descuadre de subtotal: la suma de las líneas ({suma_items.quantize(Decimal('0.01'))}) "
+                f"no coincide con el subtotal declarado ({subtotal_dec.quantize(Decimal('0.01'))})."
+            )
+        else:
+            conf_subtotal = Decimal('94.0000')
+
+    # Validación de IGV
+    if afectacion == 'GRAVADO' and subtotal_dec > DECIMAL_CERO:
+        igv_calculado = (subtotal_dec * Decimal('0.18')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        if igv_dec is not None:
+            if abs(igv_dec - igv_calculado) > Decimal('0.05'):
+                conf_afectacion = Decimal('50.0000')  # ROJO
+                alertas.append(
+                    f"Descuadre de IGV: el IGV extraído ({igv_dec.quantize(Decimal('0.01'))}) "
+                    f"no coincide con el 18% del subtotal ({igv_calculado})."
+                )
+            else:
+                conf_afectacion = Decimal('94.0000')
+        else:
+            igv_dec = igv_calculado.quantize(Q8)
+            conf_afectacion = Decimal('90.0000')
+
+    # Validación de Total general
+    if subtotal_dec is not None and igv_dec is not None:
+        total_esperado = (subtotal_dec + igv_dec).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        if total_dec is not None:
+            if abs(total_dec - total_esperado) > Decimal('0.05'):
+                conf_total = Decimal('50.0000')  # ROJO
+                alertas.append(
+                    f"Descuadre de total: el total extraído ({total_dec.quantize(Decimal('0.01'))}) no cuadra con subtotal ({subtotal_dec.quantize(Decimal('0.01'))}) + "
+                    f"IGV ({igv_dec.quantize(Decimal('0.01'))}) = {total_esperado}."
+                )
+            else:
+                conf_total = Decimal('96.0000')
+        else:
+            total_dec = total_esperado.quantize(Q8)
+            conf_total = Decimal('90.0000')
+    else:
+        conf_total = Decimal('50.0000') if total_dec is None else Decimal('96.0000')
+
+    # 11. Confianza global: si hay alertas o algún campo crítico < 70, la confianza global es 50%
+    confianzas_todas = [
+        conf_ruc, conf_serie_num, conf_fecha, conf_moneda, conf_rz,
+        conf_subtotal, conf_afectacion, conf_total,
+    ] + [d['confianza'] for d in detalles]
+    min_conf = min(confianzas_todas) if confianzas_todas else Decimal('95.0000')
+
+    if alertas or min_conf < Decimal('70.0000'):
+        confianza_global = Decimal('50.0000')
+    else:
+        confianza_global = Decimal('95.0000')
 
     serie_numero_str = f"{serie}-{numero}" if (serie and numero) else ''
 
@@ -766,8 +950,8 @@ def _extraer_ocr_gemini(
             'total': (_txt(total_dec), conf_total),
         },
         'detalles': detalles,
-        'confianza_global': Decimal('95.0000'),
-        'alertas': [],
+        'confianza_global': confianza_global,
+        'alertas': alertas,
     }
 
 
@@ -942,6 +1126,17 @@ def procesar_subida_captura(
                     confianza=item.get('confianzas', {}).get(campo_nombre, conf_det),
                 )
 
+        # Si hay alertas de consistencia o validación, registrarlas para la vista previa
+        for alerta in datos.get('alertas', []):
+            CapturaCampo.objects.create(
+                documento_captura=captura,
+                seccion='CABECERA',
+                numero_linea=None,
+                nombre_campo='alerta_validacion',
+                valor_extraido=alerta,
+                confianza=Decimal('50.0000'),
+            )
+
     registrar_auditoria(
         empresa_id=empresa_id,
         usuario_id=usuario.id,
@@ -1049,6 +1244,14 @@ def generar_borrador_desde_captura(
 
     # 2. Tercero: proveedor (compra) o cliente (venta).
     doc_tercero = clasificacion['contraparte_documento']
+    doc_limpio = ''.join(ch for ch in (doc_tercero or '') if ch.isdigit())
+    if captura.tipo != 'XML' and len(doc_limpio) == 11 and not es_ruc_valido(doc_limpio):
+        raise ValidationError({
+            'ruc_emisor': (
+                f"El RUC '{doc_limpio}' no es válido según el algoritmo de verificación de SUNAT (módulo 11). "
+                "Corrija el RUC en la vista previa antes de generar el comprobante en borrador."
+            )
+        })
     tercero = tercero_por_documento(
         empresa_id=empresa_id, documento=doc_tercero, crear=True,
         nombre=clasificacion['contraparte_nombre'] or '', clase=clase,
@@ -1066,6 +1269,13 @@ def generar_borrador_desde_captura(
     if not serie_raw or not num_raw:
         # Bloque 5: sin serie/número no se inventan (antes F001-1); revisión manual.
         raise ValidationError({'serie': 'El comprobante no indica serie y número. Corríjalos antes de generar el borrador.'})
+    if captura.tipo != 'XML' and (re.search(r'\D', num_raw) or num_raw == '0' or '-' in num_raw):
+        raise ValidationError({
+            'numero': (
+                f"El número correlativo '{num_raw}' no es válido (debe contener únicamente dígitos sin guiones ni letras). "
+                "Corríjalo en la vista previa antes de generar el borrador."
+            )
+        })
     serie_norm = normalizar_serie(serie_raw)
     num_norm = normalizar_numero(num_raw)
 
@@ -1145,6 +1355,33 @@ def generar_borrador_desde_captura(
     total = parse_dec(cabecera.get('total', '0'))
     if total == DECIMAL_CERO:
         total = subtotal + igv
+
+    # Validación estricta de cuadre de totales:
+    # Validación estricta de cuadre en OCR / comprobantes digitalizados (evita que errores de IA pasen a Kardex)
+    if captura.tipo != 'XML':
+        if subtotal > DECIMAL_CERO and igv >= DECIMAL_CERO and total > DECIMAL_CERO:
+            if abs((subtotal + igv) - total) > Decimal('0.05'):
+                raise ValidationError({
+                    'total': (
+                        f"Los totales del comprobante no cuadran: subtotal ({subtotal}) + IGV ({igv}) = "
+                        f"{(subtotal + igv).quantize(Decimal('0.01'))} ≠ total ({total}). "
+                        "Corrija los importes en la captura antes de generar el comprobante en borrador."
+                    )
+                })
+
+        for num_linea, campos_linea in detalles.items():
+            c_cant = parse_dec(campos_linea.get('cantidad', '1'), DECIMAL_UNO)
+            c_pu = parse_dec(campos_linea.get('precio_unitario', '0'))
+            c_vt = parse_dec(campos_linea.get('valor_total', '0'))
+            if c_cant > DECIMAL_CERO and c_vt > DECIMAL_CERO:
+                if abs((c_cant * c_pu) - c_vt) > Decimal('0.05'):
+                    raise ValidationError({
+                        'detalles': (
+                            f"La línea #{num_linea} presenta descuadre: cantidad ({c_cant}) × "
+                            f"valor unitario ({c_pu}) = {(c_cant * c_pu).quantize(Decimal('0.01'))} ≠ valor total ({c_vt}). "
+                            "Corrija los importes en la captura antes de generar el borrador."
+                        )
+                    })
 
     # 8. Almacén destino por defecto
     almacen = None
