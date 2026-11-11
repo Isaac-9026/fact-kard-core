@@ -1,12 +1,22 @@
+import base64
 import hashlib
+import json
+import logging
+import os
 import re
+import urllib.error
+import urllib.request
 import xml.etree.ElementTree as ET
+import zlib
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Dict, List, Optional, Tuple
 
+from django.conf import settings
 from django.db import transaction
 from rest_framework.exceptions import ValidationError
+
+logger = logging.getLogger(__name__)
 
 from apps.documentos.uploads import nombre_seguro
 from apps.documentos.afectacion_igv import (
@@ -257,18 +267,75 @@ def parsear_xml_ubl(content: bytes) -> Dict[str, Any]:
     }
 
 
-def extraer_ocr_basico(content: bytes, filename: str, texto_ocr: Optional[str] = None) -> Dict[str, Any]:
+MIME_TYPES_OCR = {
+    '.pdf': 'application/pdf',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.webp': 'image/webp',
+}
+
+
+def _extraer_texto_pdf_nativo(content: bytes) -> str:
     """
-    Simulación y extracción OCR básica para comprobantes en PDF, Imagen o Escáner.
-    Extrae los campos de cabecera y líneas requeridos por la Sección 40 del manual,
-    asignando niveles de confianza entre 0% y 100%.
+    Intenta extraer texto plano de un documento PDF de forma nativa sin
+    dependencias pesadas de sistema operativo (cero Poppler / Tesseract).
     """
-    texto = texto_ocr or ''
-    if not texto and content:
+    if not content or not content.startswith(b'%PDF'):
+        return ''
+
+    # 1. Intentar con pypdf si estuviera instalado
+    try:
+        import io
+        import pypdf  # type: ignore
+        reader = pypdf.PdfReader(io.BytesIO(content))
+        textos_pag = [p.extract_text() or '' for p in reader.pages]
+        texto_unido = '\n'.join(textos_pag).strip()
+        if texto_unido:
+            return texto_unido
+    except Exception:
+        pass
+
+    # 2. Extracción nativa de streams de texto PDF (Tj / TJ / FlateDecode)
+    textos: List[str] = []
+    stream_regex = re.compile(rb'stream[\r\n]+(.*?)[\r\n]+endstream', re.DOTALL)
+    for m in stream_regex.finditer(content):
+        raw_stream = m.group(1)
         try:
-            texto = content.decode('utf-8', errors='ignore')
+            decomp = zlib.decompress(raw_stream)
         except Exception:
-            texto = ''
+            decomp = raw_stream
+
+        # Buscar cadenas (Texto) Tj
+        for s in re.finditer(rb'\((.*?)\)\s*Tj', decomp):
+            try:
+                textos.append(s.group(1).decode('latin-1', errors='ignore'))
+            except Exception:
+                pass
+        # Buscar cadenas [(T) 10 (exto)] TJ
+        for arr in re.finditer(rb'\[(.*?)\]\s*TJ', decomp):
+            for p in re.findall(rb'\((.*?)\)', arr.group(1)):
+                try:
+                    textos.append(p.decode('latin-1', errors='ignore'))
+                except Exception:
+                    pass
+
+    if textos:
+        return ' '.join(textos)
+
+    # 3. Fallback de decodificación directa
+    try:
+        return content.decode('utf-8', errors='ignore')
+    except Exception:
+        return ''
+
+
+def _extraer_ocr_local(texto: str) -> Dict[str, Any]:
+    """
+    Extracción mediante expresiones regulares para texto plano o comprobantes
+    con layout legible, garantizando fidelidad contable y tests 100% deterministas.
+    """
+    texto = texto or ''
 
     # RUC (11 dígitos, empieza en 10 o 20). El primero es el emisor; el siguiente
     # distinto, el receptor. Sin dato no se inventa: queda vacío y con confianza 0.
@@ -430,7 +497,352 @@ def extraer_ocr_basico(content: bytes, filename: str, texto_ocr: Optional[str] =
         },
         'detalles': detalles,
         'confianza_global': Decimal('84.0000'),
+        'alertas': [],
     }
+
+
+def _extraer_ocr_gemini(
+    content: bytes,
+    filename: str,
+    mime_type: str,
+    api_key: str,
+    model: str = 'gemini-3.5-flash-lite',
+) -> Dict[str, Any]:
+    """
+    Extracción multimodal de comprobantes peruanos (SUNAT) mediante Gemini 2.5 Flash.
+    Utiliza HTTPS puro vía urllib.request (cero dependencias de SO, cero binarios).
+    Convierte todo importe y cantidad a Decimal exacto con ROUND_HALF_UP.
+    """
+    b64_content = base64.b64encode(content).decode('ascii')
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+
+    prompt = (
+        "Eres un Senior Contable peruano y extractor experto de comprobantes de pago autorizados "
+        "por la SUNAT (Facturas, Boletas de Venta, Notas de Crédito, Notas de Débito).\n"
+        "Analiza detalladamente el comprobante adjunto y extrae todos los datos estructurados en "
+        "un único objeto JSON estricto con la siguiente estructura exacta:\n"
+        "{\n"
+        '  "ruc_emisor": "RUC del proveedor/emisor (11 dígitos numéricos que inician en 10 o 20)",\n'
+        '  "razon_social_emisor": "Nombre comercial o razón social completa del emisor",\n'
+        '  "ruc_cliente": "RUC o DNI del receptor/cliente si existe (o cadena vacía)",\n'
+        '  "razon_social_cliente": "Razón social o nombre del cliente si existe (o cadena vacía)",\n'
+        '  "tipo_comprobante": "Código SUNAT de 2 dígitos: 01 (Factura), 03 (Boleta), 07 (Nota de Crédito), 08 (Nota de Débito)",\n'
+        '  "serie": "Serie del comprobante, ej. F001, E001, B001, FC01, etc.",\n'
+        '  "numero": "Número correlativo del comprobante sin serie, ej. 450, 123456",\n'
+        '  "fecha_emision": "Fecha de emisión en formato estricto YYYY-MM-DD",\n'
+        '  "moneda": "Código de moneda: PEN (para Soles S/) o USD (para Dólares $)",\n'
+        '  "subtotal": "Base imponible u operación gravada como string decimal con 2 o más decimales, ej. 100.00",\n'
+        '  "igv": "Monto del IGV 18% como string decimal, ej. 18.00 (o 0.00 si es exonerado o inafecto)",\n'
+        '  "total": "Importe total a pagar como string decimal, ej. 118.00",\n'
+        '  "afectacion_igv": "GRAVADO, EXONERADO o INAFECTO según aplique",\n'
+        '  "items": [\n'
+        "    {\n"
+        '      "codigo": "Código de producto o SKU si figura, o cadena vacía",\n'
+        '      "descripcion": "Descripción del bien o servicio",\n'
+        '      "unidad_medida": "Código de unidad de medida SUNAT (ej. NIU, KGM, ZZ, BX, etc., o NIU por defecto)",\n'
+        '      "cantidad": "Cantidad como string decimal, ej. 2.00",\n'
+        '      "valor_unitario": "Valor unitario sin IGV como string decimal",\n'
+        '      "precio_unitario": "Precio unitario con IGV como string decimal",\n'
+        '      "importe_total": "Importe o valor total de la línea como string decimal"\n'
+        "    }\n"
+        "  ],\n"
+        '  "confianza": 95\n'
+        "}\n\n"
+        "Reglas estrictas:\n"
+        "1. No inventes RUCs, series o números que no estén en el documento.\n"
+        "2. No devuelvas números de punto flotante en el JSON: todos los importes y cantidades deben ser strings con punto decimal (ej. \"150.00\").\n"
+        "3. No agregues explicaciones ni bloques de markdown (```json), entrega únicamente el JSON puro."
+    )
+
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "inlineData": {
+                            "mimeType": mime_type,
+                            "data": b64_content,
+                        }
+                    },
+                    {
+                        "text": prompt,
+                    }
+                ]
+            }
+        ],
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "temperature": 0.1,
+        }
+    }
+
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode('utf-8'),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        resp_bytes = resp.read()
+        resp_data = json.loads(resp_bytes.decode('utf-8'))
+
+    candidates = resp_data.get("candidates") or []
+    if not candidates:
+        raise ValueError("Gemini API no retornó candidatos de respuesta válidos.")
+
+    parts = candidates[0].get("content", {}).get("parts", [])
+    raw_text = "".join(p.get("text", "") for p in parts).strip()
+    if raw_text.startswith("```"):
+        raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
+        raw_text = re.sub(r"\s*```$", "", raw_text)
+
+    parsed = json.loads(raw_text)
+
+    def _dec(val: Any) -> Optional[Decimal]:
+        if val is None or val == '':
+            return None
+        try:
+            limpio = str(val).replace(',', '').strip()
+            return Decimal(limpio).quantize(Q8, rounding=ROUND_HALF_UP)
+        except Exception:
+            return None
+
+    def _txt(val: Optional[Decimal]) -> str:
+        return str(val) if val is not None else ''
+
+    # RUCs
+    ruc_emisor = str(parsed.get('ruc_emisor') or '').strip()
+    if ruc_emisor and not re.match(r'^(10|20)\d{9}$', ruc_emisor):
+        m_ruc = re.search(r'\b(10\d{9}|20\d{9})\b', ruc_emisor)
+        ruc_emisor = m_ruc.group(1) if m_ruc else ''
+    conf_ruc = Decimal('98.0000') if ruc_emisor else Decimal('0.0000')
+
+    ruc_cliente = str(parsed.get('ruc_cliente') or '').strip()
+    if ruc_cliente and not re.match(r'^\d{8,11}$', ruc_cliente):
+        m_cli = re.search(r'\b(\d{8,11})\b', ruc_cliente)
+        ruc_cliente = m_cli.group(1) if m_cli else ''
+    conf_ruc_cliente = Decimal('92.0000') if ruc_cliente else Decimal('0.0000')
+
+    # Tipo Comprobante
+    tipo_comp = str(parsed.get('tipo_comprobante') or '').strip()
+    if tipo_comp not in ('01', '03', '07', '08'):
+        tipo_upper = tipo_comp.upper()
+        if 'NOTA' in tipo_upper and 'CR' in tipo_upper:
+            tipo_comp = '07'
+        elif 'NOTA' in tipo_upper and 'D' in tipo_upper:
+            tipo_comp = '08'
+        elif 'BOLETA' in tipo_upper:
+            tipo_comp = '03'
+        elif 'FACTURA' in tipo_upper:
+            tipo_comp = '01'
+        else:
+            tipo_comp = ''
+    conf_tipo = Decimal('98.0000') if tipo_comp else Decimal('0.0000')
+
+    # Serie y Número
+    serie = str(parsed.get('serie') or '').strip().upper()
+    numero = str(parsed.get('numero') or '').strip().lstrip('0') or '0'
+    if not serie or not re.match(r'^[FEB0-9][A-Z0-9]{1,3}$', serie):
+        m_sn = re.match(r'^([FEB][0-9A-Z]{3})[- ]?([0-9]{1,8})$', f"{serie}-{numero}")
+        if m_sn:
+            serie, numero = m_sn.group(1), m_sn.group(2)
+    conf_serie_num = Decimal('98.0000') if serie and numero and numero != '0' else Decimal('0.0000')
+    if not conf_serie_num:
+        serie, numero = (serie, numero) if (serie or numero) else ('', '')
+
+    # Fecha
+    fecha_emision = str(parsed.get('fecha_emision') or '').strip()
+    if fecha_emision:
+        m_f = re.search(r'\b(\d{4}[-/]\d{2}[-/]\d{2})\b', fecha_emision)
+        if m_f:
+            fecha_emision = m_f.group(1).replace('/', '-')
+        else:
+            m_alt = re.search(r'\b(\d{2})[/.-](\d{2})[/.-](\d{4})\b', fecha_emision)
+            fecha_emision = f"{m_alt.group(3)}-{m_alt.group(2)}-{m_alt.group(1)}" if m_alt else ''
+    conf_fecha = Decimal('96.0000') if fecha_emision else Decimal('0.0000')
+
+    # Moneda
+    moneda_raw = str(parsed.get('moneda') or '').strip().upper()
+    if 'USD' in moneda_raw or 'DOLAR' in moneda_raw or '$' in moneda_raw:
+        moneda = 'USD'
+    elif 'PEN' in moneda_raw or 'SOL' in moneda_raw or 'S/' in moneda_raw:
+        moneda = 'PEN'
+    else:
+        moneda = ''
+    conf_moneda = Decimal('96.0000') if moneda else Decimal('0.0000')
+
+    # Razón Social Emisor
+    razon_social = str(parsed.get('razon_social_emisor') or '').strip()
+    conf_rz = Decimal('94.0000') if razon_social else Decimal('0.0000')
+
+    # Importes
+    total_dec = _dec(parsed.get('total'))
+    conf_total = Decimal('96.0000') if total_dec is not None else Decimal('0.0000')
+
+    igv_dec = _dec(parsed.get('igv'))
+    subtotal_dec = _dec(parsed.get('subtotal'))
+
+    afectacion = str(parsed.get('afectacion_igv') or '').strip().upper()
+    if not afectacion:
+        if igv_dec is not None and igv_dec > DECIMAL_CERO:
+            afectacion = 'GRAVADO'
+        elif igv_dec is not None and igv_dec == DECIMAL_CERO:
+            afectacion = 'EXONERADO'
+
+    if subtotal_dec is None and total_dec is not None and igv_dec is not None:
+        subtotal_dec = (total_dec - igv_dec).quantize(Q8, rounding=ROUND_HALF_UP)
+
+    conf_subtotal = Decimal('94.0000') if subtotal_dec is not None else Decimal('0.0000')
+    conf_afectacion = Decimal('94.0000') if afectacion else Decimal('0.0000')
+
+    # Ítems / Detalles
+    raw_items = parsed.get('items') or []
+    detalles: List[Dict[str, Any]] = []
+    for item in raw_items:
+        cant = _dec(item.get('cantidad')) or DECIMAL_UNO
+        pu = _dec(item.get('precio_unitario')) or _dec(item.get('valor_unitario')) or DECIMAL_CERO
+        imp = _dec(item.get('importe_total'))
+        if imp is None and cant and pu:
+            imp = (cant * pu).quantize(Q8, rounding=ROUND_HALF_UP)
+        elif imp is None:
+            imp = DECIMAL_CERO
+
+        cod = str(item.get('codigo') or item.get('codigo_externo') or '').strip()
+        desc = str(item.get('descripcion') or '').strip()
+        um = str(item.get('unidad_medida') or 'NIU').strip().upper() or 'NIU'
+
+        detalles.append({
+            'codigo_externo': cod,
+            'descripcion': desc,
+            'unidad_medida': um,
+            'cantidad': cant.quantize(Q8),
+            'precio_unitario': pu.quantize(Q8),
+            'valor_total': imp.quantize(Q8),
+            'igv': _txt(igv_dec) if len(raw_items) == 1 else '',
+            'afectacion_igv': afectacion,
+            'confianza': Decimal('95.0000'),
+            'confianzas': {'igv': conf_afectacion, 'afectacion_igv': conf_afectacion},
+        })
+
+    if detalles:
+        suma_items = sum((d['valor_total'] for d in detalles), DECIMAL_CERO)
+        if subtotal_dec is None:
+            subtotal_dec = suma_items
+            conf_subtotal = Decimal('94.0000')
+    else:
+        detalles = [{
+            'codigo_externo': '',
+            'descripcion': '',
+            'unidad_medida': 'NIU',
+            'cantidad': DECIMAL_UNO,
+            'precio_unitario': subtotal_dec if subtotal_dec is not None else DECIMAL_CERO,
+            'valor_total': subtotal_dec if subtotal_dec is not None else DECIMAL_CERO,
+            'igv': _txt(igv_dec),
+            'afectacion_igv': afectacion,
+            'confianza': Decimal('0.0000'),
+            'confianzas': {'igv': conf_afectacion, 'afectacion_igv': conf_afectacion},
+        }]
+
+    for idx, d in enumerate(detalles, start=1):
+        d['numero_linea'] = idx
+
+    serie_numero_str = f"{serie}-{numero}" if (serie and numero) else ''
+
+    return {
+        'tipo': 'OCR',
+        'cabecera': {
+            'tipo_comprobante': (tipo_comp, conf_tipo),
+            'serie': (serie, conf_serie_num),
+            'numero': (numero, conf_serie_num),
+            'serie_numero': (serie_numero_str, conf_serie_num),
+            'fecha_emision': (fecha_emision, conf_fecha),
+            'moneda': (moneda, conf_moneda),
+            'ruc_emisor': (ruc_emisor, conf_ruc),
+            'ruc_cliente': (ruc_cliente, conf_ruc_cliente),
+            'razon_social_emisor': (razon_social, conf_rz),
+            'subtotal': (_txt(subtotal_dec), conf_subtotal),
+            'igv': (_txt(igv_dec), conf_afectacion),
+            'total': (_txt(total_dec), conf_total),
+        },
+        'detalles': detalles,
+        'confianza_global': Decimal('95.0000'),
+        'alertas': [],
+    }
+
+
+def extraer_ocr_basico(content: bytes, filename: str, texto_ocr: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Extracción OCR para comprobantes en PDF, Imagen (.jpg, .jpeg, .png, .webp) o Escáner.
+    Arquitectura en cascada de 3 niveles:
+      - Nivel 1: Texto explícito provisto (tests) o extracción nativa de PDF con alta confianza.
+      - Nivel 2: Extracción multimodal con Gemini 2.5 Flash si GEMINI_API_KEY está configurada.
+      - Nivel 3: Fallback local determinista con expresiones regulares (offline / sin API key).
+    """
+    # Nivel 1: Si texto_ocr fue provisto explícitamente (ej. tests unitarios), usar parser local
+    if texto_ocr is not None and texto_ocr.strip():
+        return _extraer_ocr_local(texto_ocr)
+
+    nombre_bajo = (filename or '').lower()
+    ext = '.' + nombre_bajo.rsplit('.', 1)[-1] if '.' in nombre_bajo else ''
+
+    # Nivel 1 (continuación): Si es PDF, intentar extracción nativa de texto plano
+    if ext == '.pdf' and content:
+        texto_nativo = _extraer_texto_pdf_nativo(content)
+        if texto_nativo.strip():
+            res_local = _extraer_ocr_local(texto_nativo)
+            cab = res_local.get('cabecera', {})
+            ruc_val, ruc_conf = cab.get('ruc_emisor', ('', Decimal('0')))
+            serie_val, serie_conf = cab.get('serie', ('', Decimal('0')))
+            num_val, num_conf = cab.get('numero', ('', Decimal('0')))
+            tot_val, tot_conf = cab.get('total', ('', Decimal('0')))
+            # Confianza alta: RUC emisor, Serie/Número y Total detectados
+            if (ruc_val and ruc_conf >= Decimal('90.0000') and
+                serie_val and num_val and serie_conf >= Decimal('90.0000') and
+                tot_val and tot_conf >= Decimal('85.0000')):
+                return res_local
+
+    # Nivel 2: Extracción Multimodal con Gemini 2.5 Flash
+    api_key = (
+        getattr(settings, 'GEMINI_API_KEY', '') or
+        os.environ.get('GEMINI_API_KEY', '')
+    ).strip()
+    model = (
+        getattr(settings, 'GEMINI_MODEL', '') or
+        os.environ.get('GEMINI_MODEL', '') or
+        'gemini-3.5-flash-lite'
+    ).strip()
+
+    mime_type = MIME_TYPES_OCR.get(ext)
+    if api_key and mime_type and content:
+        try:
+            return _extraer_ocr_gemini(
+                content=content,
+                filename=filename,
+                mime_type=mime_type,
+                api_key=api_key,
+                model=model,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Fallo en llamada a Gemini (%s): %s. Procediendo a Nivel 3 (fallback local).",
+                type(exc).__name__, exc,
+            )
+            # Proceder a Nivel 3 registrando la alerta en el resultado
+            res_fallback = _extraer_ocr_local(content.decode('utf-8', errors='ignore') if content else '')
+            res_fallback.setdefault('alertas', []).append(
+                f"Fallo en extracción multimodal Gemini ({type(exc).__name__}): {exc}"
+            )
+            return res_fallback
+
+    # Nivel 3: Fallback Local (Sin API Key, texto plano o modo test)
+    texto_fallback = ''
+    if content:
+        try:
+            texto_fallback = content.decode('utf-8', errors='ignore')
+        except Exception:
+            texto_fallback = ''
+    return _extraer_ocr_local(texto_fallback)
 
 
 @transaction.atomic
