@@ -279,6 +279,10 @@ CONSULTA_RUC_THROTTLE_RATE = config('CONSULTA_RUC_THROTTLE_RATE', default='30/mi
 PADRON_RUC_MAX_BYTES = config('PADRON_RUC_MAX_BYTES', default=8 * 1024 ** 3, cast=int)
 PADRON_RUC_MAX_RATIO = config('PADRON_RUC_MAX_RATIO', default=50, cast=int)
 
+# Opcional: API Key de Google Gemini para lectura inteligente de facturas en Imagen/PDF
+GEMINI_API_KEY = config('GEMINI_API_KEY', default='').strip()
+GEMINI_MODEL = config('GEMINI_MODEL', default='gemini-3.5-flash-lite').strip()
+
 # Bloque 7: con DEBUG=False se rechaza una configuración insegura al arrancar.
 if not EJECUTANDO_TESTS:
     validar_configuracion_produccion(
