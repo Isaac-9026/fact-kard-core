@@ -53,6 +53,7 @@ import {
   Loader2,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Check,
   X,
   Edit3,
@@ -404,7 +405,13 @@ export const CapturaHomologacionPage: React.FC = () => {
   // Campos separados de la captura
   const camposCabecera = useMemo(() => {
     if (!capturaDetalle?.campos) return [];
-    return capturaDetalle.campos.filter((c) => c.seccion === 'CABECERA');
+    return capturaDetalle.campos.filter((c) => c.seccion === 'CABECERA' && c.nombre_campo !== 'alerta_validacion');
+  }, [capturaDetalle]);
+
+  // Alertas de validación contable registradas en la captura
+  const alertasValidacion = useMemo(() => {
+    if (!capturaDetalle?.campos) return [];
+    return capturaDetalle.campos.filter((c) => c.nombre_campo === 'alerta_validacion');
   }, [capturaDetalle]);
 
   // Proveedor (emisor) de la captura, para precargar la homologación de una línea.
@@ -654,10 +661,10 @@ export const CapturaHomologacionPage: React.FC = () => {
                     <Label htmlFor="texto-ocr-input">
                       Texto del comprobante (OCR)
                     </Label>
-                    <p className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1.5">
-                      El sistema no reconoce texto en imágenes por sí solo: solo lee el texto que ya trae el PDF.
-                      Si el archivo es una foto o un escaneo, pegue aquí el texto obtenido con un programa de OCR.
-                      Revise y corrija cada campo extraído antes de generar el borrador.
+                    <p className="text-[11px] text-indigo-900 bg-indigo-50 border border-indigo-200 rounded px-2.5 py-1.5">
+                      El sistema procesa imágenes y PDFs escaneados automáticamente mediante IA multimodal (Gemini).
+                      Si desea ingresar o complementar el texto manualmente, puede pegarlo en este campo opcional.
+                      Revise y confirme siempre los campos extraídos antes de generar el comprobante en borrador.
                     </p>
                     <textarea
                       id="texto-ocr-input"
@@ -838,6 +845,26 @@ export const CapturaHomologacionPage: React.FC = () => {
                     </div>
                   )}
 
+                  {/* Alertas de Validación Contable / OCR */}
+                  {alertasValidacion.length > 0 && (
+                    <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-xs text-amber-900 space-y-2 shadow-xs">
+                      <div className="flex items-center gap-2 font-bold text-amber-800">
+                        <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                        <span>Observaciones y Alertas de Validación Contable (OCR):</span>
+                      </div>
+                      <ul className="list-disc list-inside space-y-1 pl-1 text-[11px] text-amber-900">
+                        {alertasValidacion.map((alerta) => (
+                          <li key={alerta.id}>
+                            {alerta.valor_corregido || alerta.valor_extraido}
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="text-[11px] text-amber-700 font-medium pt-1 border-t border-amber-200/60">
+                        Por favor revise y corrija los valores marcados en rojo antes de convertir este comprobante a borrador.
+                      </p>
+                    </div>
+                  )}
+
                   {/* Sección 1: Campos de Cabecera */}
                   <Card>
                     <CardHeader className="py-3 px-4 border-b border-slate-100">
@@ -971,6 +998,12 @@ export const CapturaHomologacionPage: React.FC = () => {
                               const precVal = precCampo?.valor_corregido || precCampo?.valor_extraido || '0.00';
                               const totVal = totCampo?.valor_corregido || totCampo?.valor_extraido || '0.00';
 
+                              // Confianza mínima de la línea entre todos sus campos
+                              const lineConfianzas = Object.values(camposMap)
+                                .map((c) => (c.confianza !== null ? Number(c.confianza) : 100))
+                                .filter((n) => !isNaN(n));
+                              const minLineaConfianza = lineConfianzas.length > 0 ? Math.min(...lineConfianzas) : 100;
+
                               return (
                                 <tr key={numLinea} className="hover:bg-slate-50/80 transition-colors">
                                   <td className="py-2 px-3 font-bold text-slate-900">#{numLinea}</td>
@@ -984,16 +1017,151 @@ export const CapturaHomologacionPage: React.FC = () => {
                                   </td>
                                   <td className="py-2 px-3 text-slate-600">{undVal}</td>
                                   <td className="py-2 px-3 text-right text-slate-800">
-                                    {formatearDecimal(cantVal, { min: 2, max: 8, vacio: String(cantVal ?? '') })}
+                                    {cantCampo && editingCampoId === cantCampo.id ? (
+                                      <div className="flex items-center justify-end gap-1">
+                                        <Input
+                                          type="text"
+                                          value={tempValorCorregido}
+                                          onChange={(e) => setTempValorCorregido(e.target.value)}
+                                          autoFocus
+                                          className="h-6 w-16 text-right text-xs px-1"
+                                        />
+                                        <Button
+                                          type="button"
+                                          size="xs"
+                                          variant="success"
+                                          className="h-6 w-6 p-0"
+                                          onClick={() => handleGuardarCorreccion(cantCampo.id)}
+                                        >
+                                          <Save className="h-3 w-3" />
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          size="xs"
+                                          variant="outline"
+                                          className="h-6 w-6 p-0"
+                                          onClick={() => setEditingCampoId(null)}
+                                        >
+                                          <X className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center justify-end gap-1 group">
+                                        <span>{formatearDecimal(cantVal, { min: 2, max: 8, vacio: String(cantVal ?? '') })}</span>
+                                        {!capturaDetalle.documento_id && cantCampo && (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setEditingCampoId(cantCampo.id);
+                                              setTempValorCorregido(cantCampo.valor_corregido || cantCampo.valor_extraido || '');
+                                            }}
+                                            className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-slate-700 p-0.5"
+                                            title="Corregir cantidad"
+                                          >
+                                            <Edit3 className="h-3 w-3" />
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
                                   </td>
                                   <td className="py-2 px-3 text-right text-slate-600">
-                                    S/ {formatearDecimal(precVal, { min: 4, max: 8, vacio: String(precVal ?? '') })}
+                                    {precCampo && editingCampoId === precCampo.id ? (
+                                      <div className="flex items-center justify-end gap-1">
+                                        <Input
+                                          type="text"
+                                          value={tempValorCorregido}
+                                          onChange={(e) => setTempValorCorregido(e.target.value)}
+                                          autoFocus
+                                          className="h-6 w-20 text-right text-xs px-1"
+                                        />
+                                        <Button
+                                          type="button"
+                                          size="xs"
+                                          variant="success"
+                                          className="h-6 w-6 p-0"
+                                          onClick={() => handleGuardarCorreccion(precCampo.id)}
+                                        >
+                                          <Save className="h-3 w-3" />
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          size="xs"
+                                          variant="outline"
+                                          className="h-6 w-6 p-0"
+                                          onClick={() => setEditingCampoId(null)}
+                                        >
+                                          <X className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center justify-end gap-1 group">
+                                        <span>S/ {formatearDecimal(precVal, { min: 4, max: 8, vacio: String(precVal ?? '') })}</span>
+                                        {!capturaDetalle.documento_id && precCampo && (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setEditingCampoId(precCampo.id);
+                                              setTempValorCorregido(precCampo.valor_corregido || precCampo.valor_extraido || '');
+                                            }}
+                                            className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-slate-700 p-0.5"
+                                            title="Corregir precio unitario"
+                                          >
+                                            <Edit3 className="h-3 w-3" />
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
                                   </td>
                                   <td className="py-2 px-3 text-right font-bold text-slate-900">
-                                    S/ {formatearDecimal(totVal, { vacio: String(totVal ?? '') })}
+                                    {totCampo && editingCampoId === totCampo.id ? (
+                                      <div className="flex items-center justify-end gap-1">
+                                        <Input
+                                          type="text"
+                                          value={tempValorCorregido}
+                                          onChange={(e) => setTempValorCorregido(e.target.value)}
+                                          autoFocus
+                                          className="h-6 w-20 text-right text-xs px-1"
+                                        />
+                                        <Button
+                                          type="button"
+                                          size="xs"
+                                          variant="success"
+                                          className="h-6 w-6 p-0"
+                                          onClick={() => handleGuardarCorreccion(totCampo.id)}
+                                        >
+                                          <Save className="h-3 w-3" />
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          size="xs"
+                                          variant="outline"
+                                          className="h-6 w-6 p-0"
+                                          onClick={() => setEditingCampoId(null)}
+                                        >
+                                          <X className="h-3 w-3" />
+                                        </Button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center justify-end gap-1 group">
+                                        <span>S/ {formatearDecimal(totVal, { vacio: String(totVal ?? '') })}</span>
+                                        {!capturaDetalle.documento_id && totCampo && (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setEditingCampoId(totCampo.id);
+                                              setTempValorCorregido(totCampo.valor_corregido || totCampo.valor_extraido || '');
+                                            }}
+                                            className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-slate-700 p-0.5"
+                                            title="Corregir valor total"
+                                          >
+                                            <Edit3 className="h-3 w-3" />
+                                          </button>
+                                        )}
+                                      </div>
+                                    )}
                                   </td>
                                   <td className="py-2 px-3 text-center">
-                                    {renderConfianzaBadge(codCampo?.confianza || '100.0000')}
+                                    {renderConfianzaBadge(String(minLineaConfianza))}
                                   </td>
                                   <td className="py-2 px-3 text-center">
                                     {homLinea?.estado === 'HOMOLOGADA' ? (
