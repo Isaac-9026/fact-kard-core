@@ -300,8 +300,11 @@ class DocumentoCapturaListView(generics.ListAPIView):
         return qs.order_by('-id')
 
 
-class DocumentoCapturaDetailView(generics.RetrieveAPIView):
-    """Detalle completo de una captura con todos sus campos extraídos."""
+class DocumentoCapturaDetailView(generics.RetrieveDestroyAPIView):
+    """
+    Detalle completo de una captura con todos sus campos extraídos.
+    DELETE: Descarta una captura de prueba o errónea que aún no tenga comprobante generado.
+    """
     permission_classes = [TieneEmpresaActiva]
     serializer_class = DocumentoCapturaDetailSerializer
 
@@ -310,6 +313,16 @@ class DocumentoCapturaDetailView(generics.RetrieveAPIView):
         if not empresa_id:
             return DocumentoCaptura.objects.none()
         return DocumentoCaptura.objects.filter(empresa_id=empresa_id).select_related('subido_por', 'documento').prefetch_related('campos')
+
+    def delete(self, request, *args, **kwargs):
+        captura = self.get_object()
+        if captura.documento_id is not None or captura.estado_proceso == 'BORRADOR_GENERADO':
+            return Response(
+                {"detail": "No se puede descartar una captura que ya generó un comprobante en borrador o confirmado."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        captura.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class CapturaCampoCorregirView(APIView):

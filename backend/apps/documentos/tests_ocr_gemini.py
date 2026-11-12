@@ -15,7 +15,9 @@ import urllib.error
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
+from rest_framework import status
 from rest_framework.exceptions import ValidationError
+from rest_framework.test import APIClient
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase, TestCase, override_settings
 
@@ -29,7 +31,7 @@ from apps.documentos.captura_services import (
 from apps.documentos.models import CapturaCampo, DocumentoCaptura
 from apps.empresas.models import Empresa, Establecimiento, Periodo
 from apps.inventario.models import Almacen, Producto
-from apps.usuarios.models import Usuario
+from apps.usuarios.models import Usuario, UsuarioEmpresa
 
 
 class OcrGeminiCascadaTests(SimpleTestCase):
@@ -371,6 +373,14 @@ class OcrGeminiApiUploadIntegrationTests(TestCase):
             fecha_fin=datetime.date(2026, 3, 31),
             estado="ABIERTO",
         )
+        UsuarioEmpresa.objects.get_or_create(
+            usuario=self.usuario,
+            empresa=self.empresa,
+            defaults={"rol": "ADMIN", "activo": True},
+        )
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.usuario)
+        self.headers = {"HTTP_X_EMPRESA_ID": str(self.empresa.id)}
 
     def _crear_http_response_mock(self, datos_json: dict) -> MagicMock:
         body = json.dumps({
@@ -676,3 +686,43 @@ class OcrGeminiApiUploadIntegrationTests(TestCase):
         self.assertEqual(res["serie_numero"], "001-201")
         captura.refresh_from_db()
         self.assertEqual(captura.estado_proceso, "BORRADOR_GENERADO")
+
+    def test_eliminar_captura_procesada_exitoso(self):
+        """Descarta una captura procesada sin comprobante y elimina sus campos en cascada."""
+        captura = DocumentoCaptura.objects.create(
+            empresa=self.empresa,
+            subido_por=self.usuario,
+            ruta_archivo="uploads/imagen/prueba_descarte.jpg",
+            tipo="IMAGEN",
+            hash_sha256="sha256_descarte_test",
+            estado_proceso="PROCESADO",
+            documento=None,
+        )
+        campo = CapturaCampo.objects.create(
+            documento_captura=captura,
+            seccion="CABECERA",
+            nombre_campo="ruc_emisor",
+            valor_extraido="20600900855",
+        )
+
+        resp = self.client.delete(f"/api/documentos/capturas/{captura.id}/", **self.headers)
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(DocumentoCaptura.objects.filter(id=captura.id).exists())
+        self.assertFalse(CapturaCampo.objects.filter(id=campo.id).exists())
+
+    def test_eliminar_captura_con_borrador_rechaza_400(self):
+        """Rechaza con 400 si la captura ya generó borrador o tiene documento asociado."""
+        captura = DocumentoCaptura.objects.create(
+            empresa=self.empresa,
+            subido_por=self.usuario,
+            ruta_archivo="uploads/imagen/prueba_bloqueada.jpg",
+            tipo="IMAGEN",
+            hash_sha256="sha256_bloqueada_test",
+            estado_proceso="BORRADOR_GENERADO",
+            documento=None,
+        )
+
+        resp = self.client.delete(f"/api/documentos/capturas/{captura.id}/", **self.headers)
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("No se puede descartar", resp.data["detail"])
+        self.assertTrue(DocumentoCaptura.objects.filter(id=captura.id).exists())

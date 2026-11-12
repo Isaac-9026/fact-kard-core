@@ -154,6 +154,13 @@ export const obtenerCapturaDetalle = async (id: number): Promise<DocumentoCaptur
 };
 
 /**
+ * Descarta / elimina una captura de prueba o errónea (solo si no tiene comprobante generado).
+ */
+export const eliminarCaptura = async (id: number): Promise<void> => {
+  await apiClient.delete(`/documentos/capturas/${id}/`);
+};
+
+/**
  * Corrige un valor extraído en la revisión humana de la captura.
  */
 export const corregirCampoCaptura = async (

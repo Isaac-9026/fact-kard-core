@@ -4,6 +4,7 @@ import {
   actualizarEquivalencia,
   corregirCampoCaptura,
   crearEquivalencia,
+  eliminarCaptura,
   generarBorradorDesdeCaptura,
   obtenerCapturaDetalle,
   obtenerCapturas,
@@ -59,6 +60,16 @@ import {
   Edit3,
   Save,
   Filter,
+  Eye,
+  EyeOff,
+  ZoomIn,
+  ZoomOut,
+  RotateCw,
+  Trash2,
+  FileText,
+  Image as ImageIcon,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { PageHeader } from '../../components/ui/page-header';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../../components/ui/card';
@@ -102,6 +113,18 @@ export const CapturaHomologacionPage: React.FC = () => {
   const [uploadTipo, setUploadTipo] = useState<TipoCaptura>('XML');
   const [textoOcr, setTextoOcr] = useState<string>('');
   const [selectedAlmacenId, setSelectedAlmacenId] = useState<number | string>('');
+
+  // Pre-subida y vista previa
+  const [preUploadPreviewUrl, setPreUploadPreviewUrl] = useState<string | null>(null);
+  const [preUploadFileType, setPreUploadFileType] = useState<'image' | 'pdf' | 'xml' | 'other'>('other');
+
+  // Visor "Ojo contra Dato"
+  const [mostrarVisor, setMostrarVisor] = useState(false);
+  const [zoomPct, setZoomPct] = useState<number>(100);
+  const [rotacionDeg, setRotacionDeg] = useState<number>(0);
+  const [modoAjuste, setModoAjuste] = useState<'pagina' | 'ancho' | 'zoom'>('pagina');
+  const [esPantallaCompleta, setEsPantallaCompleta] = useState<boolean>(false);
+  const [archivosCache, setArchivosCache] = useState<Record<string, { url: string; tipo: 'image' | 'pdf' | 'xml'; nombre: string }>>({});
 
   // Edición en línea de campos
   const [editingCampoId, setEditingCampoId] = useState<number | null>(null);
@@ -236,8 +259,31 @@ export const CapturaHomologacionPage: React.FC = () => {
       setUploadFile(file);
       setUploadTipo(tipo);
       setSuccessMsg(null);
-      setErrorMsg(validarArchivoCaptura(file, tipo));
+      const valErr = validarArchivoCaptura(file, tipo);
+      setErrorMsg(valErr);
+      if (!valErr) {
+        if (preUploadPreviewUrl) {
+          URL.revokeObjectURL(preUploadPreviewUrl);
+        }
+        const isImg = file.type.startsWith('image/') || /\.(jpg|jpeg|png|webp)$/i.test(file.name);
+        const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+        setPreUploadFileType(isImg ? 'image' : isPdf ? 'pdf' : /\.xml$/i.test(file.name) ? 'xml' : 'other');
+        setPreUploadPreviewUrl(URL.createObjectURL(file));
+      } else {
+        if (preUploadPreviewUrl) URL.revokeObjectURL(preUploadPreviewUrl);
+        setPreUploadPreviewUrl(null);
+      }
     }
+  };
+
+  const handleLimpiarArchivo = () => {
+    if (preUploadPreviewUrl) {
+      URL.revokeObjectURL(preUploadPreviewUrl);
+    }
+    setUploadFile(null);
+    setPreUploadPreviewUrl(null);
+    const el = document.getElementById('captura-file-input') as HTMLInputElement | null;
+    if (el) el.value = '';
   };
 
   // Subir captura
@@ -254,18 +300,146 @@ export const CapturaHomologacionPage: React.FC = () => {
     }
     setErrorMsg(null);
     setSuccessMsg(null);
+    const currentFile = uploadFile;
+    const currentFileType = preUploadFileType;
     try {
       setLoading(true);
-      const res = await subirCaptura(uploadFile, uploadTipo, textoOcr);
+      const res = await subirCaptura(currentFile, uploadTipo, textoOcr);
       setSuccessMsg(res.mensaje || 'Archivo procesado exitosamente.');
+
+      const fileUrl = URL.createObjectURL(currentFile);
+      const fileCat: 'image' | 'pdf' | 'xml' = currentFileType === 'image' ? 'image' : currentFileType === 'pdf' ? 'pdf' : 'xml';
+      setArchivosCache((prev) => ({
+        ...prev,
+        [String(res.id)]: { url: fileUrl, tipo: fileCat, nombre: currentFile.name },
+        [`hash_${res.hash_sha256}`]: { url: fileUrl, tipo: fileCat, nombre: currentFile.name },
+      }));
+
+      if (currentFile.size <= 2 * 1024 * 1024) {
+        try {
+          const reader = new FileReader();
+          reader.onload = () => {
+            if (typeof reader.result === 'string') {
+              try {
+                sessionStorage.setItem(`fk_captura_${res.id}`, reader.result);
+                sessionStorage.setItem(`fk_captura_hash_${res.hash_sha256}`, reader.result);
+                sessionStorage.setItem(`fk_captura_meta_${res.id}`, JSON.stringify({ tipo: fileCat, nombre: currentFile.name }));
+              } catch {
+                // Ignore quota
+              }
+            }
+          };
+          reader.readAsDataURL(currentFile);
+        } catch {
+          // Ignore
+        }
+      }
+
       setUploadFile(null);
+      setPreUploadPreviewUrl(null);
       setTextoOcr('');
+      setMostrarVisor(true);
       await cargarCapturas();
       setSelectedCapturaId(res.id);
     } catch (err) {
       setErrorMsg(mensajesDeErrorApi(err, 'Error al subir y procesar captura.').join(' '));
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Descartar captura de prueba o errónea
+  const handleDescartarCaptura = async (id: number) => {
+    if (!window.confirm('¿Está seguro de descartar esta captura? Esta acción no se puede deshacer.')) {
+      return;
+    }
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      setLoading(true);
+      await eliminarCaptura(id);
+      setSuccessMsg('Captura descartada exitosamente.');
+      if (selectedCapturaId === id) {
+        setSelectedCapturaId(null);
+        setCapturaDetalle(null);
+      }
+      await cargarCapturas();
+    } catch (err) {
+      setErrorMsg(mensajesDeErrorApi(err, 'Error al descartar captura.').join(' '));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Auto-activación del visor si la captura tiene campos observados en rojo (< 70%) o alertas
+  useEffect(() => {
+    if (capturaDetalle?.campos) {
+      const hayObservados = capturaDetalle.campos.some(
+        (c) => c.confianza !== null && Number(c.confianza) < 70
+      );
+      const hayAlertas = capturaDetalle.campos.some((c) => c.nombre_campo === 'alerta_validacion');
+      if (hayObservados || hayAlertas) {
+        setMostrarVisor(true);
+      }
+    }
+  }, [capturaDetalle]);
+
+  // Resolución de la vista previa del comprobante original (memoria o sessionStorage)
+  const previewActiva = useMemo(() => {
+    if (!capturaDetalle) return null;
+    const enMemoria = archivosCache[String(capturaDetalle.id)] || archivosCache[`hash_${capturaDetalle.hash_sha256}`];
+    if (enMemoria) return enMemoria;
+    try {
+      const dataUrl = sessionStorage.getItem(`fk_captura_${capturaDetalle.id}`) || sessionStorage.getItem(`fk_captura_hash_${capturaDetalle.hash_sha256}`);
+      const metaStr = sessionStorage.getItem(`fk_captura_meta_${capturaDetalle.id}`);
+      if (dataUrl && metaStr) {
+        const meta = JSON.parse(metaStr);
+        return { url: dataUrl, tipo: meta.tipo as 'image' | 'pdf' | 'xml', nombre: meta.nombre as string };
+      }
+    } catch {
+      // Ignore
+    }
+    return null;
+  }, [capturaDetalle, archivosCache]);
+
+  const handleZoomIn = () => {
+    setModoAjuste('zoom');
+    setZoomPct((prev) => Math.min(prev + 25, 250));
+  };
+  const handleZoomOut = () => {
+    setModoAjuste('zoom');
+    setZoomPct((prev) => Math.max(prev - 25, 50));
+  };
+  const handleRotate = () => setRotacionDeg((prev) => (prev + 90) % 360);
+  const handleResetView = () => {
+    setModoAjuste('pagina');
+    setZoomPct(100);
+    setRotacionDeg(0);
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && esPantallaCompleta) {
+        setEsPantallaCompleta(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [esPantallaCompleta]);
+
+  const handleVincularArchivoLocal = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0 && capturaDetalle) {
+      const file = e.target.files[0];
+      const url = URL.createObjectURL(file);
+      const isImg = file.type.startsWith('image/') || /\.(jpg|jpeg|png|webp)$/i.test(file.name);
+      const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+      const cat: 'image' | 'pdf' | 'xml' = isImg ? 'image' : isPdf ? 'pdf' : 'xml';
+      setArchivosCache((prev) => ({
+        ...prev,
+        [String(capturaDetalle.id)]: { url, tipo: cat, nombre: file.name },
+        [`hash_${capturaDetalle.hash_sha256}`]: { url, tipo: cat, nombre: file.name },
+      }));
+      setMostrarVisor(true);
     }
   };
 
@@ -633,9 +807,46 @@ export const CapturaHomologacionPage: React.FC = () => {
                       Formatos permitidos: {formatosVisibles(uploadTipo)}
                     </span>
                     {uploadFile && (
-                      <span className="text-[11px] text-indigo-600 font-medium block break-all">
-                        Seleccionado: <strong>{uploadFile.name}</strong> ({(uploadFile.size / 1024).toFixed(1)} KB)
-                      </span>
+                      <div className="mt-2 p-2.5 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          {preUploadFileType === 'image' && preUploadPreviewUrl ? (
+                            <img
+                              src={preUploadPreviewUrl}
+                              alt="Miniatura comprobante"
+                              className="h-20 w-20 object-contain rounded border border-slate-300 bg-white shrink-0 shadow-xs"
+                            />
+                          ) : preUploadFileType === 'pdf' ? (
+                            <div className="h-16 w-16 rounded border border-rose-200 bg-rose-50 flex flex-col items-center justify-center shrink-0 text-rose-600">
+                              <FileText className="h-6 w-6" />
+                              <span className="text-[9px] font-bold mt-0.5">PDF</span>
+                            </div>
+                          ) : (
+                            <div className="h-16 w-16 rounded border border-indigo-200 bg-indigo-50 flex flex-col items-center justify-center shrink-0 text-indigo-600">
+                              <FileCode className="h-6 w-6" />
+                              <span className="text-[9px] font-bold mt-0.5">XML</span>
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <span className="text-[11px] text-indigo-600 font-medium block break-all">
+                              Seleccionado: <strong>{uploadFile.name}</strong> ({(uploadFile.size / 1024).toFixed(1)} KB)
+                            </span>
+                            <span className="text-[10px] text-slate-500 block mt-0.5">
+                              Listo para procesar y extraer con IA
+                            </span>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="xs"
+                          onClick={handleLimpiarArchivo}
+                          className="text-slate-500 hover:text-rose-600 shrink-0"
+                          title="Quitar archivo"
+                        >
+                          <X className="h-4 w-4 mr-1" />
+                          Quitar
+                        </Button>
+                      </div>
                     )}
                   </div>
 
@@ -728,13 +939,28 @@ export const CapturaHomologacionPage: React.FC = () => {
                             <Badge variant="neutral" size="xs">
                               {c.tipo}
                             </Badge>
-                            <Badge
-                              variant={isDraftGenerated ? 'success' : 'warning'}
-                              size="xs"
-                              dot
-                            >
-                              {c.estado_proceso}
-                            </Badge>
+                            <div className="flex items-center gap-1.5">
+                              <Badge
+                                variant={isDraftGenerated ? 'success' : 'warning'}
+                                size="xs"
+                                dot
+                              >
+                                {c.estado_proceso}
+                              </Badge>
+                              {!isDraftGenerated && c.documento_id === null && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDescartarCaptura(c.id);
+                                  }}
+                                  className="text-slate-400 hover:text-rose-600 p-0.5 rounded transition-colors"
+                                  title="Descartar captura"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              )}
+                            </div>
                           </div>
                           <p className="text-xs font-semibold text-slate-900 truncate" title={c.ruta_archivo}>
                             {c.ruta_archivo.split('/').pop()}
@@ -787,6 +1013,19 @@ export const CapturaHomologacionPage: React.FC = () => {
                       </div>
 
                       <div className="flex items-center gap-2 flex-wrap">
+                        <div className="pt-4 sm:pt-0">
+                          <Button
+                            type="button"
+                            variant={mostrarVisor ? 'primary' : 'outline'}
+                            size="sm"
+                            onClick={() => setMostrarVisor(!mostrarVisor)}
+                            title={mostrarVisor ? 'Ocultar visor del comprobante' : 'Ver documento original'}
+                          >
+                            {mostrarVisor ? <EyeOff className="h-4 w-4 mr-1.5" /> : <Eye className="h-4 w-4 mr-1.5" />}
+                            {mostrarVisor ? 'Ocultar Visor' : 'Ver Comprobante'}
+                          </Button>
+                        </div>
+
                         <div className="space-y-1">
                           <Label className="text-[11px]">Almacén Destino:</Label>
                           <Select
@@ -820,6 +1059,208 @@ export const CapturaHomologacionPage: React.FC = () => {
                       </div>
                     </CardContent>
                   </Card>
+
+                  {/* Visor Ojo contra Dato */}
+                  {mostrarVisor && (
+                    <>
+                      {esPantallaCompleta && (
+                        <div
+                          className="fixed inset-0 z-40 bg-slate-950/70 backdrop-blur-xs transition-opacity"
+                          onClick={() => setEsPantallaCompleta(false)}
+                        />
+                      )}
+                      <Card
+                        className={`border-indigo-100 shadow-xs overflow-hidden transition-all ${
+                          esPantallaCompleta
+                            ? 'fixed inset-3 sm:inset-6 z-50 flex flex-col bg-white shadow-2xl border-2 border-indigo-400'
+                            : ''
+                        }`}
+                      >
+                        <CardHeader className="py-2.5 px-4 bg-slate-50 border-b border-slate-200 flex flex-row items-center justify-between shrink-0">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="p-1 rounded bg-indigo-100 text-indigo-700">
+                              {previewActiva?.tipo === 'image' ? (
+                                <ImageIcon className="h-4 w-4" />
+                              ) : previewActiva?.tipo === 'pdf' ? (
+                                <FileText className="h-4 w-4" />
+                              ) : (
+                                <Eye className="h-4 w-4" />
+                              )}
+                            </span>
+                            <div className="min-w-0">
+                              <CardTitle className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                                Visor de Comprobante Original
+                                {previewActiva && (
+                                  <Badge variant="neutral" size="xs">
+                                    {previewActiva.tipo.toUpperCase()}
+                                  </Badge>
+                                )}
+                              </CardTitle>
+                              <p className="text-[11px] text-slate-500 truncate" title={previewActiva?.nombre || capturaDetalle.ruta_archivo}>
+                                {previewActiva?.nombre || capturaDetalle.ruta_archivo.split('/').pop()}
+                              </p>
+                            </div>
+                          </div>
+
+                          {previewActiva && (
+                            <div className="flex items-center gap-1.5 flex-wrap shrink-0">
+                              {previewActiva.tipo === 'image' && (
+                                <>
+                                  <div className="flex items-center rounded-md border border-slate-200 bg-white p-0.5 shadow-xs">
+                                    <button
+                                      type="button"
+                                      onClick={() => setModoAjuste('pagina')}
+                                      className={`px-2 py-1 text-[11px] font-medium rounded transition-colors ${
+                                        modoAjuste === 'pagina'
+                                          ? 'bg-indigo-50 text-indigo-700 font-semibold'
+                                          : 'text-slate-600 hover:text-slate-900'
+                                      }`}
+                                      title="Ajustar imagen para ver el documento completo sin recortes"
+                                    >
+                                      Página Completa
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setModoAjuste('ancho')}
+                                      className={`px-2 py-1 text-[11px] font-medium rounded transition-colors ${
+                                        modoAjuste === 'ancho'
+                                          ? 'bg-indigo-50 text-indigo-700 font-semibold'
+                                          : 'text-slate-600 hover:text-slate-900'
+                                      }`}
+                                      title="Ajustar imagen al ancho del panel para lectura de texto"
+                                    >
+                                      Ajustar Ancho
+                                    </button>
+                                  </div>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="xs"
+                                    onClick={handleZoomOut}
+                                    disabled={zoomPct <= 50}
+                                    title="Alejar (-25%)"
+                                  >
+                                    <ZoomOut className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <span className="text-[11px] font-mono font-semibold text-slate-700 w-11 text-center select-none">
+                                    {zoomPct}%
+                                  </span>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="xs"
+                                    onClick={handleZoomIn}
+                                    disabled={zoomPct >= 250}
+                                    title="Acercar (+25%)"
+                                  >
+                                    <ZoomIn className="h-3.5 w-3.5" />
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="xs"
+                                    onClick={handleRotate}
+                                    title="Rotar 90°"
+                                  >
+                                    <RotateCw className="h-3.5 w-3.5" />
+                                  </Button>
+                                </>
+                              )}
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="xs"
+                                onClick={() => setEsPantallaCompleta(!esPantallaCompleta)}
+                                title={esPantallaCompleta ? 'Salir de pantalla completa' : 'Ver en pantalla completa'}
+                              >
+                                {esPantallaCompleta ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="xs"
+                                onClick={handleResetView}
+                                className="text-[11px]"
+                                title="Restablecer zoom y rotación"
+                              >
+                                Restablecer
+                              </Button>
+                            </div>
+                          )}
+                        </CardHeader>
+                        <CardContent className={`p-3 ${esPantallaCompleta ? 'flex-1 min-h-0 overflow-hidden flex flex-col' : ''}`}>
+                          {previewActiva ? (
+                            previewActiva.tipo === 'image' ? (
+                              <div
+                                className={`overflow-auto rounded border border-slate-200 bg-slate-900/5 p-4 flex flex-col items-center justify-start ${
+                                  esPantallaCompleta ? 'flex-1 min-h-0' : 'max-h-[640px] min-h-[380px]'
+                                }`}
+                              >
+                                <div
+                                  className="transition-transform duration-150 inline-block"
+                                  style={{
+                                    transform: `rotate(${rotacionDeg}deg)`,
+                                    transformOrigin: 'center center',
+                                  }}
+                                >
+                                  <img
+                                    src={previewActiva.url}
+                                    alt="Comprobante original"
+                                    className="select-none shadow-md rounded border border-slate-300 block"
+                                    style={{
+                                      width: modoAjuste === 'ancho' ? '100%' : modoAjuste === 'pagina' ? 'auto' : `${zoomPct}%`,
+                                      maxHeight: modoAjuste === 'pagina' ? (esPantallaCompleta ? 'calc(100vh - 160px)' : '580px') : 'none',
+                                      maxWidth: modoAjuste === 'pagina' ? '100%' : modoAjuste === 'ancho' ? '100%' : 'none',
+                                      height: 'auto',
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            ) : previewActiva.tipo === 'pdf' ? (
+                              <div className={esPantallaCompleta ? 'flex-1 min-h-0' : 'h-[580px]'}>
+                                <iframe
+                                  src={previewActiva.url}
+                                  title="Vista previa PDF"
+                                  className="w-full h-full rounded border border-slate-200 bg-white"
+                                />
+                              </div>
+                            ) : (
+                              <div className="rounded border border-indigo-200 bg-indigo-50/60 p-4 text-xs text-indigo-900 flex items-center gap-3">
+                                <FileCode className="h-8 w-8 text-indigo-600 shrink-0" />
+                                <div>
+                                  <p className="font-semibold">Archivo XML UBL 2.1 estructurado</p>
+                                  <p className="text-[11px] text-indigo-700 mt-0.5">
+                                    Los datos de este comprobante electrónico fueron leídos directamente desde sus etiquetas XML oficiales con 100% de confianza.
+                                  </p>
+                                </div>
+                              </div>
+                            )
+                          ) : (
+                            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-xs text-slate-600 space-y-2">
+                              <FileText className="h-8 w-8 text-slate-400 mx-auto" />
+                              <p className="font-semibold text-slate-800">Vista previa no disponible en la sesión actual</p>
+                              <p className="text-[11px] text-slate-500 max-w-md mx-auto">
+                                El archivo físico ({capturaDetalle.ruta_archivo.split('/').pop()}) se procesó en el servidor sin almacenarse en disco.
+                                Puede vincular el archivo desde su equipo para compararlo al lado de los datos extraídos sin volver a subirlo.
+                              </p>
+                              <div className="pt-1">
+                                <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-white border border-slate-300 text-slate-700 hover:bg-slate-50 cursor-pointer shadow-xs transition-colors">
+                                  <Upload className="h-3.5 w-3.5 text-indigo-600" />
+                                  Vincular archivo local para vista previa
+                                  <input
+                                    type="file"
+                                    accept=".pdf,.jpg,.jpeg,.png,.webp,.xml"
+                                    onChange={handleVincularArchivoLocal}
+                                    className="hidden"
+                                  />
+                                </label>
+                              </div>
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </>
+                  )}
 
                   {/* Feedback de Borrador Generado con Incidencias */}
                   {borradorResultado && (
