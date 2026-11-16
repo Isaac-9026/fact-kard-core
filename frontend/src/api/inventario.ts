@@ -170,3 +170,57 @@ export const getTiposExistencia = async (): Promise<TipoExistencia[]> =>
 
 export const getUnidadesMedida = async (): Promise<UnidadMedida[]> =>
   (await apiClient.get<UnidadMedida[]>('/inventario/catalogos/unidades-medida/')).data;
+
+export interface FilaDiagnosticoExcel {
+  fila: number;
+  codigo_interno: string;
+  codigo_real: string;
+  auto_generar: boolean;
+  descripcion: string;
+  tipo_existencia_codigo: string;
+  unidad_base_codigo: string;
+  afectacion_igv: string;
+  precio_venta_sugerido: string | null;
+  estado_fila: 'NUEVO' | 'ACTUALIZAR' | 'ERROR';
+  observacion: string;
+}
+
+export interface ImportarProductosExcelResultado {
+  total_filas: number;
+  nuevos: number;
+  actualizables: number;
+  errores: number;
+  creados?: number;
+  actualizados?: number;
+  omitidos_por_error?: number;
+  total_procesados?: number;
+  filas?: FilaDiagnosticoExcel[];
+  mensaje: string;
+}
+
+export const descargarPlantillaProductosExcel = async (): Promise<Blob> => {
+  const response = await apiClient.get('/inventario/productos/plantilla-excel/', {
+    responseType: 'blob',
+  });
+  return response.data;
+};
+
+export const importarProductosExcel = async (
+  archivo: File,
+  modo: 'PREVISUALIZAR' | 'CONFIRMAR'
+): Promise<ImportarProductosExcelResultado> => {
+  const formData = new FormData();
+  formData.append('archivo', archivo);
+  formData.append('modo', modo);
+  const response = await apiClient.post<ImportarProductosExcelResultado>(
+    '/inventario/productos/importar-excel/',
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    }
+  );
+  return response.data;
+};
+
