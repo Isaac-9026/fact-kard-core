@@ -26,6 +26,7 @@ import { obtenerEmpresas, type Empresa } from '../../api/empresas';
 import { useAuth } from '../../context/useAuth';
 import { Badge } from '../../components/ui/badge';
 import { Modal } from '../../components/ui/modal';
+import { diferirCarga } from '../../utils/efectos';
 
 export const UsuariosPage: React.FC = () => {
   const { usuario: usuarioSesion } = useAuth();
@@ -84,7 +85,8 @@ export const UsuariosPage: React.FC = () => {
   };
 
   useEffect(() => {
-    cargarDatos();
+    // La carga empieza con setCargando(true): se difiere fuera del cuerpo síncrono del efecto.
+    diferirCarga(cargarDatos);
   }, []);
 
   const usuariosFiltrados = useMemo(() => {

@@ -16,7 +16,7 @@ export type IconoNav =
   | 'saldoInicial' | 'inventario'
   | 'compras' | 'ventas' | 'comprobantes' | 'notas' | 'transferencias' | 'captura'
   | 'cuentasCobrar' | 'cuentasPagar'
-  | 'kardex' | 'incidencias'
+  | 'kardex' | 'incidencias' | 'costoVenta'
   | 'cierres' | 'formato131' | 'registroComercial'
   | 'auditoria';
 
@@ -82,6 +82,7 @@ export const NAV_SECCIONES: SeccionNav[] = [
     items: [
       { path: '/kardex', label: 'Kardex Valorizado', icono: 'kardex' },
       { path: '/incidencias', label: 'Incidencias y Recálculo', icono: 'incidencias' },
+      { path: '/costo-venta', label: 'Costo de Venta', icono: 'costoVenta' },
     ],
   },
   {

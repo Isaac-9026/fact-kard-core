@@ -19,6 +19,7 @@ const StockActualPage = lazy(() => import('./pages/inventario/StockActualPage').
 const OperacionesInternasPage = lazy(() => import('./pages/operaciones/OperacionesInternasPage').then((m) => ({ default: m.OperacionesInternasPage })));
 const TransferenciasPage = lazy(() => import('./pages/transferencias/TransferenciasPage').then((m) => ({ default: m.TransferenciasPage })));
 const IncidenciasPage = lazy(() => import('./pages/incidencias/IncidenciasPage').then((m) => ({ default: m.IncidenciasPage })));
+const CostoVentaPage = lazy(() => import('./pages/costoVenta/CostoVentaPage').then((m) => ({ default: m.CostoVentaPage })));
 const KardexPage = lazy(() => import('./pages/kardex/KardexPage').then((m) => ({ default: m.KardexPage })));
 const CierresPage = lazy(() => import('./pages/cierres/CierresPage').then((m) => ({ default: m.CierresPage })));
 const CapturaHomologacionPage = lazy(() => import('./pages/captura/CapturaHomologacionPage').then((m) => ({ default: m.CapturaHomologacionPage })));
@@ -100,6 +101,7 @@ export const App: React.FC = () => {
 
               <Route path="kardex" element={diferido(KardexPage)} />
               <Route path="incidencias" element={diferido(IncidenciasPage)} />
+              <Route path="costo-venta" element={diferido(CostoVentaPage)} />
               {/* CIERRE Y REPORTES */}
               <Route path="cierres" element={diferido(CierresPage)} />
               <Route path="formato-13-1" element={diferido(Formato131Page)} />

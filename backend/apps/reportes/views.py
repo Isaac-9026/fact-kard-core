@@ -11,6 +11,8 @@ from apps.reportes.excel_exporter import generar_bytes_excel_kardex
 from apps.empresas.models import Periodo
 from apps.reportes.formato131_excel import generar_excel_formato_131, nombre_archivo_formato_131
 from apps.reportes.formato131_service import generar_formato_131
+from apps.reportes.costo_ventas import generar_costo_ventas
+from apps.reportes.costo_ventas_excel import generar_excel_costo_ventas
 from apps.reportes.piloto_service import comparar_piloto, obtener_valores_factkard
 from apps.reportes.serializers import PilotoComparacionSerializer
 from config.api import entero_param, fecha_param, paginar_lista
@@ -172,4 +174,39 @@ class RegistroComercialView(APIView):
         buffer = excel_registro(datos)
         response = HttpResponse(buffer.getvalue(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         response['Content-Disposition'] = f'attachment; filename="{nombre_archivo_registro(datos)}"'
+        return response
+
+
+def filtros_costo_ventas(request):
+    params = request.query_params
+    return {
+        'empresa_id': request.empresa_id,
+        'periodo_id': entero_param(params, 'periodo_id', requerido=True),
+        'periodo_hasta_id': entero_param(params, 'periodo_hasta_id'),
+        'producto_id': entero_param(params, 'producto_id'),
+    }
+
+
+class CostoVentasView(APIView):
+    """
+    GET /api/reportes/costo-ventas/?periodo_id=&periodo_hasta_id=&producto_id=
+    Saldo inicial + Compras − Saldo final = Costo de venta (solo lectura, desde el Kardex).
+    """
+    authentication_classes = (UsuarioTokenAuthentication,)
+    permission_classes = (TieneEmpresaActiva,)
+
+    def get(self, request):
+        return Response(generar_costo_ventas(**filtros_costo_ventas(request)))
+
+
+class CostoVentasExcelView(APIView):
+    authentication_classes = (UsuarioTokenAuthentication,)
+    permission_classes = (TieneEmpresaActiva,)
+
+    def get(self, request):
+        buffer, nombre = generar_excel_costo_ventas(**filtros_costo_ventas(request))
+        response = HttpResponse(buffer.getvalue(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        response['Content-Disposition'] = f'attachment; filename="{nombre}"'
+        response['Content-Length'] = str(buffer.getbuffer().nbytes)
+        buffer.close()
         return response
