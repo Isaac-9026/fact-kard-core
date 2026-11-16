@@ -43,7 +43,7 @@ test('menú con las secciones y opciones en el orden del flujo', () => {
       ['INVENTARIO INICIAL', ['Saldo Inicial', 'Inventario']],
       ['OPERACIONES', ['Comprobantes', 'Notas de Crédito / Débito', 'Transferencias', 'Captura XML / OCR']],
       ['FINANZAS', ['Cuentas por cobrar', 'Cuentas por pagar']],
-      ['KARDEX', ['Kardex Valorizado', 'Incidencias y Recálculo']],
+      ['KARDEX', ['Kardex Valorizado', 'Incidencias y Recálculo', 'Costo de Venta']],
       ['CIERRE Y REPORTES', ['Cierres y Snapshots', 'Formato 13.1 SUNAT', 'Registro de ventas y compras']],
       ['SEGURIDAD', ['Auditoría Inmutable']],
     ],
@@ -60,6 +60,7 @@ test('cada opción del menú tiene ruta, sin duplicados, y resalta la opción ac
   assert.equal(itemActivo('/inventario')?.seccion.title, 'INVENTARIO INICIAL');
   assert.equal(itemActivo('/cuentas-por-cobrar')?.seccion.title, 'FINANZAS'); // Bloque 16
   assert.equal(itemActivo('/cuentas-por-pagar')?.item.label, 'Cuentas por pagar');
+  assert.equal(itemActivo('/costo-venta')?.seccion.title, 'KARDEX');
   assert.equal(itemActivo('/no-existe'), null);
   // Coincidencia exacta o por segmento.
   assert.equal(itemActivo('/comprobantesx'), null);

@@ -39,6 +39,7 @@ import {
   KeyRound,
   CheckCircle2,
   AlertCircle,
+  Calculator,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useAuth } from '../context/useAuth'
@@ -89,6 +90,7 @@ const ICONOS: Record<IconoNav, LucideIcon> = {
   captura: ScanLine,
   kardex: BookOpenCheck,
   incidencias: AlertTriangle,
+  costoVenta: Calculator,
   cierres: Lock,
   formato131: FileCheck2,
   registroComercial: BookText,

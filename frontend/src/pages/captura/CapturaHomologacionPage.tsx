@@ -122,12 +122,28 @@ export const CapturaHomologacionPage: React.FC = () => {
   const [preUploadFileType, setPreUploadFileType] = useState<'image' | 'pdf' | 'xml' | 'other'>('other');
 
   // Control de UI y filtros de bandeja
-  const [mostrarSubida, setMostrarSubida] = useState<boolean>(false);
+  // Abierto al inicio y cada vez que la lista queda vacía (ver cargarCapturas).
+  const [mostrarSubida, setMostrarSubida] = useState<boolean>(true);
   const [busquedaCapturas, setBusquedaCapturas] = useState<string>('');
   const [filtroEstadoCaptura, setFiltroEstadoCaptura] = useState<'todos' | 'pendientes' | 'borradores'>('todos');
 
   // Visor "Ojo contra Dato"
   const [mostrarVisor, setMostrarVisor] = useState(false);
+
+  // Cambia el detalle y abre el visor si la captura tiene campos observados en rojo (< 70%) o
+  // alertas. Se hace aquí y no en un efecto (react-hooks/set-state-in-effect).
+  const actualizarDetalle = useCallback((detalle: DocumentoCaptura | null) => {
+    setCapturaDetalle(detalle);
+    const campos = detalle?.campos;
+    if (
+      campos &&
+      campos.some(
+        (c) => (c.confianza !== null && Number(c.confianza) < 70) || c.nombre_campo === 'alerta_validacion',
+      )
+    ) {
+      setMostrarVisor(true);
+    }
+  }, []);
   const [zoomPct, setZoomPct] = useState<number>(100);
   const [rotacionDeg, setRotacionDeg] = useState<number>(0);
   const [modoAjuste, setModoAjuste] = useState<'pagina' | 'ancho' | 'zoom'>('pagina');
@@ -202,6 +218,8 @@ export const CapturaHomologacionPage: React.FC = () => {
       setLoading(true);
       const data = await obtenerCapturas();
       setCapturas(data);
+      // Auto-apertura del formulario de subida si no hay comprobantes cargados.
+      if (data.length === 0) setMostrarSubida(true);
       if (data.length > 0) {
         // Solo se preselecciona la primera captura si aún no hay una elegida.
         setSelectedCapturaId((actual) => (actual === null ? data[0].id : actual));
@@ -213,12 +231,6 @@ export const CapturaHomologacionPage: React.FC = () => {
     }
   }, [empresaActiva]);
 
-  // Auto-apertura del formulario de subida si no hay comprobantes cargados
-  useEffect(() => {
-    if (capturas.length === 0) {
-      setMostrarSubida(true);
-    }
-  }, [capturas.length]);
 
   // Capturas filtradas en la columna izquierda
   const capturasFiltradas = useMemo(() => {
@@ -267,19 +279,19 @@ export const CapturaHomologacionPage: React.FC = () => {
   useEffect(() => {
     const cargarDetalle = async () => {
       if (!selectedCapturaId) {
-        setCapturaDetalle(null);
+        actualizarDetalle(null);
         return;
       }
       try {
         setBorradorResultado(null);
         const data = await obtenerCapturaDetalle(selectedCapturaId);
-        setCapturaDetalle(data);
+        actualizarDetalle(data);
       } catch (err) {
         console.error('Error al obtener detalle de captura:', err);
       }
     };
     diferirCarga(cargarDetalle);
-  }, [selectedCapturaId]);
+  }, [selectedCapturaId, actualizarDetalle]);
 
   // Manejo de cambio de archivo y detección de tipo
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -392,7 +404,7 @@ export const CapturaHomologacionPage: React.FC = () => {
       setSuccessMsg('Captura descartada exitosamente.');
       if (selectedCapturaId === id) {
         setSelectedCapturaId(null);
-        setCapturaDetalle(null);
+        actualizarDetalle(null);
       }
       await cargarCapturas();
     } catch (err) {
@@ -402,18 +414,6 @@ export const CapturaHomologacionPage: React.FC = () => {
     }
   };
 
-  // Auto-activación del visor si la captura tiene campos observados en rojo (< 70%) o alertas
-  useEffect(() => {
-    if (capturaDetalle?.campos) {
-      const hayObservados = capturaDetalle.campos.some(
-        (c) => c.confianza !== null && Number(c.confianza) < 70
-      );
-      const hayAlertas = capturaDetalle.campos.some((c) => c.nombre_campo === 'alerta_validacion');
-      if (hayObservados || hayAlertas) {
-        setMostrarVisor(true);
-      }
-    }
-  }, [capturaDetalle]);
 
   // Resolución de la vista previa del comprobante original (memoria o sessionStorage)
   const previewActiva = useMemo(() => {
@@ -513,7 +513,7 @@ export const CapturaHomologacionPage: React.FC = () => {
     try {
       const updated = await corregirCampoCaptura(selectedCapturaId, campoId, tempValorCorregido);
       if (capturaDetalle && capturaDetalle.campos) {
-        setCapturaDetalle({
+        actualizarDetalle({
           ...capturaDetalle,
           campos: capturaDetalle.campos.map((c) => (c.id === campoId ? updated : c)),
         });
@@ -540,7 +540,7 @@ export const CapturaHomologacionPage: React.FC = () => {
       setSuccessMsg(res.mensaje);
       await cargarCapturas();
       const detalleActualizado = await obtenerCapturaDetalle(selectedCapturaId);
-      setCapturaDetalle(detalleActualizado);
+      actualizarDetalle(detalleActualizado);
     } catch (err) {
       setErrorMsg(mensajesDeErrorApi(err, 'Error al generar borrador.').join(' '));
     } finally {
@@ -601,7 +601,7 @@ export const CapturaHomologacionPage: React.FC = () => {
       await recargarTerceros();
       if (capturaEquivId) {
         // Volver a la captura: sus líneas se recalculan con la nueva equivalencia.
-        if (capturaEquivId === selectedCapturaId) setCapturaDetalle(await obtenerCapturaDetalle(capturaEquivId));
+        if (capturaEquivId === selectedCapturaId) actualizarDetalle(await obtenerCapturaDetalle(capturaEquivId));
         setActiveTab('capturas');
         setCapturaEquivId(null);
       }
