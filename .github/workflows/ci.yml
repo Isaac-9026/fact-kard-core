@@ -53,6 +53,26 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt
 
+      # El runner trae un pg_dump más nuevo (17+) que agrega `SET transaction_timeout`, que
+      # PostgreSQL 16 no reconoce: las pruebas de respaldo/restauración usan el cliente 16,
+      # el mismo major que el servidor (igual que la imagen Docker de producción).
+      - name: Instalar cliente PostgreSQL 16 (pg_dump / pg_restore)
+        run: |
+          if ! grep -rqs 'apt.postgresql.org' /etc/apt/sources.list /etc/apt/sources.list.d/; then
+            sudo install -d /usr/share/postgresql-common/pgdg
+            sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+            echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          fi
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-16
+          # Primero en el PATH de los pasos siguientes: `pg_dump` y `pg_restore` son los de la versión 16.
+          echo "/usr/lib/postgresql/16/bin" >> "$GITHUB_PATH"
+          /usr/lib/postgresql/16/bin/pg_dump --version
+          /usr/lib/postgresql/16/bin/pg_restore --version
+
+      - name: Verificar versión de pg_dump
+        run: pg_dump --version | grep -q ' 16\.' && pg_dump --version
+
       - name: Ejecutar Suite de Tests de Django
         working-directory: backend
         env:
