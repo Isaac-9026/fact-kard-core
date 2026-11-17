@@ -1,13 +1,13 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Modal } from '../../components/ui/modal';
 import { Button } from '../../components/ui/button';
-import { Lock, ShieldCheck, AlertTriangle, Loader2 } from 'lucide-react';
+import { Lock, ShieldCheck, AlertTriangle, Loader2, FileText, Paperclip, X } from 'lucide-react';
 
 interface ModalConfirmarCierreProps {
   abierto: boolean;
   periodo: { anio: number; mes: number } | null;
   enviando: boolean;
-  onConfirmar: () => void;
+  onConfirmar: (archivoPdf?: File | null, referenciaSustento?: string) => void;
   onCancelar: () => void;
 }
 
@@ -20,12 +20,25 @@ export const ModalConfirmarCierre: React.FC<ModalConfirmarCierreProps> = ({
   onConfirmar,
   onCancelar,
 }) => {
+  const [archivoPdf, setArchivoPdf] = useState<File | null>(null);
+  const [referenciaSustento, setReferenciaSustento] = useState('');
+
   if (!periodo) return null;
+
+  const handleCancelar = () => {
+    setArchivoPdf(null);
+    setReferenciaSustento('');
+    onCancelar();
+  };
+
+  const handleConfirmar = () => {
+    onConfirmar(archivoPdf, referenciaSustento);
+  };
 
   return (
     <Modal
       isOpen={abierto}
-      onClose={onCancelar}
+      onClose={handleCancelar}
       maxWidth="md"
       icon={
         <div className="p-2 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -41,7 +54,7 @@ export const ModalConfirmarCierre: React.FC<ModalConfirmarCierreProps> = ({
             variant="outline"
             size="sm"
             disabled={enviando}
-            onClick={onCancelar}
+            onClick={handleCancelar}
           >
             Cancelar
           </Button>
@@ -50,7 +63,7 @@ export const ModalConfirmarCierre: React.FC<ModalConfirmarCierreProps> = ({
             variant="primary"
             size="sm"
             disabled={enviando}
-            onClick={onConfirmar}
+            onClick={handleConfirmar}
             className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
           >
             {enviando ? (
@@ -88,6 +101,64 @@ export const ModalConfirmarCierre: React.FC<ModalConfirmarCierreProps> = ({
               </span>
             </li>
           </ul>
+        </div>
+
+        {/* Sustento de Toma de Inventario Físico (Opcional) */}
+        <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-2.5 shadow-2xs">
+          <div className="flex items-center gap-1.5 font-semibold text-slate-800">
+            <FileText className="h-4 w-4 text-indigo-600" />
+            <span>Sustento de Toma de Inventario Físico (Opcional)</span>
+          </div>
+          <p className="text-[11px] text-slate-500">
+            Adjunte el Acta de Toma de Inventario Físico o Informe de Cierre en formato PDF (máx. 5 MB).
+          </p>
+
+          <div className="space-y-1">
+            <label className="text-[11px] font-medium text-slate-700 block">Referencia / Identificador del Sustento</label>
+            <input
+              type="text"
+              maxLength={200}
+              placeholder="Ej. Acta Notarial de Inventario Anual N° 08-2026"
+              value={referenciaSustento}
+              onChange={(e) => setReferenciaSustento(e.target.value)}
+              className="w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-900 shadow-2xs focus:ring-2 focus:ring-slate-900 focus:outline-none"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-2xs">
+              <Paperclip className="h-3.5 w-3.5 text-slate-500" />
+              <span>{archivoPdf ? 'Cambiar PDF' : 'Seleccionar PDF de Cierre'}</span>
+              <input
+                type="file"
+                accept=".pdf,application/pdf"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0] || null;
+                  if (f && !f.name.toLowerCase().endsWith('.pdf')) {
+                    alert('El archivo debe tener extensión .pdf');
+                    return;
+                  }
+                  setArchivoPdf(f);
+                }}
+              />
+            </label>
+
+            {archivoPdf && (
+              <div className="flex items-center gap-2 text-xs bg-indigo-50 border border-indigo-200 text-indigo-900 px-2.5 py-1 rounded-md">
+                <FileText className="h-3.5 w-3.5 text-indigo-600" />
+                <span className="font-mono truncate max-w-[200px]" title={archivoPdf.name}>{archivoPdf.name}</span>
+                <button
+                  type="button"
+                  onClick={() => setArchivoPdf(null)}
+                  className="text-slate-400 hover:text-slate-600 ml-1"
+                  title="Quitar archivo"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800 flex items-start gap-2">

@@ -390,10 +390,35 @@ class CierrePeriodoSerializer(serializers.ModelSerializer):
     detalles = CierrePeriodoDetalleSerializer(many=True, read_only=True)
     periodo_info = serializers.SerializerMethodField()
     cerrado_por_username = serializers.CharField(source='cerrado_por.username', read_only=True)
+    sustento_pdf = serializers.SerializerMethodField()
 
     class Meta:
         model = CierrePeriodo
-        fields = ('id', 'periodo', 'periodo_info', 'version_calculo', 'cerrado_por', 'cerrado_por_username', 'cerrado_en', 'archivo_excel', 'hash_resultado', 'snapshot_resumen', 'vigente', 'detalles')
+        fields = (
+            'id', 'periodo', 'periodo_info', 'version_calculo',
+            'cerrado_por', 'cerrado_por_username', 'cerrado_en',
+            'archivo_excel', 'hash_resultado', 'snapshot_resumen',
+            'vigente', 'detalles', 'sustento_pdf',
+        )
 
     def get_periodo_info(self, obj):
         return {'anio': obj.periodo.anio, 'mes': obj.periodo.mes, 'estado': obj.periodo.estado}
+
+    def get_sustento_pdf(self, obj):
+        from apps.inventario.sustentos_pdf import decodificar_sustento
+        _, pdf_info = decodificar_sustento(obj.archivo_excel)
+        if pdf_info:
+            return {
+                'tiene_pdf': True,
+                'nombre_archivo': pdf_info['nombre_archivo'],
+                'sha256': pdf_info['sha256'],
+                'referencia': pdf_info.get('referencia_legal') or '',
+            }
+        return None
+
+    def to_representation(self, instance):
+        from apps.inventario.sustentos_pdf import decodificar_sustento
+        data = super().to_representation(instance)
+        ref_limpia, _ = decodificar_sustento(instance.archivo_excel)
+        data['archivo_excel'] = ref_limpia if ref_limpia else (None if instance.archivo_excel is None else '')
+        return data

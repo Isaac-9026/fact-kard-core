@@ -7,6 +7,7 @@ from apps.inventario.views import (
     NotaInternaConfirmarView,
     NotaInternaDetailView,
     NotaInternaListCreateView,
+    NotaInternaSustentoPdfView,
     ProductoDetailView,
     ProductoEquivalenciaAltaRapidaView,
     ProductoEquivalenciaDetailView,
@@ -107,6 +108,11 @@ urlpatterns = [
         'notas-internas/<int:pk>/confirmar/',
         NotaInternaConfirmarView.as_view(),
         name='nota-interna-confirmar',
+    ),
+    path(
+        'notas-internas/<int:pk>/sustento-pdf/',
+        NotaInternaSustentoPdfView.as_view(),
+        name='nota-interna-sustento-pdf',
     ),
     path(
         'transferencias/',

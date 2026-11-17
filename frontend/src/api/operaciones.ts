@@ -55,6 +55,13 @@ export interface NotaInternaDetallePayload {
   valor_ajuste_pen?: string | null;
 }
 
+export interface SustentoPdfInfo {
+  tiene_pdf: boolean;
+  nombre_archivo: string;
+  sha256: string;
+  referencia_legal?: string;
+}
+
 export interface NotaInterna {
   id: number;
   empresa: number;
@@ -71,6 +78,7 @@ export interface NotaInterna {
   responsable: string | null;
   observacion: string | null;
   archivo_sustento: string | null;
+  sustento_pdf?: SustentoPdfInfo | null;
   estado: EstadoNotaInterna;
   creado_por: number | null;
   numero_lineas: number;
@@ -155,6 +163,44 @@ export const confirmarNotaInterna = async (id: number): Promise<NotaInterna> =>
 
 export const eliminarNotaInternaBorrador = async (id: number): Promise<void> => {
   await apiClient.delete(`/inventario/notas-internas/${id}/`);
+};
+
+export const subirSustentoPdfNotaInterna = async (
+  notaId: number,
+  archivo: File,
+  referenciaLegal?: string,
+): Promise<NotaInterna> => {
+  const formData = new FormData();
+  formData.append('archivo', archivo);
+  if (referenciaLegal) {
+    formData.append('referencia_legal', referenciaLegal);
+  }
+  return (
+    await apiClient.post<NotaInterna>(
+      `/inventario/notas-internas/${notaId}/sustento-pdf/`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    )
+  ).data;
+};
+
+export const descargarSustentoPdfNotaInterna = async (
+  notaId: number,
+  nombreArchivo = 'sustento_nota.pdf',
+): Promise<void> => {
+  const response = await apiClient.get(
+    `/inventario/notas-internas/${notaId}/sustento-pdf/`,
+    { responseType: 'blob' }
+  );
+  const blob = new Blob([response.data], { type: 'application/pdf' });
+  const url = window.URL.createObjectURL(blob);
+  const enlace = document.createElement('a');
+  enlace.href = url;
+  enlace.download = nombreArchivo;
+  document.body.appendChild(enlace);
+  enlace.click();
+  enlace.remove();
+  window.URL.revokeObjectURL(url);
 };
 
 export interface FilaDiagnosticoSaldoInicial {

@@ -1041,8 +1041,15 @@ class DocumentoCapturaIntegridadTest(TestCase):
     def test_introspeccion_todas_las_tablas_sql_existen(self):
         import re
         from pathlib import Path
+        from django.conf import settings
         from django.db import connection
         ruta_docs = Path(__file__).resolve().parents[3] / 'docs' / 'FACT_KARD_BD_COMPLETA_SQL.md'
+        if not ruta_docs.exists():
+            ruta_docs = Path(settings.BASE_DIR).parent / 'docs' / 'FACT_KARD_BD_COMPLETA_SQL.md'
+        if not ruta_docs.exists():
+            ruta_docs = Path('docs/FACT_KARD_BD_COMPLETA_SQL.md')
+        if not ruta_docs.exists():
+            ruta_docs = Path('../docs/FACT_KARD_BD_COMPLETA_SQL.md')
         with open(ruta_docs, encoding='utf-8') as f:
             content = f.read()
         sql_tables = set(re.findall(r'CREATE TABLE (\w+)', content, re.IGNORECASE))

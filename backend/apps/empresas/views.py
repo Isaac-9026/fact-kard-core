@@ -2,6 +2,8 @@ from decimal import Decimal
 
 from django.db import transaction
 from django.db.models import F
+from django.http import FileResponse, Http404
+from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
 from rest_framework.response import Response
@@ -22,6 +24,12 @@ from apps.empresas.serializers import (
     CierrePeriodoSerializer,
 )
 from apps.empresas.services import cerrar_periodo, reabrir_periodo
+from apps.inventario.sustentos_pdf import (
+    abrir_sustento_pdf,
+    codificar_sustento,
+    decodificar_sustento,
+    guardar_sustento_pdf,
+)
 from apps.usuarios.models import UsuarioEmpresa
 from apps.usuarios.permissions import EsAdminEmpresa, EsAdminGlobal, TieneEmpresaActiva, exigir_empresa_operativa
 from apps.auditoria.services import registrar_auditoria
@@ -415,6 +423,85 @@ class CompararCierresView(APIView):
                 cpp_a = a.cpp_pen if a else Decimal('0'); cpp_b = b.cpp_pen if b else Decimal('0')
                 comparacion.append({'producto_id': clave[0], 'establecimiento_id': clave[1], 'version_anterior': {'saldo_cantidad': str(cantidad_a), 'saldo_valor_pen': str(valor_a), 'cpp_pen': str(cpp_a)}, 'version_nueva': {'saldo_cantidad': str(cantidad_b), 'saldo_valor_pen': str(valor_b), 'cpp_pen': str(cpp_b)}, 'diferencia': {'cantidad': str(cantidad_b - cantidad_a), 'valor_pen': str(valor_b - valor_a), 'cpp_pen': str(cpp_b - cpp_a)}})
         return Response({'periodo_id': pk, 'version_a': anterior.version_calculo if len(cierres) >= 2 else None, 'version_b': actual.version_calculo if len(cierres) >= 2 else None, 'versiones': versiones, 'comparacion_ultimas_versiones': comparacion})
+
+
+class CierrePeriodoSustentoPdfView(APIView):
+    permission_classes = [TieneEmpresaActiva]
+    parser_classes = (MultiPartParser, FormParser)
+
+    def post(self, request, pk):
+        cierre = get_object_or_404(
+            CierrePeriodo.objects.filter(periodo__empresa_id=request.empresa_id),
+            pk=pk,
+        )
+        if not cierre.vigente:
+            return Response(
+                {'detail': 'No se puede adjuntar sustento a un cierre no vigente.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        ref_actual, pdf_info = decodificar_sustento(cierre.archivo_excel)
+        if pdf_info is not None:
+            return Response(
+                {'detail': 'No se puede reemplazar el sustento PDF de un cierre ya sellado.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        archivo = request.FILES.get('archivo')
+        if not archivo:
+            return Response(
+                {'detail': 'Debe adjuntar un archivo PDF.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        resultado = guardar_sustento_pdf(archivo, request.empresa_id, 'cierres')
+        referencia = request.data.get('referencia') or request.data.get('referencia_legal') or ref_actual
+
+        cadena_codificada = codificar_sustento(
+            referencia,
+            resultado['ruta_relativa'],
+            resultado['nombre_original'],
+            resultado['sha256'],
+        )
+        valor_anterior = cierre.archivo_excel
+        cierre.archivo_excel = cadena_codificada
+        cierre.save(update_fields=['archivo_excel'])
+
+        registrar_auditoria(
+            request.empresa_id,
+            request.user.id,
+            'ADJUNTAR_SUSTENTO_CIERRE_PDF',
+            'cierre_periodo',
+            cierre.id,
+            {'archivo_excel': valor_anterior},
+            {'archivo_excel': cadena_codificada, 'sha256': resultado['sha256']},
+            'Adjunto de sustento de cierre oficial con huella SHA-256',
+        )
+
+        cierre_refrescado = (
+            CierrePeriodo.objects.filter(pk=cierre.pk)
+            .select_related('periodo', 'cerrado_por')
+            .prefetch_related('detalles__producto', 'detalles__establecimiento')
+            .first()
+        )
+        return Response(CierrePeriodoSerializer(cierre_refrescado).data, status=status.HTTP_200_OK)
+
+    def get(self, request, pk):
+        cierre = get_object_or_404(
+            CierrePeriodo.objects.filter(periodo__empresa_id=request.empresa_id),
+            pk=pk,
+        )
+        _, pdf_info = decodificar_sustento(cierre.archivo_excel)
+        if not pdf_info:
+            raise Http404('El cierre de período no cuenta con sustento PDF adjunto.')
+
+        file_handle = abrir_sustento_pdf(pdf_info['ruta_relativa'], request.empresa_id)
+        return FileResponse(
+            file_handle,
+            content_type='application/pdf',
+            as_attachment=True,
+            filename=pdf_info['nombre_archivo'],
+        )
 
 
 class ConfigIgvPeriodoView(APIView):

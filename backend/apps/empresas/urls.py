@@ -16,6 +16,7 @@ from apps.empresas.views import (
     PeriodoListCreateView,
     PeriodoReabrirView,
     CierrePeriodoListView,
+    CierrePeriodoSustentoPdfView,
     CompararCierresView,
 )
 
@@ -34,6 +35,7 @@ urlpatterns = [
     path('periodos/<int:pk>/cerrar/', PeriodoCerrarView.as_view(), name='periodo-cerrar'),
     path('periodos/<int:pk>/reabrir/', PeriodoReabrirView.as_view(), name='periodo-reabrir'),
     path('cierres/', CierrePeriodoListView.as_view(), name='cierre-list'),
+    path('cierres/<int:pk>/sustento-pdf/', CierrePeriodoSustentoPdfView.as_view(), name='cierre-sustento-pdf'),
     path('periodos/<int:pk>/comparar-cierres/', CompararCierresView.as_view(), name='comparar-cierres'),
     path('periodos/<int:periodo_id>/igv/', ConfigIgvPeriodoView.as_view(), name='periodo-config-igv'),
     path('config-igv/', ConfigIgvListCreateView.as_view(), name='config-igv-list-create'),

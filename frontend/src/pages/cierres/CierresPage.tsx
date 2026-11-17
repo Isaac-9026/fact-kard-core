@@ -3,8 +3,10 @@ import { diferirCarga } from '../../utils/efectos';
 import { useAuth } from '../../context/useAuth';
 import {
   compararCierres,
+  descargarSustentoPdfCierre,
   ejecutarCierre,
   obtenerCierres,
+  subirSustentoPdfCierre,
   type CierrePeriodo,
   type DiferenciaCierre,
 } from '../../api/cierres';
@@ -30,6 +32,9 @@ import {
   FileCheck2,
   Loader2,
   Copy,
+  FileText,
+  Download,
+  Upload,
 } from 'lucide-react';
 import { PageHeader } from '../../components/ui/page-header';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '../../components/ui/card';
@@ -66,6 +71,7 @@ export const CierresPage: React.FC = () => {
   const [reapertura, setReapertura] = useState(estadoReaperturaInicial);
   const [modalCierreAbierto, setModalCierreAbierto] = useState(false);
   const [copiado, setCopiado] = useState(false);
+  const [subiendoPdfCierre, setSubiendoPdfCierre] = useState(false);
 
   const periodo = useMemo(() => periodos.find((p) => p.id === Number(periodoId)), [periodos, periodoId]);
 
@@ -90,12 +96,19 @@ export const CierresPage: React.FC = () => {
     diferirCarga(cargar);
   }, [cargar]);
 
-  const ejecutarCierrePeriodo = async () => {
+  const ejecutarCierrePeriodo = async (archivoPdf?: File | null, referenciaSustento?: string) => {
     if (!periodo) return;
     setOcupado(true);
     setError(null);
     try {
       const r = await ejecutarCierre(periodo.id);
+      if (archivoPdf) {
+        try {
+          await subirSustentoPdfCierre(r.cierre.id, archivoPdf, referenciaSustento);
+        } catch {
+          setError('El cierre se completó pero ocurrió un error al adjuntar el sustento PDF.');
+        }
+      }
       setMensaje([r.mensaje, ...r.advertencias].join(' '));
       setModalCierreAbierto(false);
       await cargar();
@@ -382,6 +395,7 @@ export const CierresPage: React.FC = () => {
                     <th className="py-2.5 px-3">Usuario Cierre</th>
                     <th className="py-2.5 px-3 text-right">Valor Total Inventario</th>
                     <th className="py-2.5 px-3">Hash SHA-256 Inmutable</th>
+                    <th className="py-2.5 px-3 text-center">Sustento PDF</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-mono tabular-nums text-xs">
@@ -429,6 +443,27 @@ export const CierresPage: React.FC = () => {
                               {c.hash_resultado.slice(0, 16)}…
                             </code>
                           </div>
+                        </td>
+                        <td className="py-2.5 px-3 text-center">
+                          {c.sustento_pdf?.tiene_pdf ? (
+                            <Button
+                              type="button"
+                              size="xs"
+                              variant="ghost"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (!c.sustento_pdf) return;
+                                void descargarSustentoPdfCierre(c.id, c.sustento_pdf.nombre_archivo);
+                              }}
+                              title={`Descargar sustento PDF (${c.sustento_pdf.nombre_archivo})`}
+                              className="text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 h-6 px-1.5 gap-1 text-[11px]"
+                            >
+                              <FileText className="h-3 w-3" />
+                              <span className="truncate max-w-[90px] font-mono">{c.sustento_pdf.nombre_archivo}</span>
+                            </Button>
+                          ) : (
+                            <span className="text-slate-400 text-[11px]">—</span>
+                          )}
                         </td>
                       </tr>
                     );
@@ -496,6 +531,83 @@ export const CierresPage: React.FC = () => {
                   {seleccion.hash_resultado}
                 </code>
               </div>
+            </div>
+
+            {/* Sustento Documentario de Toma de Inventario */}
+            <div className="p-3.5 bg-slate-50/70 border-b border-slate-200">
+              {seleccion.sustento_pdf?.tiene_pdf ? (
+                <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50/70 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 shadow-2xs">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-1.5 text-emerald-950 font-bold text-xs">
+                      <ShieldCheck className="h-4 w-4 text-emerald-600" />
+                      <span>Sustento de Inventario Físico en PDF Adjunto</span>
+                    </div>
+                    <div className="text-[11px] text-slate-700 font-mono">
+                      {seleccion.sustento_pdf.nombre_archivo}
+                      {seleccion.sustento_pdf.referencia && ` · Ref: ${seleccion.sustento_pdf.referencia}`}
+                    </div>
+                    <div className="text-[10px] text-slate-500 font-mono">
+                      SHA-256: {seleccion.sustento_pdf.sha256}
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    className="border-emerald-300 text-emerald-800 hover:bg-emerald-100 self-start sm:self-center"
+                    onClick={() => {
+                      if (!seleccion.sustento_pdf) return;
+                      void descargarSustentoPdfCierre(seleccion.id, seleccion.sustento_pdf.nombre_archivo);
+                    }}
+                  >
+                    <Download className="h-3.5 w-3.5 mr-1 text-emerald-700" />
+                    Descargar Informe PDF
+                  </Button>
+                </div>
+              ) : (
+                seleccion.vigente && (
+                  <div className="p-3 rounded-xl border border-slate-200 bg-white flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 shadow-2xs">
+                    <div>
+                      <span className="text-xs font-semibold text-slate-700 block">Sin sustento PDF adjunto</span>
+                      <span className="text-[10px] text-slate-500">
+                        Adjunte el Acta Notarial de Inventario o Informe de Conciliación en PDF
+                      </span>
+                    </div>
+                    <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-2xs self-start sm:self-center">
+                      {subiendoPdfCierre ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" />
+                      ) : (
+                        <Upload className="h-3.5 w-3.5 text-slate-500" />
+                      )}
+                      <span>{subiendoPdfCierre ? 'Adjuntando...' : 'Adjuntar Informe PDF'}</span>
+                      <input
+                        type="file"
+                        accept=".pdf,application/pdf"
+                        className="hidden"
+                        disabled={subiendoPdfCierre}
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          if (!file.name.toLowerCase().endsWith('.pdf')) {
+                            setError('El archivo debe tener extensión .pdf.');
+                            return;
+                          }
+                          try {
+                            setSubiendoPdfCierre(true);
+                            await subirSustentoPdfCierre(seleccion.id, file);
+                            setMensaje('Sustento PDF adjuntado correctamente al cierre oficial.');
+                            await cargar();
+                          } catch (err: unknown) {
+                            setError((err as { response?: { data?: { detail?: string } } }).response?.data?.detail || 'Error al subir sustento PDF.');
+                          } finally {
+                            setSubiendoPdfCierre(false);
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+                )
+              )}
             </div>
 
             {/* Tabla de saldos por establecimiento y producto */}

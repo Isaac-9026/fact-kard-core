@@ -1,6 +1,6 @@
 from django.db import transaction
 from django.db.models import Q
-from django.http import HttpResponse
+from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.exceptions import NotFound, ValidationError
@@ -35,6 +35,12 @@ from apps.inventario.services import (
     confirmar_nota_interna,
     confirmar_saldo_inicial,
     confirmar_transferencia,
+)
+from apps.inventario.sustentos_pdf import (
+    abrir_sustento_pdf,
+    codificar_sustento,
+    decodificar_sustento,
+    guardar_sustento_pdf,
 )
 from apps.usuarios.authentication import UsuarioTokenAuthentication
 from apps.usuarios.permissions import EsAdminEmpresa, TieneEmpresaActiva
@@ -542,6 +548,78 @@ class NotaInternaConfirmarView(NotaInternaMixin, generics.GenericAPIView):
             nota_id=nota.pk, empresa_id=request.empresa_id, usuario=request.user,
         )
         return Response(self.get_serializer(nota).data)
+
+
+class NotaInternaSustentoPdfView(NotaInternaMixin, generics.GenericAPIView):
+    parser_classes = (MultiPartParser, FormParser)
+    admin_write_required = False
+
+    def post(self, request, pk, *args, **kwargs):
+        nota = get_object_or_404(self.get_queryset(), pk=pk)
+        self.exigir_admin_si_corresponde(self.get_serializer(nota))
+
+        if nota.estado == 'ANULADO':
+            return Response(
+                {'detail': 'No se puede adjuntar sustento a una nota interna anulada.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        ref_actual, pdf_info = decodificar_sustento(nota.archivo_sustento)
+        if nota.estado == 'CONFIRMADO' and pdf_info is not None:
+            return Response(
+                {'detail': 'No se puede reemplazar el sustento PDF de una nota interna ya confirmada.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        archivo = request.FILES.get('archivo')
+        if not archivo:
+            return Response(
+                {'detail': 'Debe adjuntar un archivo PDF.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        resultado = guardar_sustento_pdf(archivo, request.empresa_id, 'notas')
+        nueva_referencia = request.data.get('referencia_legal')
+        if nueva_referencia is None:
+            nueva_referencia = ref_actual
+
+        cadena_codificada = codificar_sustento(
+            nueva_referencia,
+            resultado['ruta_relativa'],
+            resultado['nombre_original'],
+            resultado['sha256'],
+        )
+        valor_anterior = nota.archivo_sustento
+        nota.archivo_sustento = cadena_codificada
+        nota.save(update_fields=['archivo_sustento'])
+
+        registrar_auditoria(
+            request.empresa_id,
+            request.user.id,
+            'ADJUNTAR_SUSTENTO_PDF',
+            'nota_interna',
+            nota.id,
+            {'archivo_sustento': valor_anterior},
+            {'archivo_sustento': cadena_codificada, 'sha256': resultado['sha256']},
+            'Adjunto de sustento PDF oficial con huella SHA-256',
+        )
+
+        nota_refrescada = self.get_queryset().get(pk=nota.pk)
+        return Response(self.get_serializer(nota_refrescada).data, status=status.HTTP_200_OK)
+
+    def get(self, request, pk, *args, **kwargs):
+        nota = get_object_or_404(self.get_queryset(), pk=pk)
+        _, pdf_info = decodificar_sustento(nota.archivo_sustento)
+        if not pdf_info:
+            raise Http404('La nota interna no cuenta con sustento PDF adjunto.')
+
+        file_handle = abrir_sustento_pdf(pdf_info['ruta_relativa'], request.empresa_id)
+        return FileResponse(
+            file_handle,
+            content_type='application/pdf',
+            as_attachment=True,
+            filename=pdf_info['nombre_archivo'],
+        )
 
 
 class TransferenciaMixin(AuditoriaMixin, EmpresaActivaMixin):

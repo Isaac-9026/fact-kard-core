@@ -24,6 +24,10 @@ import {
   Download,
   Upload,
   Loader2,
+  FileText,
+  Paperclip,
+  ShieldCheck,
+  X,
 } from 'lucide-react'
 
 import { obtenerTiposOperacion, type TipoOperacion } from '../../api/catalogos'
@@ -36,6 +40,7 @@ import {
   createNotaInterna,
   createSaldoInicial,
   descargarPlantillaSaldosInicialesExcel,
+  descargarSustentoPdfNotaInterna,
   eliminarNotaInternaBorrador,
   eliminarSaldoInicialBorrador,
   getNotaInterna,
@@ -43,6 +48,7 @@ import {
   getSaldoInicial,
   getSaldosIniciales,
   importarSaldosInicialesExcel,
+  subirSustentoPdfNotaInterna,
   updateNotaInterna,
   updateSaldoInicial,
   type NotaInterna,
@@ -180,6 +186,9 @@ export const OperacionesInternasPage = () => {
   const [notaForm, setNotaForm] = useState(NOTA_INICIAL)
   const [notaEditando, setNotaEditando] = useState<NotaInterna | null>(null)
   const [notaFormVisible, setNotaFormVisible] = useState(false)
+  const [pdfSustento, setPdfSustento] = useState<File | null>(null)
+  const [descargandoPdf, setDescargandoPdf] = useState(false)
+  const [subiendoPdfDetalle, setSubiendoPdfDetalle] = useState(false)
 
   // Modales Especiales: Visor Solo Lectura, Anulación con Extorno y Eliminación
   const [detalleNota, setDetalleNota] = useState<NotaInterna | null>(null)
@@ -478,6 +487,7 @@ export const OperacionesInternasPage = () => {
     } else {
       setNotaEditando(null)
       setNotaForm(NOTA_INICIAL)
+      setPdfSustento(null)
       setNotaFormVisible(true)
     }
   }
@@ -545,6 +555,7 @@ export const OperacionesInternasPage = () => {
           valor_ajuste_pen: linea.valor_ajuste_pen,
         })),
       })
+      setPdfSustento(null)
       setNotaFormVisible(true)
     } catch (err) {
       setError(extraerError(err))
@@ -589,14 +600,26 @@ export const OperacionesInternasPage = () => {
         })),
       }
       const guardado = await ejecutar(async () => {
-        if (notaEditando) await updateNotaInterna(notaEditando.id, payload)
-        else await createNotaInterna(payload)
+        let notaGuardada: NotaInterna
+        if (notaEditando) {
+          notaGuardada = await updateNotaInterna(notaEditando.id, payload)
+        } else {
+          notaGuardada = await createNotaInterna(payload)
+        }
+        if (pdfSustento) {
+          await subirSustentoPdfNotaInterna(
+            notaGuardada.id,
+            pdfSustento,
+            formularioEnviado.archivo_sustento || undefined
+          )
+        }
       }, notaEditando ? 'Nota interna actualizada.' : 'Nota interna creada.')
       const formularioConservado = formularioNotaTrasRespuesta(formularioEnviado, guardado)
       if (formularioConservado) {
         setNotaForm(formularioConservado)
         return
       }
+      setPdfSustento(null)
       setNotaFormVisible(false)
       setNotaEditando(null)
       setNotaForm(NOTA_INICIAL)
@@ -1202,6 +1225,27 @@ export const OperacionesInternasPage = () => {
                                 <Eye className="h-3.5 w-3.5 text-slate-600" />
                               </Button>
 
+                              {/* Descarga directa de PDF si existe */}
+                              {nota.sustento_pdf?.tiene_pdf && (
+                                <Button
+                                  type="button"
+                                  size="xs"
+                                  variant="ghost"
+                                  onClick={async () => {
+                                    if (!nota.sustento_pdf) return
+                                    try {
+                                      await descargarSustentoPdfNotaInterna(nota.id, nota.sustento_pdf.nombre_archivo)
+                                    } catch {
+                                      setError('No se pudo descargar el archivo PDF.')
+                                    }
+                                  }}
+                                  title={`Descargar sustento PDF (${nota.sustento_pdf.nombre_archivo})`}
+                                  className="text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50"
+                                >
+                                  <FileText className="h-3.5 w-3.5" />
+                                </Button>
+                              )}
+
                               {/* Acciones en BORRADOR */}
                               {esBorrador && (
                                 <>
@@ -1506,6 +1550,73 @@ export const OperacionesInternasPage = () => {
               </div>
             </div>
 
+            {/* Adjuntar Informe Técnico / Sustento PDF */}
+            <div className="rounded-xl border border-slate-200/90 bg-slate-50/70 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label>Informe Técnico / Acta en PDF (Opcional, máx. 5 MB)</Label>
+                  <span className="text-[10px] text-slate-500 block">
+                    Huella digital criptográfica SHA-256 para sustento tributario SUNAT
+                  </span>
+                </div>
+                {notaEditando?.sustento_pdf?.tiene_pdf && !pdfSustento && (
+                  <Badge variant="success" size="sm" className="font-mono text-[10px]">
+                    <ShieldCheck className="h-3 w-3 mr-1" />
+                    PDF Vinculado
+                  </Badge>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-2xs">
+                  <Paperclip className="h-3.5 w-3.5 text-slate-500" />
+                  <span>{pdfSustento ? 'Cambiar PDF' : (notaEditando?.sustento_pdf?.tiene_pdf ? 'Reemplazar PDF' : 'Seleccionar PDF')}</span>
+                  <input
+                    type="file"
+                    accept=".pdf,application/pdf"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] || null
+                      if (file && !file.name.toLowerCase().endsWith('.pdf')) {
+                        setError('El archivo debe tener extensión .pdf.')
+                        return
+                      }
+                      setPdfSustento(file)
+                    }}
+                  />
+                </label>
+
+                {pdfSustento && (
+                  <div className="flex items-center gap-2 text-xs bg-indigo-50 border border-indigo-200 text-indigo-900 px-3 py-1.5 rounded-lg shadow-2xs">
+                    <FileText className="h-4 w-4 text-indigo-600 shrink-0" />
+                    <span className="font-mono font-medium truncate max-w-[240px]" title={pdfSustento.name}>
+                      {pdfSustento.name}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setPdfSustento(null)}
+                      className="text-slate-400 hover:text-slate-600 ml-1 p-0.5 rounded"
+                      title="Descartar archivo"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
+
+                {!pdfSustento && notaEditando?.sustento_pdf?.tiene_pdf && (
+                  <div className="flex items-center gap-2 text-xs text-slate-600 bg-white border border-slate-200 px-3 py-1.5 rounded-lg">
+                    <FileText className="h-3.5 w-3.5 text-emerald-600" />
+                    <span className="font-mono truncate max-w-[200px]" title={notaEditando.sustento_pdf.nombre_archivo}>
+                      {notaEditando.sustento_pdf.nombre_archivo}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-400">
+                      SHA: {notaEditando.sustento_pdf.sha256.slice(0, 12)}...
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Líneas de Detalle */}
             <div className="space-y-2 pt-2 border-t border-slate-100">
               <div className="flex items-center justify-between">
@@ -1717,6 +1828,91 @@ export const OperacionesInternasPage = () => {
                   <strong className="text-slate-900 block mb-0.5">Observaciones / Historial:</strong>
                   <p className="whitespace-pre-line text-xs font-mono">{detalleNota.observacion}</p>
                 </div>
+              )}
+
+              {/* Sustento Documentario PDF */}
+              {detalleNota.sustento_pdf?.tiene_pdf ? (
+                <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50/70 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 shadow-2xs">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-1.5 text-emerald-950 font-bold text-xs">
+                      <ShieldCheck className="h-4 w-4 text-emerald-600" />
+                      <span>Documento de Sustento PDF Verificado</span>
+                    </div>
+                    <div className="text-[11px] text-slate-600 font-mono">
+                      {detalleNota.sustento_pdf.nombre_archivo}
+                    </div>
+                    <div className="text-[10px] text-slate-500 font-mono">
+                      SHA-256: {detalleNota.sustento_pdf.sha256}
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    className="border-emerald-300 text-emerald-800 hover:bg-emerald-100 self-start sm:self-center"
+                    onClick={async () => {
+                      if (!detalleNota.sustento_pdf) return
+                      try {
+                        setDescargandoPdf(true)
+                        await descargarSustentoPdfNotaInterna(detalleNota.id, detalleNota.sustento_pdf.nombre_archivo)
+                      } catch {
+                        setError('No se pudo descargar el archivo PDF.')
+                      } finally {
+                        setDescargandoPdf(false)
+                      }
+                    }}
+                    disabled={descargandoPdf}
+                  >
+                    <Download className="h-3.5 w-3.5 mr-1 text-emerald-700" />
+                    Descargar PDF Sustento
+                  </Button>
+                </div>
+              ) : (
+                detalleNota.estado !== 'ANULADO' && (
+                  <div className="p-3 rounded-xl border border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div>
+                      <span className="text-xs font-semibold text-slate-700 block">Sin sustento PDF adjunto</span>
+                      <span className="text-[10px] text-slate-500">Puede adjuntar un informe técnico o acta notarial en PDF</span>
+                    </div>
+                    <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-2xs self-start sm:self-center">
+                      {subiendoPdfDetalle ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-500" />
+                      ) : (
+                        <Upload className="h-3.5 w-3.5 text-slate-500" />
+                      )}
+                      <span>{subiendoPdfDetalle ? 'Adjuntando...' : 'Adjuntar PDF'}</span>
+                      <input
+                        type="file"
+                        accept=".pdf,application/pdf"
+                        className="hidden"
+                        disabled={subiendoPdfDetalle}
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0]
+                          if (!file) return
+                          if (!file.name.toLowerCase().endsWith('.pdf')) {
+                            setError('El archivo debe tener extensión .pdf.')
+                            return
+                          }
+                          try {
+                            setSubiendoPdfDetalle(true)
+                            const notaActualizada = await subirSustentoPdfNotaInterna(
+                              detalleNota.id,
+                              file,
+                              detalleNota.archivo_sustento || undefined
+                            )
+                            setDetalleNota(notaActualizada)
+                            setSuccess('Documento de sustento PDF adjuntado correctamente.')
+                            await refrescar()
+                          } catch (err) {
+                            setError(extraerError(err))
+                          } finally {
+                            setSubiendoPdfDetalle(false)
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+                )
               )}
             </div>
 

@@ -9,6 +9,7 @@ from apps.empresas.models import Establecimiento, Periodo
 from apps.auditoria.services import registrar_auditoria
 from apps.inventario.documentos_identidad import validar_documento_identidad
 from apps.inventario.homologacion import equivalencia_activa_repetida, limpiar_texto, normalizar_texto
+from apps.inventario.sustentos_pdf import decodificar_sustento, preservar_sustento_existente
 from apps.inventario.models import (
     Almacen,
     NotaInterna,
@@ -471,6 +472,7 @@ class NotaInternaSerializer(serializers.ModelSerializer):
         source='tipo_operacion.descripcion', read_only=True,
     )
     numero_lineas = serializers.IntegerField(source='detalles.count', read_only=True)
+    sustento_pdf = serializers.SerializerMethodField()
 
     class Meta:
         model = NotaInterna
@@ -479,7 +481,7 @@ class NotaInternaSerializer(serializers.ModelSerializer):
             'periodo', 'periodo_descripcion', 'tipo_operacion',
             'tipo_operacion_codigo', 'tipo_operacion_descripcion', 'fecha',
             'motivo', 'responsable', 'observacion', 'archivo_sustento',
-            'estado', 'creado_por', 'numero_lineas', 'detalles',
+            'sustento_pdf', 'estado', 'creado_por', 'numero_lineas', 'detalles',
         )
         read_only_fields = ('id', 'empresa', 'estado', 'creado_por', 'numero_lineas')
 
@@ -501,6 +503,23 @@ class NotaInternaSerializer(serializers.ModelSerializer):
 
     def get_periodo_descripcion(self, obj):
         return f'{obj.periodo.anio}-{obj.periodo.mes:02d}'
+
+    def get_sustento_pdf(self, obj):
+        _, pdf_info = decodificar_sustento(obj.archivo_sustento)
+        if pdf_info:
+            return {
+                'tiene_pdf': True,
+                'nombre_archivo': pdf_info['nombre_archivo'],
+                'sha256': pdf_info['sha256'],
+                'referencia_legal': pdf_info.get('referencia_legal') or '',
+            }
+        return None
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        ref_limpia, _ = decodificar_sustento(instance.archivo_sustento)
+        data['archivo_sustento'] = ref_limpia if ref_limpia else (None if instance.archivo_sustento is None else '')
+        return data
 
     def validate(self, attrs):
         if self.instance is not None and self.instance.estado in ('CONFIRMADO', 'ANULADO'):
@@ -564,6 +583,11 @@ class NotaInternaSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         detalles = validated_data.pop('detalles', None)
         validated_data['estado'] = 'BORRADOR'
+        if 'archivo_sustento' in validated_data:
+            validated_data['archivo_sustento'] = preservar_sustento_existente(
+                validated_data['archivo_sustento'],
+                instance.archivo_sustento,
+            )
         for campo, valor in validated_data.items():
             setattr(instance, campo, valor)
         instance.save()
