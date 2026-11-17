@@ -79,7 +79,7 @@ export const obtenerKardexValorizado = async (
 };
 
 /**
- * Descarga del libro de Kardex en formato Excel (.xlsx) con 4 hojas oficiales.
+ * Descarga del libro de Kardex en formato Excel (.xlsx) con 5 hojas oficiales (la 5ta es el Costo de Venta del período).
  */
 export const exportarKardexExcel = async (
   filtros?: KardexFiltros

@@ -12,7 +12,6 @@ from apps.empresas.models import Periodo
 from apps.reportes.formato131_excel import generar_excel_formato_131, nombre_archivo_formato_131
 from apps.reportes.formato131_service import generar_formato_131
 from apps.reportes.costo_ventas import generar_costo_ventas
-from apps.reportes.costo_ventas_excel import generar_excel_costo_ventas
 from apps.reportes.piloto_service import comparar_piloto, obtener_valores_factkard
 from apps.reportes.serializers import PilotoComparacionSerializer
 from config.api import entero_param, fecha_param, paginar_lista
@@ -66,11 +65,12 @@ class KardexReportView(APIView):
 class KardexExcelExportView(APIView):
     """
     GET /api/reportes/kardex/excel/
-    Descarga del libro oficial de Kardex Valorizado en formato .xlsx con 4 hojas:
+    Descarga del libro oficial de Kardex Valorizado en formato .xlsx con 5 hojas:
     1. Kardex Valorizado (1:1 con la vista en pantalla)
     2. Movimientos (detalle técnico)
     3. Incidencias (incidencias del período/empresa)
     4. Resumen de Saldos (resumen de stock y CPP por establecimiento)
+    5. Costo de Venta (requiere período; resumen de la empresa y detalle por producto)
     """
     authentication_classes = (UsuarioTokenAuthentication,)
     permission_classes = (TieneEmpresaActiva,)
@@ -197,16 +197,3 @@ class CostoVentasView(APIView):
 
     def get(self, request):
         return Response(generar_costo_ventas(**filtros_costo_ventas(request)))
-
-
-class CostoVentasExcelView(APIView):
-    authentication_classes = (UsuarioTokenAuthentication,)
-    permission_classes = (TieneEmpresaActiva,)
-
-    def get(self, request):
-        buffer, nombre = generar_excel_costo_ventas(**filtros_costo_ventas(request))
-        response = HttpResponse(buffer.getvalue(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-        response['Content-Disposition'] = f'attachment; filename="{nombre}"'
-        response['Content-Length'] = str(buffer.getbuffer().nbytes)
-        buffer.close()
-        return response

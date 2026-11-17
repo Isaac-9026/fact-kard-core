@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  conceptosConImporte, cuadra, ETIQUETAS_DESGLOSE, filasFormula, nombreArchivoCostoVenta, paramsCostoVenta,
+  conceptosConImporte, cuadra, ETIQUETAS_DESGLOSE, filasFormula, paramsCostoVenta,
   sumarTexto, validarRangoPeriodos,
 } from './costoVenta.ts';
 
@@ -11,13 +11,6 @@ test('parámetros: el período final igual al inicial no se envía; producto opc
   assert.deepEqual(paramsCostoVenta({ periodo_id: 3, periodo_hasta_id: 5, producto_id: 9 }),
     { periodo_id: 3, periodo_hasta_id: 5, producto_id: 9 });
   assert.deepEqual(paramsCostoVenta({ periodo_id: 3, periodo_hasta_id: '', producto_id: '' }), { periodo_id: 3 });
-});
-
-test('nombre del Excel igual al del backend', () => {
-  assert.equal(nombreArchivoCostoVenta({ desde: '2026-01', ruc: '20123456789' }), 'Costo_de_venta_2026-01_20123456789.xlsx');
-  assert.equal(nombreArchivoCostoVenta({ desde: '2026-01', hasta: '2026-01', ruc: '20123456789' }), 'Costo_de_venta_2026-01_20123456789.xlsx');
-  assert.equal(nombreArchivoCostoVenta({ desde: '2026-01', hasta: '2026-03', ruc: '20123456789' }),
-    'Costo_de_venta_2026-01_a_2026-03_20123456789.xlsx');
 });
 
 test('rango de períodos', () => {
@@ -44,6 +37,24 @@ test('ejemplo del dueño: 30 + 1 000 = 1 030; − 500 = 530', () => {
     ['=', 'Costo de venta', '530.00000000'],
   ]);
   assert.equal(filas[2].cantidad, null);
+});
+
+test('promedio del período: el subtotal lleva unidades y P.U. promedio (200 u. × 21.25)', () => {
+  const b = (cantidad: string, pu: string, valor: string) => ({ cantidad, costo_unitario: pu, valor });
+  const filas = filasFormula({
+    saldo_inicial: b('100.00000000', '20.00000000', '2000.00000000'),
+    compras: b('100.00000000', '22.50000000', '2250.00000000'),
+    disponible: b('200.00000000', '21.25000000', '4250.00000000'),
+    saldo_final: b('150.00000000', '21.25000000', '3187.50000000'),
+    costo_venta: b('50.00000000', '21.25000000', '1062.50000000'),
+  });
+  assert.deepEqual(filas.map((f) => [f.etiqueta, f.cantidad, f.costoUnitario, f.valor]), [
+    ['Saldo inicial', '100.00000000', '20.00000000', '2000.00000000'],
+    ['Compras', '100.00000000', '22.50000000', '2250.00000000'],
+    ['Subtotal', '200.00000000', '21.25000000', '4250.00000000'],
+    ['Saldo final', '150.00000000', '21.25000000', '3187.50000000'],
+    ['Costo de venta', '50.00000000', '21.25000000', '1062.50000000'],
+  ]);
 });
 
 test('suma decimal exacta, sin float', () => {

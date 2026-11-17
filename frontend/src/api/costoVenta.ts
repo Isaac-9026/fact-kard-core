@@ -12,11 +12,17 @@ export interface FilaCostoVenta {
   producto: { id: number; codigo: string; descripcion: string; unidad: string | null; tipo_existencia: string | null };
   saldo_inicial: BloqueCosto;
   compras: BloqueCosto;
+  /** Subtotal (S.I. + Compras) con el P.U. promedio del período. */
+  disponible: BloqueCosto;
   saldo_final: BloqueCosto;
   costo_venta: BloqueCosto;
+  costo_promedio: string | null;
   compras_detalle: Record<ClaveCompra, BloqueCosto>;
   desglose: Record<ClaveDesglose, BloqueCosto>;
   diferencia: string;
+  /** Referencia: lo que da el Kardex (promedio móvil). */
+  kardex: { saldo_final: BloqueCosto; costo_venta: BloqueCosto };
+  diferencia_metodo: string;
 }
 
 export interface PeriodoCostoVenta { id: number; anio: number; mes: number; estado: string; etiqueta: string }
@@ -29,14 +35,18 @@ export interface CostoVentaResponse {
   fecha_fin: string;
   moneda: 'PEN';
   formula: string;
+  metodo: string;
   totales: {
     saldo_inicial: BloqueCosto;
     compras: BloqueCosto;
+    disponible: BloqueCosto;
     saldo_final: BloqueCosto;
     costo_venta: BloqueCosto;
     compras_detalle: Record<ClaveCompra, string>;
     desglose: Record<ClaveDesglose, string>;
     diferencia: string;
+    kardex: { saldo_final: BloqueCosto; costo_venta: BloqueCosto };
+    diferencia_metodo: string;
   };
   productos: FilaCostoVenta[];
 }
@@ -45,6 +55,3 @@ export const URL_COSTO_VENTA = '/reportes/costo-ventas/';
 
 export const obtenerCostoVenta = async (filtros: FiltrosCostoVenta): Promise<CostoVentaResponse> =>
   (await apiClient.get<CostoVentaResponse>(URL_COSTO_VENTA, { params: paramsCostoVenta(filtros) })).data;
-
-export const descargarCostoVentaExcel = async (filtros: FiltrosCostoVenta): Promise<Blob> =>
-  (await apiClient.get<Blob>(`${URL_COSTO_VENTA}excel/`, { params: paramsCostoVenta(filtros), responseType: 'blob' })).data;

@@ -8,9 +8,9 @@
  * pantalla no calcula costos, solo los muestra. Exportación a Excel generada por el backend.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Calculator, CheckCircle2, AlertTriangle, FileDown, Search, Info } from 'lucide-react'
+import { Calculator, CheckCircle2, AlertTriangle, Search, Info } from 'lucide-react'
 import {
-  descargarCostoVentaExcel, obtenerCostoVenta, type CostoVentaResponse, type FilaCostoVenta,
+  obtenerCostoVenta, type CostoVentaResponse, type FilaCostoVenta,
 } from '../../api/costoVenta'
 import { obtenerPeriodos, type Periodo } from '../../api/periodos'
 import { getProductos, type Producto } from '../../api/inventario'
@@ -25,9 +25,8 @@ import { AlertaFormulario } from '../../components/ui/alerta-formulario'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table'
 import { formatearDecimal } from '../../utils/decimal'
 import { mensajesDeErrorApi } from '../../utils/errores'
-import { ErrorExportacion, TIPO_XLSX, descargarBlob, esXlsx, mensajeErrorExportacion } from '../../utils/descargaArchivo'
 import {
-  ETIQUETAS_COMPRA, ETIQUETAS_DESGLOSE, conceptosConImporte, cuadra, filasFormula, nombreArchivoCostoVenta,
+  ETIQUETAS_COMPRA, ETIQUETAS_DESGLOSE, conceptosConImporte, cuadra, filasFormula,
   validarRangoPeriodos,
 } from '../../utils/costoVenta'
 
@@ -63,8 +62,8 @@ function HojaFormula({ titulo, bloques, conUnidades }: {
               >
                 <TableCell className="font-mono text-center text-base">{f.signo}</TableCell>
                 <TableCell className={esSubtotal ? 'italic' : ''}>{f.etiqueta}</TableCell>
-                {conUnidades && <TableCell numeric>{esSubtotal ? '' : cantidad(f.cantidad)}</TableCell>}
-                {conUnidades && <TableCell numeric>{esSubtotal ? '' : monto(f.costoUnitario)}</TableCell>}
+                {conUnidades && <TableCell numeric>{cantidad(f.cantidad)}</TableCell>}
+                {conUnidades && <TableCell numeric>{monto(f.costoUnitario)}</TableCell>}
                 <TableCell numeric className={esResultado ? 'text-base' : ''}>{monto(f.valor)}</TableCell>
               </TableRow>
             )
@@ -75,7 +74,12 @@ function HojaFormula({ titulo, bloques, conUnidades }: {
   )
 }
 
-function Desglose({ conceptos, diferencia }: { conceptos: { clave: string; etiqueta: string; valor: string }[]; diferencia: string }) {
+function Desglose({ conceptos, diferencia, kardex, diferenciaMetodo }: {
+  conceptos: { clave: string; etiqueta: string; valor: string }[]
+  diferencia: string
+  kardex: { costo_venta: { valor: string } }
+  diferenciaMetodo: string
+}) {
   const ok = cuadra(diferencia)
   return (
     <div className="space-y-2" data-testid="desglose">
@@ -96,11 +100,18 @@ function Desglose({ conceptos, diferencia }: { conceptos: { clave: string; etiqu
       )}
       <div className="flex items-center gap-2 text-xs">
         {ok ? (
-          <Badge size="sm" variant="success"><CheckCircle2 className="mr-1 h-3 w-3" /> Cuadra con el Kardex</Badge>
+          <Badge size="sm" variant="success"><CheckCircle2 className="mr-1 h-3 w-3" /> Cuadra con la fórmula</Badge>
         ) : (
           <Badge size="sm" variant="destructive"><AlertTriangle className="mr-1 h-3 w-3" /> Diferencia {monto(diferencia)}</Badge>
         )}
       </div>
+      {!cuadra(diferenciaMetodo) && (
+        <p className="text-xs text-slate-500" data-testid="referencia-kardex">
+          Referencia: según el Kardex (promedio móvil, cambia con cada compra) el costo de venta es{' '}
+          <span className="font-mono">{monto(kardex.costo_venta.valor)}</span>; diferencia por método{' '}
+          <span className="font-mono">{monto(diferenciaMetodo)}</span>.
+        </p>
+      )}
     </div>
   )
 }
@@ -115,7 +126,6 @@ export function CostoVentaPage() {
   const [datos, setDatos] = useState<CostoVentaResponse | null>(null)
   const [seleccionado, setSeleccionado] = useState<number | null>(null)
   const [cargando, setCargando] = useState(false)
-  const [exportando, setExportando] = useState(false)
   const [error, setError] = useState<string[] | null>(null)
 
   useEffect(() => {
@@ -153,29 +163,6 @@ export function CostoVentaPage() {
     }
   }
 
-  const exportar = async () => {
-    const problema = validarRangoPeriodos(periodos, desde, hasta)
-    if (problema) return setError([problema])
-    setError(null)
-    setExportando(true)
-    try {
-      const blob = await descargarCostoVentaExcel(filtros())
-      if (!(blob instanceof Blob) || !(await esXlsx(blob))) throw new ErrorExportacion('La respuesta del servidor no es un archivo Excel válido.')
-      const pDesde = periodos.find((p) => p.id === desde)
-      const pHasta = periodos.find((p) => p.id === hasta)
-      const nombre = nombreArchivoCostoVenta({
-        desde: pDesde ? etiquetaPeriodo(pDesde) : `periodo_${desde}`,
-        hasta: pHasta ? etiquetaPeriodo(pHasta) : null,
-        ruc: empresaActiva?.ruc,
-      })
-      descargarBlob(blob.type === TIPO_XLSX ? blob : new Blob([blob], { type: TIPO_XLSX }), nombre)
-    } catch (e) {
-      setError([await mensajeErrorExportacion(e, 'No se pudo exportar el costo de venta.')])
-    } finally {
-      setExportando(false)
-    }
-  }
-
   const filaSeleccionada: FilaCostoVenta | undefined = datos?.productos.find((f) => f.producto.id === seleccionado)
   const rango = datos
     ? datos.periodo_desde.id === datos.periodo_hasta.id
@@ -187,12 +174,12 @@ export function CostoVentaPage() {
     <div className="space-y-6">
       <PageHeader
         title="Costo de Venta"
-        description="Saldo inicial + Compras − Saldo final = Costo de venta. Calculado desde el Kardex valorizado (costo promedio)."
+        description="Saldo inicial + Compras − Saldo final = Costo de venta, con un solo P.U.: el promedio ponderado del período. El Excel sale en Kardex Valorizado → Exportar Excel (hoja “Costo de Venta”)."
         icon={<Calculator className="h-5 w-5" />}
       />
 
       <Card>
-        <CardContent className="grid grid-cols-1 gap-3 pt-4 sm:grid-cols-2 lg:grid-cols-5">
+        <CardContent className="grid grid-cols-1 gap-3 pt-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-1">
             <Label required htmlFor="cv-desde">Período</Label>
             <Select id="cv-desde" value={desde} onChange={(e) => setDesde(e.target.value ? Number(e.target.value) : '')}>
@@ -217,11 +204,6 @@ export function CostoVentaPage() {
           <div className="flex items-end">
             <Button variant="primary" className="w-full" onClick={consultar} isLoading={cargando}>
               <Search className="h-4 w-4" /> Calcular
-            </Button>
-          </div>
-          <div className="flex items-end">
-            <Button variant="secondary" className="w-full" onClick={exportar} isLoading={exportando}>
-              <FileDown className="h-4 w-4" /> Exportar Excel
             </Button>
           </div>
         </CardContent>
@@ -252,6 +234,8 @@ export function CostoVentaPage() {
               <Desglose
                 conceptos={conceptosConImporte(datos.totales.desglose, ETIQUETAS_DESGLOSE)}
                 diferencia={datos.totales.diferencia}
+                kardex={datos.totales.kardex}
+                diferenciaMetodo={datos.totales.diferencia_metodo}
               />
             </CardContent>
           </Card>
@@ -271,13 +255,14 @@ export function CostoVentaPage() {
                     <TableHead numeric>Saldo inicial</TableHead>
                     <TableHead numeric>+ Compras</TableHead>
                     <TableHead numeric>− Saldo final</TableHead>
+                    <TableHead numeric>P.U. promedio</TableHead>
                     <TableHead numeric>Unid. vendidas</TableHead>
                     <TableHead numeric>= Costo de venta</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {datos.productos.length === 0 && (
-                    <TableRow><TableCell colSpan={8} className="py-8 text-center text-slate-500">Sin movimientos de inventario en el período.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={9} className="py-8 text-center text-slate-500">Sin movimientos de inventario en el período.</TableCell></TableRow>
                   )}
                   {datos.productos.map((f) => (
                     <TableRow
@@ -291,6 +276,7 @@ export function CostoVentaPage() {
                       <TableCell numeric>{monto(f.saldo_inicial.valor)}</TableCell>
                       <TableCell numeric>{monto(f.compras.valor)}</TableCell>
                       <TableCell numeric>{monto(f.saldo_final.valor)}</TableCell>
+                      <TableCell numeric>{monto(f.costo_promedio)}</TableCell>
                       <TableCell numeric>{cantidad(f.costo_venta.cantidad)}</TableCell>
                       <TableCell numeric className="font-semibold">{monto(f.costo_venta.valor)}</TableCell>
                     </TableRow>
@@ -301,6 +287,7 @@ export function CostoVentaPage() {
                       <TableCell numeric>{monto(datos.totales.saldo_inicial.valor)}</TableCell>
                       <TableCell numeric>{monto(datos.totales.compras.valor)}</TableCell>
                       <TableCell numeric>{monto(datos.totales.saldo_final.valor)}</TableCell>
+                      <TableCell numeric />
                       <TableCell numeric />
                       <TableCell numeric>{monto(datos.totales.costo_venta.valor)}</TableCell>
                     </TableRow>
@@ -314,13 +301,15 @@ export function CostoVentaPage() {
             <Card data-testid="detalle-producto">
               <CardHeader>
                 <CardTitle>{filaSeleccionada.producto.codigo} — {filaSeleccionada.producto.descripcion}</CardTitle>
-                <CardDescription>Costo de venta {rango} · unidad {filaSeleccionada.producto.unidad ?? '—'} · P.U. = costo promedio</CardDescription>
+                <CardDescription>Costo de venta {rango} · unidad {filaSeleccionada.producto.unidad ?? '—'} · P.U. = promedio ponderado del período</CardDescription>
               </CardHeader>
               <CardContent className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                 <HojaFormula titulo="Concepto" bloques={filaSeleccionada} conUnidades />
                 <Desglose
                   conceptos={conceptosConImporte(filaSeleccionada.desglose, ETIQUETAS_DESGLOSE)}
                   diferencia={filaSeleccionada.diferencia}
+                  kardex={filaSeleccionada.kardex}
+                  diferenciaMetodo={filaSeleccionada.diferencia_metodo}
                 />
               </CardContent>
             </Card>

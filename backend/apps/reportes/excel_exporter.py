@@ -8,6 +8,10 @@ from rest_framework.exceptions import ValidationError
 from apps.empresas.models import Empresa, Establecimiento, Periodo
 from apps.inventario.models import Producto, Almacen
 from apps.kardex.models import Incidencia
+from apps.reportes.costo_ventas import generar_costo_ventas
+from apps.reportes.costo_ventas_excel import (
+    TITULO_HOJA as TITULO_HOJA_COSTO_VENTA, escribir_hoja_costo_venta, escribir_hoja_sin_periodo,
+)
 from apps.reportes.excel_seguro import neutralizar_formulas
 from apps.reportes.saldos_corte import resumen_saldos_al_corte
 from apps.reportes.services import consultar_kardex_valorizado
@@ -124,11 +128,12 @@ def generar_libro_excel_kardex(
     fecha_hasta: str = None
 ) -> Workbook:
     """
-    Genera el libro oficial de Excel del Kardex Valorizado con 4 hojas:
+    Genera el libro oficial de Excel del Kardex Valorizado con 5 hojas:
     1. Kardex Valorizado (1:1 con la vista en pantalla)
     2. Movimientos (detalle técnico completo)
     3. Incidencias (incidencias de período/empresa)
     4. Resumen de Saldos (resumen por producto y establecimiento)
+    5. Costo de Venta (resumen de la empresa y detalle por producto del período)
     """
     periodo_filtro, producto_filtro, almacen_filtro = resolver_filtros_excel_kardex(
         empresa_id=empresa_id,
@@ -587,7 +592,34 @@ def generar_libro_excel_kardex(
 
     ajustar_ancho_columnas(ws4)
 
+    # =========================================================================
+    # HOJA 5: Costo de Venta (mismos números que la pantalla de Costo de Venta)
+    # =========================================================================
+    ws5 = wb.create_sheet(title=TITULO_HOJA_COSTO_VENTA)
+    if periodo_filtro:
+        reporte_cv = generar_costo_ventas(
+            empresa_id=empresa_id, periodo_id=periodo_filtro.id, producto_id=producto_id,
+        )
+        escribir_hoja_costo_venta(ws5, reporte_cv, notas=notas_costo_venta(
+            almacen=almacen_filtro, tipo_operacion_id=tipo_operacion_id,
+            fecha_desde=fecha_desde, fecha_hasta=fecha_hasta,
+        ))
+    else:
+        escribir_hoja_sin_periodo(ws5, razon_social=razon_social, ruc=ruc)
+
     return wb
+
+
+def notas_costo_venta(*, almacen=None, tipo_operacion_id=None, fecha_desde=None, fecha_hasta=None):
+    """Filtros del Kardex que no aplican al costo de venta (se calcula por empresa y período completo)."""
+    notas = []
+    if almacen:
+        notas.append('El costo de venta se calcula para toda la empresa: no aplica el filtro de almacén.')
+    if tipo_operacion_id:
+        notas.append('El costo de venta considera todas las operaciones: no aplica el filtro de tipo de operación.')
+    if fecha_desde or fecha_hasta:
+        notas.append('El costo de venta se calcula por el período completo: no aplica el filtro de fechas.')
+    return notas
 
 
 def generar_bytes_excel_kardex(**kwargs) -> io.BytesIO:

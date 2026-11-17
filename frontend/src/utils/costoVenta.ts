@@ -3,10 +3,9 @@
  *
  *   Saldo inicial + Compras − Saldo final = Costo de venta
  *
- * Los números los calcula el backend desde el Kardex; aquí solo se arman filtros, nombres de
- * archivo y las filas que se muestran con el formato del dueño (Unid. / P.U. / Total).
+ * Los números los calcula el backend desde el Kardex; aquí solo se arman filtros y las filas
+ * que se muestran con el formato del dueño (Unid. / P.U. / Total).
  */
-import { nombreSeguro } from './descargaArchivo.ts';
 
 export interface FiltrosCostoVenta {
   periodo_id: number | string;
@@ -19,12 +18,6 @@ export const paramsCostoVenta = (f: FiltrosCostoVenta): Record<string, number | 
   ...(f.periodo_hasta_id && String(f.periodo_hasta_id) !== String(f.periodo_id) ? { periodo_hasta_id: f.periodo_hasta_id } : {}),
   ...(f.producto_id ? { producto_id: f.producto_id } : {}),
 });
-
-/** `Costo_de_venta_2026-01_20123456789.xlsx` o `Costo_de_venta_2026-01_a_2026-03_…` (igual que el backend). */
-export const nombreArchivoCostoVenta = ({ desde, hasta, ruc }: { desde: string; hasta?: string | null; ruc?: string | null }): string => {
-  const rango = hasta && hasta !== desde ? `${desde}_a_${hasta}` : desde;
-  return `${nombreSeguro(['Costo_de_venta', rango, ruc].filter(Boolean).join('_'))}.xlsx`;
-};
 
 export interface PeriodoOrdenable { id: number; orden: number }
 
@@ -54,7 +47,7 @@ export const ETIQUETAS_DESGLOSE: Record<string, string> = {
   consumo_retiros: 'Consumo interno y retiros',
   ajustes: 'Ajustes de inventario',
   transferencias: 'Transferencias entre almacenes',
-  otros: 'Otros',
+  otros: 'Otros y redondeo',
 };
 
 export interface BloqueCostoMin { cantidad: string | null; costo_unitario: string | null; valor: string }
@@ -76,19 +69,22 @@ const esCero = (valor?: string | null): boolean => {
 /**
  * Filas en el orden de la hoja del dueño:
  *   S.I.  + Compras  (subtotal)  − S. final  = Costo de venta
- * El subtotal (S.I. + Compras) solo lleva total, como en su ejemplo (30 + 1 000 = 1 030).
+ * El subtotal (S.I. + Compras) lleva las unidades disponibles y el P.U. promedio del período, que es
+ * el mismo P.U. del saldo final y del costo de venta (100 u. × 20 + 100 u. × 22.50 → 200 u. × 21.25).
  */
 export const filasFormula = (b: {
   saldo_inicial: BloqueCostoMin; compras: BloqueCostoMin; saldo_final: BloqueCostoMin; costo_venta: BloqueCostoMin;
+  disponible?: BloqueCostoMin;
 }): FilaFormula[] => {
-  const subtotal = sumarTexto(b.saldo_inicial.valor, b.compras.valor);
+  const subtotal: BloqueCostoMin = b.disponible
+    ?? { cantidad: null, costo_unitario: null, valor: sumarTexto(b.saldo_inicial.valor, b.compras.valor) };
   const fila = (clave: FilaFormula['clave'], signo: FilaFormula['signo'], etiqueta: string, bloque: BloqueCostoMin): FilaFormula => ({
     clave, signo, etiqueta, cantidad: bloque.cantidad, costoUnitario: bloque.costo_unitario, valor: bloque.valor,
   });
   return [
     fila('saldo_inicial', '', 'Saldo inicial', b.saldo_inicial),
     fila('compras', '+', 'Compras', b.compras),
-    { clave: 'subtotal', signo: '', etiqueta: 'Subtotal', cantidad: null, costoUnitario: null, valor: subtotal },
+    fila('subtotal', '', 'Subtotal', subtotal),
     fila('saldo_final', '−', 'Saldo final', b.saldo_final),
     fila('costo_venta', '=', 'Costo de venta', b.costo_venta),
   ];
@@ -109,7 +105,7 @@ export const sumarTexto = (a: string, b: string): string => {
   return `${negativo ? '-' : ''}${absoluto.slice(0, -ESCALA)}.${absoluto.slice(-ESCALA)}`;
 };
 
-/** El desglose explica todo el costo de venta (la diferencia del backend es 0). */
+/** El desglose explica todo el costo de venta (la diferencia del backend es 0); también sirve para ver si un importe es 0. */
 export const cuadra = (diferencia?: string | null): boolean => esCero(diferencia);
 
 /** Solo los conceptos con importe, para no llenar la pantalla de ceros. */

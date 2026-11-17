@@ -1,4 +1,5 @@
 import apiClient from './http';
+import type { Producto } from './inventario';
 
 export interface CapturaCampo {
   id: number;
@@ -262,7 +263,7 @@ export interface AltaRapidaProductoPayload {
 
 export interface AltaRapidaProductoResponse {
   mensaje: string;
-  producto: any;
+  producto: Producto;
   producto_unidad: {
     id: number;
     unidad_codigo: string;

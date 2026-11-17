@@ -316,7 +316,7 @@ class KardexReportesTest(TestCase):
         self.assertEqual(Decimal(str(resumen['saldo_final_valor'])), Decimal('1210.00000000'))
 
     def test_kardex_excel_export_coincidencia_1_a_1(self):
-        """Verifica que el Excel generado tenga las 4 hojas y que Hoja 1 coincida 1:1 con la consulta en pantalla."""
+        """Verifica que el Excel generado tenga las 5 hojas y que Hoja 1 coincida 1:1 con la consulta en pantalla."""
         self.client.force_authenticate(user=self.user_a)
         response = self.client.get(
             reverse('kardex-excel-export'),
@@ -331,7 +331,7 @@ class KardexReportesTest(TestCase):
         wb = openpyxl.load_workbook(io.BytesIO(response.content))
         self.assertEqual(
             wb.sheetnames,
-            ["Kardex Valorizado", "Movimientos", "Incidencias", "Resumen de Saldos"]
+            ["Kardex Valorizado", "Movimientos", "Incidencias", "Resumen de Saldos", "Costo de Venta"]
         )
 
         ws1 = wb["Kardex Valorizado"]
