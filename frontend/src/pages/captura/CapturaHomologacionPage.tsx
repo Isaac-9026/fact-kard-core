@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useAuth } from '../../context/useAuth';
 import {
   actualizarEquivalencia,
+  altaRapidaProductoEquivalencia,
   corregirCampoCaptura,
   crearEquivalencia,
   eliminarCaptura,
@@ -36,11 +37,13 @@ import {
   getProductos,
   getProductoUnidades,
   getTerceros,
+  getTiposExistencia,
   getUnidadesMedida,
   type Almacen,
   type Producto,
   type ProductoUnidad,
   type Tercero,
+  type TipoExistencia,
   type UnidadMedida,
 } from '../../api/inventario';
 import {
@@ -52,6 +55,8 @@ import {
   Search,
   Sparkles,
   Plus,
+  PlusCircle,
+  Link2,
   Loader2,
   CheckCircle2,
   AlertCircle,
@@ -83,6 +88,7 @@ import { Select } from '../../components/ui/select';
 import { Label } from '../../components/ui/label';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../components/ui/tabs';
 import { formatearDecimal } from '../../utils/decimal';
+import { AFECTACIONES_IGV } from '../../utils/afectacionIgv';
 
 /** QA2-001: valor del selector para el proveedor del comprobante que aún no está registrado. */
 const PROVEEDOR_DE_CAPTURA = 'captura';
@@ -103,6 +109,7 @@ export const CapturaHomologacionPage: React.FC = () => {
   const [terceros, setTerceros] = useState<Tercero[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [unidadesMedida, setUnidadesMedida] = useState<UnidadMedida[]>([]);
+  const [tiposExistencia, setTiposExistencia] = useState<TipoExistencia[]>([]);
 
   // -------------------------------------------------------------
   // ESTADOS PESTAÑA 1: CAPTURAS XML / PDF / OCR
@@ -179,6 +186,15 @@ export const CapturaHomologacionPage: React.FC = () => {
   const [formProductoUnidadId, setFormProductoUnidadId] = useState<string>('');
   const [formFactor, setFormFactor] = useState<string>('1.00000000');
 
+  // Modo conmutable: 'alta_rapida' (crear producto nuevo + homologar) vs 'vincular' (producto existente)
+  const [modoEquivModal, setModoEquivModal] = useState<'alta_rapida' | 'vincular'>('alta_rapida');
+  const [formNuevoCodigo, setFormNuevoCodigo] = useState<string>('');
+  const [formNuevoDescripcion, setFormNuevoDescripcion] = useState<string>('');
+  const [formNuevoTipoExistencia, setFormNuevoTipoExistencia] = useState<string>('01');
+  const [formNuevoUnidadBase, setFormNuevoUnidadBase] = useState<string>('NIU');
+  const [formNuevoAfectacion, setFormNuevoAfectacion] = useState<string>('GRAVADO');
+  const [formNuevoPrecioVenta, setFormNuevoPrecioVenta] = useState<string>('');
+
   // Probador de Sugerencias
   const [showSugerirModal, setShowSugerirModal] = useState(false);
   const [testTerceroId, setTestTerceroId] = useState<string>('');
@@ -191,16 +207,18 @@ export const CapturaHomologacionPage: React.FC = () => {
     if (!empresaActiva) return;
     const cargarAuxiliares = async () => {
       try {
-        const [alms, tercs, prods, unds] = await Promise.all([
+        const [alms, tercs, prods, unds, tipos] = await Promise.all([
           getAlmacenes(),
           getTerceros({ tipo: 'proveedor' }),
           getProductos(),
           getUnidadesMedida(),
+          getTiposExistencia(),
         ]);
         setAlmacenes(alms);
         setTerceros(tercs);
         setProductos(prods);
         setUnidadesMedida(unds);
+        setTiposExistencia(tipos);
         if (alms.length > 0) {
           setSelectedAlmacenId(alms[0].id);
         }
@@ -570,15 +588,65 @@ export const CapturaHomologacionPage: React.FC = () => {
     diferirCarga(cargarUnidades);
   }, [formProductoId]);
 
-  // Guardar nueva equivalencia
+  // Guardar nueva equivalencia (Alta Rápida o Vinculación)
   const handleCrearEquivalencia = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
+    if (modoEquivModal === 'alta_rapida') {
+      if (!formNuevoDescripcion.trim()) {
+        setErrorMsg('La descripción interna del producto es obligatoria.');
+        return;
+      }
+      try {
+        setLoading(true);
+        const res = await altaRapidaProductoEquivalencia({
+          captura: capturaEquivId,
+          tercero: formTerceroId === PROVEEDOR_DE_CAPTURA || !formTerceroId ? null : Number(formTerceroId),
+          codigo_interno: formNuevoCodigo.trim() || null,
+          descripcion: formNuevoDescripcion.trim(),
+          tipo_existencia_codigo: formNuevoTipoExistencia || '01',
+          unidad_base_codigo: formNuevoUnidadBase || 'NIU',
+          afectacion_igv_defecto: formNuevoAfectacion || 'GRAVADO',
+          precio_venta_sugerido: formNuevoPrecioVenta.trim() || null,
+          codigo_externo: formCodigoExt.trim() || null,
+          descripcion_externa: formDescExt.trim() || null,
+          unidad_externa_codigo: formUnidadExt || null,
+          factor_conversion: formFactor.trim() || '1.00000000',
+        });
+        setSuccessMsg(res.mensaje || 'Producto creado y homologado exitosamente.');
+        setShowEquivModal(false);
+        setFormCodigoExt('');
+        setFormDescExt('');
+        setFormFactor('1.00000000');
+        setFormNuevoCodigo('');
+        setFormNuevoDescripcion('');
+        setFormNuevoPrecioVenta('');
+        const [prods] = await Promise.all([
+          getProductos(),
+          cargarEquivalencias(),
+          recargarTerceros(),
+        ]);
+        setProductos(prods);
+        if (capturaEquivId) {
+          if (capturaEquivId === selectedCapturaId) {
+            actualizarDetalle(await obtenerCapturaDetalle(capturaEquivId));
+          }
+          setCapturaEquivId(null);
+        }
+      } catch (err) {
+        setErrorMsg(mensajesDeErrorApi(err, 'Error al crear producto y homologar.').join(' '));
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     if (!formTerceroId || !formProductoUnidadId) {
       setErrorMsg('Debe seleccionar el proveedor y la unidad del producto.');
       return;
     }
-    setErrorMsg(null);
-    setSuccessMsg(null);
     try {
       setLoading(true);
       await crearEquivalencia({
@@ -602,7 +670,6 @@ export const CapturaHomologacionPage: React.FC = () => {
       if (capturaEquivId) {
         // Volver a la captura: sus líneas se recalculan con la nueva equivalencia.
         if (capturaEquivId === selectedCapturaId) actualizarDetalle(await obtenerCapturaDetalle(capturaEquivId));
-        setActiveTab('capturas');
         setCapturaEquivId(null);
       }
     } catch (err) {
@@ -2028,13 +2095,22 @@ export const CapturaHomologacionPage: React.FC = () => {
                                               size="xs"
                                               onClick={async () => {
                                                 const proveedorId = await proveedorDeCaptura();
-                                                setActiveTab('homologaciones');
                                                 setCapturaEquivId(capturaDetalle.id);
                                                 setRucEsperadoEquiv(capturaDetalle.homologacion?.proveedor?.documento || rucEmisorCaptura);
                                                 setFormCodigoExt(codVal === '—' ? '' : codVal);
-                                                setFormDescExt(descVal === '—' ? '' : descVal);
+                                                const descLimpia = descVal === '—' ? '' : descVal;
+                                                setFormDescExt(descLimpia);
                                                 setFormTerceroId(proveedorId);
-                                                if (unidadesMedida.some((u) => u.codigo === undVal)) setFormUnidadExt(undVal);
+                                                const undValida = unidadesMedida.some((u) => u.codigo === undVal) ? undVal : 'NIU';
+                                                setFormUnidadExt(undValida);
+                                                setFormNuevoCodigo('');
+                                                setFormNuevoDescripcion(descLimpia.slice(0, 250));
+                                                setFormNuevoTipoExistencia('01');
+                                                setFormNuevoUnidadBase(undValida);
+                                                setFormNuevoAfectacion('GRAVADO');
+                                                setFormNuevoPrecioVenta('');
+                                                setFormFactor('1.00000000');
+                                                setModoEquivModal('alta_rapida');
                                                 setShowEquivModal(true);
                                               }}
                                             >
@@ -2096,6 +2172,20 @@ export const CapturaHomologacionPage: React.FC = () => {
                     onClick={() => {
                       setRucEsperadoEquiv('');
                       setCapturaEquivId(null);
+                      setFormCodigoExt('');
+                      setFormDescExt('');
+                      setFormTerceroId('');
+                      setFormUnidadExt('NIU');
+                      setFormProductoId('');
+                      setFormProductoUnidadId('');
+                      setFormNuevoCodigo('');
+                      setFormNuevoDescripcion('');
+                      setFormNuevoTipoExistencia('01');
+                      setFormNuevoUnidadBase('NIU');
+                      setFormNuevoAfectacion('GRAVADO');
+                      setFormNuevoPrecioVenta('');
+                      setFormFactor('1.00000000');
+                      setModoEquivModal('vincular');
                       setShowEquivModal(true);
                     }}
                   >
@@ -2241,185 +2331,6 @@ export const CapturaHomologacionPage: React.FC = () => {
             </CardContent>
           </Card>
 
-          {/* Modal Nueva Equivalencia */}
-          {showEquivModal && (
-            <div
-              role="presentation"
-              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150"
-            >
-              <section
-                role="dialog"
-                aria-modal="true"
-                className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-6 shadow-xl animate-in zoom-in-95 duration-150"
-              >
-                <div className="flex items-start justify-between pb-4 border-b border-slate-100">
-                  <div className="flex items-center gap-2">
-                    <Plus className="h-5 w-5 text-indigo-600" />
-                    <h3 className="text-base font-semibold text-slate-900">
-                      Nueva Equivalencia de Producto (Homologación)
-                    </h3>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowEquivModal(false)}
-                    className="text-slate-400 hover:text-slate-600"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
-                </div>
-
-                <form onSubmit={handleCrearEquivalencia} className="mt-4 space-y-4">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="form-tercero">Proveedor Emisor (*)</Label>
-                    <Select
-                      id="form-tercero"
-                      value={formTerceroId}
-                      onChange={(e) => setFormTerceroId(e.target.value)}
-                      required
-                    >
-                      <option value="">Seleccione un proveedor...</option>
-                      {capturaEquivId && !capturaDetalle?.homologacion?.proveedor?.tercero_id && capturaDetalle?.homologacion?.proveedor?.documento && (
-                        <option value={PROVEEDOR_DE_CAPTURA}>
-                          {capturaDetalle.homologacion.proveedor.documento} - {capturaDetalle.homologacion.proveedor.nombre || 'Proveedor del comprobante'} (nuevo: se registra al guardar)
-                        </option>
-                      )}
-                      {terceros.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.numero_documento} - {t.razon_social}
-                        </option>
-                      ))}
-                    </Select>
-                    {rucEsperadoEquiv && (
-                      <p className="text-[11px] text-slate-500">
-                        RUC emisor del comprobante: <span className="font-mono">{rucEsperadoEquiv}</span>
-                      </p>
-                    )}
-                    {rucEsperadoEquiv && formTerceroId && formTerceroId !== PROVEEDOR_DE_CAPTURA &&
-                      terceros.find((t) => String(t.id) === String(formTerceroId))?.numero_documento !== rucEsperadoEquiv && (
-                      <p role="alert" data-testid="aviso-proveedor-distinto" className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
-                        El proveedor elegido no es el emisor del comprobante: la equivalencia no se usará con sus XML.
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="form-cod-ext">Código SKU del Proveedor</Label>
-                      <Input
-                        id="form-cod-ext"
-                        type="text"
-                        value={formCodigoExt}
-                        onChange={(e) => setFormCodigoExt(e.target.value)}
-                        placeholder="Ej. TAL-500W-PROV"
-                        className="font-mono text-xs"
-                      />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="form-und-ext">Unidad Externa</Label>
-                      <Select
-                        id="form-und-ext"
-                        value={formUnidadExt}
-                        onChange={(e) => setFormUnidadExt(e.target.value)}
-                      >
-                        {unidadesMedida.map((u) => (
-                          <option key={u.codigo} value={u.codigo}>
-                            {u.codigo} - {u.descripcion}
-                          </option>
-                        ))}
-                      </Select>
-                    </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="form-desc-ext">Descripción del Ítem en Factura</Label>
-                    <Input
-                      id="form-desc-ext"
-                      type="text"
-                      value={formDescExt}
-                      onChange={(e) => setFormDescExt(e.target.value)}
-                      placeholder="Ej. TALADRO INDUSTRIAL IMPACTO 500W"
-                    />
-                  </div>
-
-                  <div className="border-t border-slate-100 pt-3 space-y-3">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="form-producto-interno">Producto Interno FACT-KARD (*)</Label>
-                      <Select
-                        id="form-producto-interno"
-                        value={formProductoId}
-                        onChange={(e) => setFormProductoId(e.target.value)}
-                        required
-                      >
-                        <option value="">Seleccione el producto de nuestro catálogo...</option>
-                        {productos.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.codigo_interno} - {p.descripcion}
-                          </option>
-                        ))}
-                      </Select>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <Label htmlFor="form-und-interna">Presentación / Unidad</Label>
-                        <Select
-                          id="form-und-interna"
-                          value={formProductoUnidadId}
-                          onChange={(e) => setFormProductoUnidadId(e.target.value)}
-                          required
-                          disabled={productoUnidades.length === 0}
-                        >
-                          {productoUnidades.map((pu) => (
-                            <option key={pu.id} value={pu.id}>
-                              {pu.unidad_codigo} (Factor: {pu.factor_a_base}) {pu.es_base ? '★ Base' : ''}
-                            </option>
-                          ))}
-                        </Select>
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label htmlFor="form-factor">Factor de Conversión (*)</Label>
-                        <Input
-                          id="form-factor"
-                          type="number"
-                          step="0.00000001"
-                          min="0.00000001"
-                          value={formFactor}
-                          onChange={(e) => setFormFactor(e.target.value)}
-                          required
-                          className="font-mono tabular-nums text-xs"
-                        />
-                        <span className="text-[10px] text-slate-500 block">
-                          1 Und. Ext. = {formFactor} Und. Base
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowEquivModal(false)}
-                    >
-                      Cancelar
-                    </Button>
-                    <Button
-                      type="submit"
-                      variant="primary"
-                      size="sm"
-                      disabled={loading}
-                    >
-                      {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Check className="h-3.5 w-3.5 mr-1.5" />}
-                      Confirmar Homologación
-                    </Button>
-                  </div>
-                </form>
-              </section>
-            </div>
-          )}
-
           {/* Modal Probar Sugerencia */}
           {showSugerirModal && (
             <div
@@ -2535,6 +2446,349 @@ export const CapturaHomologacionPage: React.FC = () => {
           )}
         </TabsContent>
       </Tabs>
+      {/* Modal Nueva Equivalencia / Alta Rápida */}
+      {showEquivModal && (
+        <div
+          role="presentation"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-150"
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-xl border border-slate-200 bg-white p-6 shadow-xl animate-in zoom-in-95 duration-150"
+          >
+            <div className="flex items-start justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                {modoEquivModal === 'alta_rapida' ? (
+                  <PlusCircle className="h-5 w-5 text-indigo-600 shrink-0" />
+                ) : (
+                  <Link2 className="h-5 w-5 text-indigo-600 shrink-0" />
+                )}
+                <div>
+                  <h3 className="text-base font-semibold text-slate-900">
+                    {modoEquivModal === 'alta_rapida'
+                      ? 'Crear Producto y Homologar en 1 Clic'
+                      : 'Vincular con Producto Existente'}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {modoEquivModal === 'alta_rapida'
+                      ? 'Crea el producto en catálogo interno y homologa la línea automáticamente.'
+                      : 'Asocia el ítem del proveedor a un producto ya existente en tu catálogo.'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowEquivModal(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Selector de modo */}
+            <div className="flex rounded-lg bg-slate-100 p-1 mt-4">
+              <button
+                type="button"
+                onClick={() => setModoEquivModal('alta_rapida')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition-colors ${
+                  modoEquivModal === 'alta_rapida'
+                    ? 'bg-white text-indigo-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <PlusCircle className="h-3.5 w-3.5" />
+                Crear Producto Nuevo y Homologar
+              </button>
+              <button
+                type="button"
+                onClick={() => setModoEquivModal('vincular')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-medium transition-colors ${
+                  modoEquivModal === 'vincular'
+                    ? 'bg-white text-indigo-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Link2 className="h-3.5 w-3.5" />
+                Vincular con Producto Existente
+              </button>
+            </div>
+
+            <form onSubmit={handleCrearEquivalencia} className="mt-4 space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="form-tercero">Proveedor Emisor (*)</Label>
+                <Select
+                  id="form-tercero"
+                  value={formTerceroId}
+                  onChange={(e) => setFormTerceroId(e.target.value)}
+                  required
+                >
+                  <option value="">Seleccione un proveedor...</option>
+                  {capturaEquivId && !capturaDetalle?.homologacion?.proveedor?.tercero_id && capturaDetalle?.homologacion?.proveedor?.documento && (
+                    <option value={PROVEEDOR_DE_CAPTURA}>
+                      {capturaDetalle.homologacion.proveedor.documento} - {capturaDetalle.homologacion.proveedor.nombre || 'Proveedor del comprobante'} (nuevo: se registra al guardar)
+                    </option>
+                  )}
+                  {terceros.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.numero_documento} - {t.razon_social}
+                    </option>
+                  ))}
+                </Select>
+                {rucEsperadoEquiv && (
+                  <p className="text-[11px] text-slate-500">
+                    RUC emisor del comprobante: <span className="font-mono">{rucEsperadoEquiv}</span>
+                  </p>
+                )}
+                {rucEsperadoEquiv && formTerceroId && formTerceroId !== PROVEEDOR_DE_CAPTURA &&
+                  terceros.find((t) => String(t.id) === String(formTerceroId))?.numero_documento !== rucEsperadoEquiv && (
+                  <p role="alert" data-testid="aviso-proveedor-distinto" className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                    El proveedor elegido no es el emisor del comprobante: la equivalencia no se usará con sus XML.
+                  </p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="form-cod-ext">Código SKU del Proveedor</Label>
+                  <Input
+                    id="form-cod-ext"
+                    type="text"
+                    value={formCodigoExt}
+                    onChange={(e) => setFormCodigoExt(e.target.value)}
+                    placeholder="Ej. TAL-500W-PROV"
+                    className="font-mono text-xs"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="form-und-ext">Unidad Externa en Factura</Label>
+                  <Select
+                    id="form-und-ext"
+                    value={formUnidadExt}
+                    onChange={(e) => {
+                      setFormUnidadExt(e.target.value);
+                      if (modoEquivModal === 'alta_rapida' && !formNuevoUnidadBase) {
+                        setFormNuevoUnidadBase(e.target.value);
+                      }
+                    }}
+                  >
+                    {unidadesMedida.map((u) => (
+                      <option key={u.codigo} value={u.codigo}>
+                        {u.codigo} - {u.descripcion}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="form-desc-ext">Descripción del Ítem en Factura</Label>
+                <Input
+                  id="form-desc-ext"
+                  type="text"
+                  value={formDescExt}
+                  onChange={(e) => {
+                    setFormDescExt(e.target.value);
+                    if (modoEquivModal === 'alta_rapida' && !formNuevoDescripcion) {
+                      setFormNuevoDescripcion(e.target.value.slice(0, 250));
+                    }
+                  }}
+                  placeholder="Ej. TALADRO INDUSTRIAL IMPACTO 500W"
+                />
+              </div>
+
+              {/* BLOQUE DINÁMICO SEGÚN MODO */}
+              {modoEquivModal === 'alta_rapida' ? (
+                <div className="border-t border-slate-100 pt-3 space-y-3">
+                  <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    Datos del Nuevo Producto en Catálogo Interno
+                  </h4>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1.5 col-span-1">
+                      <Label htmlFor="form-nuevo-codigo">Código Interno</Label>
+                      <Input
+                        id="form-nuevo-codigo"
+                        type="text"
+                        value={formNuevoCodigo}
+                        onChange={(e) => setFormNuevoCodigo(e.target.value)}
+                        placeholder="Autogenerar (ej. PROD-0001)"
+                        className="font-mono text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1.5 col-span-2">
+                      <Label htmlFor="form-nuevo-desc">Descripción Interna (*)</Label>
+                      <Input
+                        id="form-nuevo-desc"
+                        type="text"
+                        value={formNuevoDescripcion}
+                        onChange={(e) => setFormNuevoDescripcion(e.target.value)}
+                        required
+                        maxLength={250}
+                        placeholder="Nombre del producto en catálogo"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="form-nuevo-t5">Tipo de Existencia (Tabla 5) (*)</Label>
+                      <Select
+                        id="form-nuevo-t5"
+                        value={formNuevoTipoExistencia}
+                        onChange={(e) => setFormNuevoTipoExistencia(e.target.value)}
+                        required
+                      >
+                        {tiposExistencia.map((t) => (
+                          <option key={t.codigo} value={t.codigo}>
+                            {t.codigo} - {t.descripcion}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="form-nuevo-t6">Unidad Base (Tabla 6) (*)</Label>
+                      <Select
+                        id="form-nuevo-t6"
+                        value={formNuevoUnidadBase}
+                        onChange={(e) => setFormNuevoUnidadBase(e.target.value)}
+                        required
+                      >
+                        {unidadesMedida.map((u) => (
+                          <option key={u.codigo} value={u.codigo}>
+                            {u.codigo} - {u.descripcion}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-1.5 col-span-1">
+                      <Label htmlFor="form-nuevo-afectacion">Afectación IGV</Label>
+                      <Select
+                        id="form-nuevo-afectacion"
+                        value={formNuevoAfectacion}
+                        onChange={(e) => setFormNuevoAfectacion(e.target.value)}
+                      >
+                        {AFECTACIONES_IGV.map((a) => (
+                          <option key={a.valor} value={a.valor}>
+                            {a.etiqueta}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5 col-span-1">
+                      <Label htmlFor="form-nuevo-precio">Precio Sugerido</Label>
+                      <Input
+                        id="form-nuevo-precio"
+                        type="text"
+                        value={formNuevoPrecioVenta}
+                        onChange={(e) => setFormNuevoPrecioVenta(e.target.value)}
+                        placeholder="0.00"
+                        className="font-mono tabular-nums text-xs"
+                      />
+                    </div>
+                    <div className="space-y-1.5 col-span-1">
+                      <Label htmlFor="form-factor-rapido">Factor de Conversión (*)</Label>
+                      <Input
+                        id="form-factor-rapido"
+                        type="text"
+                        value={formFactor}
+                        onChange={(e) => setFormFactor(e.target.value)}
+                        required
+                        className="font-mono tabular-nums text-xs"
+                      />
+                    </div>
+                  </div>
+                  <span className="text-[10px] text-slate-500 block">
+                    1 Und. Factura ({formUnidadExt || 'UND'}) = {formFactor || '1.00000000'} Und. Base ({formNuevoUnidadBase || 'NIU'})
+                  </span>
+                </div>
+              ) : (
+                <div className="border-t border-slate-100 pt-3 space-y-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="form-producto-interno">Producto Interno FACT-KARD (*)</Label>
+                    <Select
+                      id="form-producto-interno"
+                      value={formProductoId}
+                      onChange={(e) => setFormProductoId(e.target.value)}
+                      required
+                    >
+                      <option value="">Seleccione el producto de nuestro catálogo...</option>
+                      {productos.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.codigo_interno} - {p.descripcion}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="form-und-interna">Presentación / Unidad</Label>
+                      <Select
+                        id="form-und-interna"
+                        value={formProductoUnidadId}
+                        onChange={(e) => setFormProductoUnidadId(e.target.value)}
+                        required
+                        disabled={productoUnidades.length === 0}
+                      >
+                        {productoUnidades.map((pu) => (
+                          <option key={pu.id} value={pu.id}>
+                            {pu.unidad_codigo} (Factor: {pu.factor_a_base}) {pu.es_base ? '★ Base' : ''}
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="form-factor">Factor de Conversión (*)</Label>
+                      <Input
+                        id="form-factor"
+                        type="text"
+                        value={formFactor}
+                        onChange={(e) => setFormFactor(e.target.value)}
+                        required
+                        className="font-mono tabular-nums text-xs"
+                      />
+                      <span className="text-[10px] text-slate-500 block">
+                        1 Und. Ext. = {formFactor} Und. Base
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowEquivModal(false)}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                  ) : modoEquivModal === 'alta_rapida' ? (
+                    <PlusCircle className="h-3.5 w-3.5 mr-1.5" />
+                  ) : (
+                    <Check className="h-3.5 w-3.5 mr-1.5" />
+                  )}
+                  {modoEquivModal === 'alta_rapida' ? 'Crear y Homologar' : 'Confirmar Homologación'}
+                </Button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
     </div>
   );
 };

@@ -10,12 +10,16 @@ import {
   Search,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Pencil,
   Layers,
   X,
   Building2,
   Save,
   History,
+  FileSpreadsheet,
+  Download,
+  Loader2,
 } from 'lucide-react'
 import { HistorialTerceroModal } from '../../components/finanzas/HistorialTerceroModal'
 import { ConsultaRucBoton } from '../../components/consultaRuc/ConsultaRucBoton'
@@ -23,18 +27,21 @@ import { MAPA_TERCERO } from '../../utils/consultaRuc'
 import { TIPOS_DOCUMENTO_IDENTIDAD, errorDocumentoIdentidad } from '../../utils/finanzas'
 import { AFECTACIONES_IGV } from '../../utils/afectacionIgv'
 import { formatearDecimal } from '../../utils/decimal'
+import { descargarBlob } from '../../utils/descargaArchivo'
 
 import {
   createAlmacen,
   createProducto,
   createProductoUnidad,
   createTercero,
+  descargarPlantillaProductosExcel,
   getAlmacenes,
   getProductos,
   getProductoUnidades,
   getTerceros,
   getTiposExistencia,
   getUnidadesMedida,
+  importarProductosExcel,
   updateAlmacen,
   updateProducto,
   updateProductoUnidad,
@@ -42,6 +49,7 @@ import {
   type Almacen,
   type EstadoMaestro,
   type FiltroTercero,
+  type ImportarProductosExcelResultado,
   type Producto,
   type ProductoUnidad,
   type Tercero,
@@ -177,6 +185,15 @@ export const MaestrosInventarioPage = ({ vista }: MaestrosInventarioPageProps = 
   const [almacenFormVisible, setAlmacenFormVisible] = useState(false)
   const unidadesRequestRef = useRef(0)
   const productoUnidadesActivoIdRef = useRef<number | null>(null)
+
+  // Modal Importar Productos Excel
+  const [importarModalOpen, setImportarModalOpen] = useState(false)
+  const [archivoExcel, setArchivoExcel] = useState<File | null>(null)
+  const [procesandoImportacion, setProcesandoImportacion] = useState(false)
+  const [descargandoPlantilla, setDescargandoPlantilla] = useState(false)
+  const [resultadoImportacion, setResultadoImportacion] = useState<ImportarProductosExcelResultado | null>(null)
+  const [errorImportacion, setErrorImportacion] = useState<string | null>(null)
+  const [filtroEstadoDiagnostico, setFiltroEstadoDiagnostico] = useState<'TODOS' | 'NUEVO' | 'ACTUALIZAR' | 'ERROR'>('TODOS')
 
   const limpiarMensajes = () => {
     setError('')
@@ -329,6 +346,48 @@ export const MaestrosInventarioPage = ({ vista }: MaestrosInventarioPageProps = 
     } catch {
       setError('El cambio se guardó, pero no se pudo actualizar la lista. Recarga la página para ver el resultado.')
     }
+  }
+
+  const handleDescargarPlantilla = async () => {
+    try {
+      setDescargandoPlantilla(true)
+      setErrorImportacion(null)
+      const blob = await descargarPlantillaProductosExcel()
+      descargarBlob(blob, 'plantilla_productos_sunat.xlsx')
+    } catch {
+      setErrorImportacion('Error al descargar la plantilla oficial de productos Excel.')
+    } finally {
+      setDescargandoPlantilla(false)
+    }
+  }
+
+  const handleProcesarExcel = async (modo: 'PREVISUALIZAR' | 'CONFIRMAR') => {
+    if (!archivoExcel) return
+    try {
+      setProcesandoImportacion(true)
+      setErrorImportacion(null)
+      const res = await importarProductosExcel(archivoExcel, modo)
+      setResultadoImportacion(res)
+      if (modo === 'CONFIRMAR') {
+        setSuccess(res.mensaje || 'Productos importados exitosamente.')
+        setImportarModalOpen(false)
+        setArchivoExcel(null)
+        setResultadoImportacion(null)
+        await refrescarDespuesDeGuardar(cargarProductos)
+      }
+    } catch (err: unknown) {
+      setErrorImportacion(extraerError(err))
+    } finally {
+      setProcesandoImportacion(false)
+    }
+  }
+
+  const cerrarModalImportar = () => {
+    setImportarModalOpen(false)
+    setArchivoExcel(null)
+    setResultadoImportacion(null)
+    setErrorImportacion(null)
+    setFiltroEstadoDiagnostico('TODOS')
   }
 
   const abrirNuevo = () => {
@@ -545,14 +604,26 @@ export const MaestrosInventarioPage = ({ vista }: MaestrosInventarioPageProps = 
           </Badge>
         }
         actions={
-          <Button
-            variant="primary"
-            onClick={abrirNuevo}
-            disabled={!esAdmin || (tab === 'almacenes' && catalogosLoading)}
-          >
-            <Plus className="h-4 w-4 mr-1.5" />
-            Nuevo {tab === 'productos' ? 'Producto' : tab === 'terceros' ? 'Tercero' : 'Almacén'}
-          </Button>
+          <div className="flex items-center gap-2">
+            {tab === 'productos' && (
+              <Button
+                variant="outline"
+                onClick={() => setImportarModalOpen(true)}
+                disabled={!esAdmin}
+              >
+                <FileSpreadsheet className="h-4 w-4 mr-1.5 text-indigo-600" />
+                Importar Excel
+              </Button>
+            )}
+            <Button
+              variant="primary"
+              onClick={abrirNuevo}
+              disabled={!esAdmin || (tab === 'almacenes' && catalogosLoading)}
+            >
+              <Plus className="h-4 w-4 mr-1.5" />
+              Nuevo {tab === 'productos' ? 'Producto' : tab === 'terceros' ? 'Tercero' : 'Almacén'}
+            </Button>
+          </div>
         }
       />
 
@@ -1349,6 +1420,252 @@ export const MaestrosInventarioPage = ({ vista }: MaestrosInventarioPageProps = 
               </Label>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {/* Modal: Importación Masiva de Productos vía Excel (.xlsx) */}
+      {importarModalOpen && (
+        <Modal
+          isOpen={importarModalOpen}
+          onClose={cerrarModalImportar}
+          title="Importación Masiva de Productos (SUNAT .xlsx)"
+          description="Carga y valida masivamente existencias usando la plantilla oficial con diagnóstico previo fila por fila."
+          icon={<FileSpreadsheet className="h-5 w-5 text-indigo-600" />}
+          maxWidth="5xl"
+        >
+          <div className="space-y-4">
+            {/* Paso 1 y Paso 2: Descarga y Selección */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-800 uppercase tracking-wide">
+                    1. Plantilla Oficial SUNAT
+                  </span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDescargarPlantilla}
+                    disabled={descargandoPlantilla}
+                  >
+                    {descargandoPlantilla ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                    ) : (
+                      <Download className="h-3.5 w-3.5 mr-1.5 text-indigo-600" />
+                    )}
+                    Descargar Plantilla (.xlsx)
+                  </Button>
+                </div>
+                <p className="text-xs text-slate-600">
+                  La plantilla contiene 2 hojas: <strong>Productos</strong> (donde registrarás los ítems) y <strong>Catalogos_SUNAT</strong> (con códigos válidos de Tabla 5 y Tabla 6).
+                </p>
+              </div>
+
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-2">
+                <span className="text-xs font-semibold text-slate-800 uppercase tracking-wide block">
+                  2. Cargar Archivo .xlsx
+                </span>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="file"
+                    accept=".xlsx"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] || null
+                      setArchivoExcel(f)
+                      setResultadoImportacion(null)
+                      setErrorImportacion(null)
+                    }}
+                    className="text-xs file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-xs file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+                  />
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    disabled={!archivoExcel || procesandoImportacion}
+                    onClick={() => handleProcesarExcel('PREVISUALIZAR')}
+                  >
+                    {procesandoImportacion ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                    ) : (
+                      <Search className="h-3.5 w-3.5 mr-1.5" />
+                    )}
+                    Previsualizar
+                  </Button>
+                </div>
+                {archivoExcel && (
+                  <p className="text-[11px] text-slate-500 font-mono">
+                    Seleccionado: {archivoExcel.name}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {errorImportacion && (
+              <div
+                role="alert"
+                className="flex items-start gap-2.5 rounded-lg border border-rose-200 bg-rose-50/90 p-3 text-xs text-rose-700 animate-in fade-in"
+              >
+                <AlertCircle className="h-4 w-4 shrink-0 text-rose-600 mt-0.5" />
+                <span className="font-medium leading-relaxed">{errorImportacion}</span>
+              </div>
+            )}
+
+            {/* Diagnóstico Previo */}
+            {resultadoImportacion && (
+              <div className="space-y-3 pt-2 border-t border-slate-200">
+                {/* KPIs */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="rounded-lg border border-slate-200 bg-white p-3 text-center">
+                    <span className="text-xs text-slate-500 block">Total Filas</span>
+                    <span className="text-lg font-bold text-slate-900">{resultadoImportacion.total_filas}</span>
+                  </div>
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 text-center">
+                    <span className="text-xs text-emerald-700 font-medium flex items-center justify-center gap-1">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Nuevos
+                    </span>
+                    <span className="text-lg font-bold text-emerald-700">{resultadoImportacion.nuevos}</span>
+                  </div>
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3 text-center">
+                    <span className="text-xs text-amber-700 font-medium flex items-center justify-center gap-1">
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-600" /> A Actualizar
+                    </span>
+                    <span className="text-lg font-bold text-amber-700">{resultadoImportacion.actualizables}</span>
+                  </div>
+                  <div className="rounded-lg border border-rose-200 bg-rose-50/50 p-3 text-center">
+                    <span className="text-xs text-rose-700 font-medium flex items-center justify-center gap-1">
+                      <AlertCircle className="h-3.5 w-3.5 text-rose-600" /> Con Error
+                    </span>
+                    <span className="text-lg font-bold text-rose-700">{resultadoImportacion.errores}</span>
+                  </div>
+                </div>
+
+                {/* Filtro de la tabla de diagnóstico */}
+                <div className="flex items-center justify-between text-xs pt-1">
+                  <span className="font-semibold text-slate-700">Detalle fila por fila:</span>
+                  <div className="flex items-center gap-1">
+                    {(['TODOS', 'NUEVO', 'ACTUALIZAR', 'ERROR'] as const).map((filtro) => (
+                      <button
+                        key={filtro}
+                        type="button"
+                        onClick={() => setFiltroEstadoDiagnostico(filtro)}
+                        className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                          filtroEstadoDiagnostico === filtro
+                            ? 'bg-indigo-600 text-white'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                      >
+                        {filtro}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Tabla con scroll */}
+                <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-200 bg-white">
+                  <Table>
+                    <TableHeader className="sticky top-0 bg-slate-50 z-10 shadow-xs">
+                      <TableRow>
+                        <TableHead className="w-12 text-center text-xs">Fila</TableHead>
+                        <TableHead className="w-28 text-xs">Código</TableHead>
+                        <TableHead className="text-xs">Descripción</TableHead>
+                        <TableHead className="w-20 text-xs">T5 (Exist.)</TableHead>
+                        <TableHead className="w-20 text-xs">T6 (Und.)</TableHead>
+                        <TableHead className="w-24 text-xs">Afectación</TableHead>
+                        <TableHead className="w-24 text-right text-xs">Precio Sug.</TableHead>
+                        <TableHead className="w-24 text-center text-xs">Estado</TableHead>
+                        <TableHead className="text-xs">Observaciones</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(resultadoImportacion.filas ?? [])
+                        .filter((f) => filtroEstadoDiagnostico === 'TODOS' || f.estado_fila === filtroEstadoDiagnostico)
+                        .map((f) => (
+                          <TableRow key={f.fila} className={f.estado_fila === 'ERROR' ? 'bg-rose-50/40' : undefined}>
+                            <TableCell className="text-center font-mono text-xs">{f.fila}</TableCell>
+                            <TableCell className="font-mono text-xs font-semibold">
+                              {f.codigo_interno}
+                              {f.auto_generar && (
+                                <span className="block text-[10px] text-indigo-600 font-sans font-normal">(Auto)</span>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-xs">{f.descripcion}</TableCell>
+                            <TableCell className="font-mono text-xs">{f.tipo_existencia_codigo}</TableCell>
+                            <TableCell className="font-mono text-xs">{f.unidad_base_codigo}</TableCell>
+                            <TableCell className="text-xs">{f.afectacion_igv}</TableCell>
+                            <TableCell className="text-right font-mono text-xs">{f.precio_venta_sugerido ?? '—'}</TableCell>
+                            <TableCell className="text-center">
+                              {f.estado_fila === 'NUEVO' && (
+                                <Badge variant="success" size="xs">NUEVO</Badge>
+                              )}
+                              {f.estado_fila === 'ACTUALIZAR' && (
+                                <Badge variant="warning" size="xs">ACTUALIZAR</Badge>
+                              )}
+                              {f.estado_fila === 'ERROR' && (
+                                <Badge variant="destructive" size="xs">ERROR</Badge>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {f.observacion ? (
+                                <span className={f.estado_fila === 'ERROR' ? 'text-rose-700 font-medium' : 'text-slate-600'}>
+                                  {f.observacion}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 text-[11px]">Correcto</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* Resumen / Alerta inferior */}
+                {resultadoImportacion.errores > 0 ? (
+                  <p className="text-xs text-rose-700 font-medium flex items-center gap-1.5">
+                    <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
+                    El archivo contiene {resultadoImportacion.errores} fila(s) con error. Corrija los datos en el archivo Excel antes de confirmar la importación.
+                  </p>
+                ) : (
+                  <p className="text-xs text-emerald-700 font-medium flex items-center gap-1.5">
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                    Archivo validado correctamente. Listo para registrar {resultadoImportacion.nuevos} producto(s) nuevo(s) y actualizar {resultadoImportacion.actualizables}.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Acciones del Modal */}
+            <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-200">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={cerrarModalImportar}
+                disabled={procesandoImportacion}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                disabled={
+                  !resultadoImportacion ||
+                  resultadoImportacion.errores > 0 ||
+                  (resultadoImportacion.nuevos === 0 && resultadoImportacion.actualizables === 0) ||
+                  procesandoImportacion
+                }
+                onClick={() => handleProcesarExcel('CONFIRMAR')}
+              >
+                {procesandoImportacion ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                ) : (
+                  <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                )}
+                Confirmar e Importar ({resultadoImportacion ? resultadoImportacion.nuevos + resultadoImportacion.actualizables : 0} productos)
+              </Button>
+            </div>
+          </div>
         </Modal>
       )}
     </div>

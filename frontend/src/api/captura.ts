@@ -244,3 +244,44 @@ export const sugerirEquivalencia = async (
   });
   return response.data;
 };
+
+export interface AltaRapidaProductoPayload {
+  captura?: number | null;
+  tercero?: number | null;
+  codigo_interno?: string | null;
+  descripcion: string;
+  tipo_existencia_codigo?: string;
+  unidad_base_codigo?: string;
+  afectacion_igv_defecto?: string;
+  precio_venta_sugerido?: string | null;
+  codigo_externo?: string | null;
+  descripcion_externa?: string | null;
+  unidad_externa_codigo?: string | null;
+  factor_conversion?: string;
+}
+
+export interface AltaRapidaProductoResponse {
+  mensaje: string;
+  producto: any;
+  producto_unidad: {
+    id: number;
+    unidad_codigo: string;
+    factor_a_base: string;
+    es_base: boolean;
+  };
+  equivalencia: ProductoEquivalencia;
+}
+
+/**
+ * Registra un Producto nuevo + su ProductoUnidad base + ProductoEquivalencia en 1 solo paso atómico.
+ */
+export const altaRapidaProductoEquivalencia = async (
+  payload: AltaRapidaProductoPayload
+): Promise<AltaRapidaProductoResponse> => {
+  const response = await apiClient.post<AltaRapidaProductoResponse>(
+    '/inventario/equivalencias/alta-rapida/',
+    payload
+  );
+  return response.data;
+};
+

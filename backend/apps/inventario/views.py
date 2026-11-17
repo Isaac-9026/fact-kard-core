@@ -1,8 +1,10 @@
 from django.db import transaction
 from django.db.models import Q
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, status
 from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
 from apps.auditoria.services import registrar_auditoria
@@ -630,3 +632,98 @@ class TerceroHistorialView(EmpresaActivaMixin, generics.GenericAPIView):
             'clases': clases, 'comprobantes': filas,
             'resumen': [{**r, **{k: texto(r[k]) for k in CAMPOS_RESUMEN}} for r in resumen.values()],
         })
+
+
+class ProductoEquivalenciaAltaRapidaView(EmpresaActivaMixin, generics.GenericAPIView):
+    """
+    Alta Rápida de Producto + Homologación en 1 solo paso atómico.
+    Crea Producto, ProductoUnidad (base) y ProductoEquivalencia confirmada.
+    """
+    admin_write_required = True
+
+    def post(self, request, *args, **kwargs):
+        from apps.inventario.alta_rapida import ejecutar_alta_rapida_y_homologacion
+        resultado = ejecutar_alta_rapida_y_homologacion(
+            empresa_id=request.empresa_id,
+            usuario=request.user,
+            datos=request.data,
+        )
+        registrar_auditoria(
+            empresa_id=request.empresa_id,
+            usuario_id=request.user.id,
+            accion='ALTA_RAPIDA_PRODUCTO_HOMOLOGACION',
+            entidad='PRODUCTO_EQUIVALENCIA',
+            registro_id=resultado['producto']['id'],
+            valor_anterior=None,
+            valor_nuevo=resultado,
+        )
+        return Response(resultado, status=status.HTTP_201_CREATED)
+
+
+class ProductoPlantillaExcelView(EmpresaActivaMixin, generics.GenericAPIView):
+    """
+    Descarga la plantilla Excel (.xlsx) oficial SUNAT para importación masiva de productos.
+    """
+    admin_write_required = False
+
+    def get(self, request, *args, **kwargs):
+        from apps.inventario.importacion_excel import generar_plantilla_excel_productos
+        stream = generar_plantilla_excel_productos()
+        response = HttpResponse(
+            stream.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = 'attachment; filename="plantilla_productos_sunat.xlsx"'
+        return response
+
+
+class ProductoImportarExcelView(EmpresaActivaMixin, generics.GenericAPIView):
+    """
+    Importación masiva de productos vía Excel (.xlsx).
+    Soporta modo='PREVISUALIZAR' (diagnóstico sin guardar) y modo='CONFIRMAR' (escritura atómica).
+    """
+    parser_classes = (MultiPartParser, FormParser)
+    admin_write_required = True
+
+    def post(self, request, *args, **kwargs):
+        archivo = request.FILES.get('archivo')
+        if not archivo:
+            return Response(
+                {'error': 'Debe adjuntar un archivo Excel (.xlsx).'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not archivo.name.lower().endswith('.xlsx'):
+            return Response(
+                {'error': 'El archivo debe tener formato .xlsx (Excel).'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        modo = (request.data.get('modo') or 'PREVISUALIZAR').strip().upper()
+        from apps.inventario.importacion_excel import procesar_importacion_excel_productos
+        try:
+            resultado = procesar_importacion_excel_productos(
+                empresa_id=request.empresa_id,
+                archivo=archivo,
+                modo=modo,
+                usuario=request.user,
+            )
+            if modo == 'CONFIRMAR':
+                registrar_auditoria(
+                    empresa_id=request.empresa_id,
+                    usuario_id=request.user.id,
+                    accion='IMPORTACION_MASIVA_PRODUCTOS_EXCEL',
+                    entidad='PRODUCTO',
+                    registro_id=request.empresa_id,
+                    valor_anterior=None,
+                    valor_nuevo={
+                        'creados': resultado.get('creados'),
+                        'actualizados': resultado.get('actualizados'),
+                        'omitidos_por_error': resultado.get('omitidos_por_error'),
+                    },
+                )
+            return Response(resultado, status=status.HTTP_200_OK)
+        except ValueError as exc:
+            return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            return Response({'error': f'Error al procesar el archivo: {str(exc)}'}, status=status.HTTP_400_BAD_REQUEST)
+
