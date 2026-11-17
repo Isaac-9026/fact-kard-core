@@ -1,6 +1,5 @@
 from decimal import Decimal
 
-from django.conf import settings
 from django.db.models import Q, Count
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiParameter
@@ -32,6 +31,7 @@ from apps.documentos.services import (
 )
 from apps.documentos.captura_services import (
     procesar_subida_captura,
+    procesar_lote_xml_captura,
     corregir_campo_captura,
     generar_borrador_desde_captura,
 )
@@ -57,11 +57,8 @@ class DocumentoListCreateView(generics.ListCreateAPIView):
             return Documento.objects.none()
 
         # Bloque 6: el número de líneas se anota en SQL (antes un COUNT por documento).
-        campos_select = ['periodo', 'tercero', 'tipo_comprobante', 'moneda_codigo', 'revisado_por']
-        if 'apps.emision_electronica' in settings.INSTALLED_APPS:
-            campos_select.append('emision_electronica')
         qs = Documento.objects.filter(empresa_id=empresa_id).select_related(
-            *campos_select
+            'periodo', 'tercero', 'tipo_comprobante', 'moneda_codigo', 'revisado_por', 'emision_electronica'
         ).annotate(num_detalles=Count('detalles'))
 
         clase = self.request.query_params.get('clase')
@@ -278,6 +275,30 @@ class DocumentoCapturaSubirView(APIView):
 
         st = status.HTTP_201_CREATED if fue_creado else status.HTTP_200_OK
         return Response(data, status=st)
+
+
+class DocumentoCapturaSubirLoteXmlView(APIView):
+    """
+    Sube un lote de archivos XML y/o archivos ZIP conteniendo comprobantes XML.
+    Aplica controles de seguridad (máximo 100 XMLs, protección contra Zip Bomb)
+    y procesa de manera aislada tolerando fallos parciales por comprobante.
+    """
+    permission_classes = [TieneEmpresaActiva]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        archivos = request.FILES.getlist('archivos') or request.FILES.getlist('archivo')
+        if not archivos:
+            raise ValidationError({'archivos': 'No se proporcionó ningún archivo (.xml o .zip) para procesar.'})
+
+        resumen = procesar_lote_xml_captura(
+            empresa_id=request.empresa_id,
+            usuario=request.user,
+            archivos=archivos,
+        )
+
+        st = status.HTTP_201_CREATED if resumen['nuevos'] > 0 else status.HTTP_200_OK
+        return Response(resumen, status=st)
 
 
 class DocumentoCapturaListView(generics.ListAPIView):
@@ -573,13 +594,10 @@ class DocumentoValidacionElectronicaView(APIView):
     permission_classes = [TieneEmpresaActiva]
 
     def get(self, request, pk):
-        from django.conf import settings
+        from apps.emision_electronica.preparacion import preparacion_documento
         doc = documento_para_validacion(pk, request.empresa_id)
-        if 'apps.emision_electronica' in settings.INSTALLED_APPS:
-            from apps.emision_electronica.preparacion import preparacion_documento
-            admin = bool(getattr(request.user, 'es_admin_global', False) or getattr(request, 'rol_empresa', None) == 'ADMIN')
-            return Response(preparacion_documento(doc, incluir_detalle_infraestructura=admin))
-        return Response(reglas_tributarias.validar_para_emision_electronica(doc))
+        admin = bool(getattr(request.user, 'es_admin_global', False) or getattr(request, 'rol_empresa', None) == 'ADMIN')
+        return Response(preparacion_documento(doc, incluir_detalle_infraestructura=admin))
 
 
 class DocumentoMotivoNotaView(APIView):

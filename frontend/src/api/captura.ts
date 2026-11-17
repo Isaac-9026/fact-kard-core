@@ -285,3 +285,34 @@ export const altaRapidaProductoEquivalencia = async (
   return response.data;
 };
 
+export interface ItemResultadoLoteXml {
+  nombre_archivo: string;
+  estado: 'NUEVO' | 'DUPLICADO_REUTILIZADO' | 'ERROR';
+  captura_id: number | null;
+  serie_numero: string | null;
+  pendientes_homologacion: number | null;
+  detalle: string;
+}
+
+export interface ResumenLoteXml {
+  total_procesados: number;
+  nuevos: number;
+  duplicados: number;
+  errores: number;
+  ultima_captura_id: number | null;
+  resultados: ItemResultadoLoteXml[];
+}
+
+/**
+ * Sube un lote de archivos XML y/o paquetes ZIP con comprobantes electrónicos.
+ */
+export const subirLoteXmlCaptura = async (archivos: File[]): Promise<ResumenLoteXml> => {
+  const formData = new FormData();
+  archivos.forEach((f) => formData.append('archivos', f));
+  const response = await apiClient.post<ResumenLoteXml>('/documentos/capturas/subir-lote-xml/', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return response.data;
+};
+
+
