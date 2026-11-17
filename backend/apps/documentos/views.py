@@ -32,6 +32,7 @@ from apps.documentos.services import (
 )
 from apps.documentos.captura_services import (
     procesar_subida_captura,
+    procesar_lote_xml_captura,
     corregir_campo_captura,
     generar_borrador_desde_captura,
 )
@@ -278,6 +279,30 @@ class DocumentoCapturaSubirView(APIView):
 
         st = status.HTTP_201_CREATED if fue_creado else status.HTTP_200_OK
         return Response(data, status=st)
+
+
+class DocumentoCapturaSubirLoteXmlView(APIView):
+    """
+    Sube un lote de archivos XML y/o archivos ZIP conteniendo comprobantes XML.
+    Aplica controles de seguridad (máximo 100 XMLs, protección contra Zip Bomb)
+    y procesa de manera aislada tolerando fallos parciales por comprobante.
+    """
+    permission_classes = [TieneEmpresaActiva]
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request):
+        archivos = request.FILES.getlist('archivos') or request.FILES.getlist('archivo')
+        if not archivos:
+            raise ValidationError({'archivos': 'No se proporcionó ningún archivo (.xml o .zip) para procesar.'})
+
+        resumen = procesar_lote_xml_captura(
+            empresa_id=request.empresa_id,
+            usuario=request.user,
+            archivos=archivos,
+        )
+
+        st = status.HTTP_201_CREATED if resumen['nuevos'] > 0 else status.HTTP_200_OK
+        return Response(resumen, status=st)
 
 
 class DocumentoCapturaListView(generics.ListAPIView):
@@ -573,7 +598,7 @@ class DocumentoValidacionElectronicaView(APIView):
     permission_classes = [TieneEmpresaActiva]
 
     def get(self, request, pk):
-        from django.conf import settings
+        from apps.documentos import reglas_tributarias
         doc = documento_para_validacion(pk, request.empresa_id)
         if 'apps.emision_electronica' in settings.INSTALLED_APPS:
             from apps.emision_electronica.preparacion import preparacion_documento
