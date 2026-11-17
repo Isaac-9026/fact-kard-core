@@ -12,11 +12,13 @@ import {
   obtenerCapturas,
   obtenerEquivalencias,
   subirCaptura,
+  subirLoteXmlCaptura,
   sugerirEquivalencia,
   type CapturaCampo,
   type DocumentoCaptura,
   type GenerarBorradorResponse,
   type ProductoEquivalencia,
+  type ResumenLoteXml,
   type SugerirEquivalenciaResponse,
 } from '../../api/captura';
 import { mensajeDeError, mensajesDeErrorApi } from '../../utils/errores';
@@ -25,10 +27,12 @@ import {
   PASOS_CAPTURA,
   TIPOS_CAPTURA,
   acceptCaptura,
+  acceptCapturaXMLConZip,
   formatosVisibles,
   pasoActualCaptura,
   tipoSugerido,
   validarArchivoCaptura,
+  validarArchivoLoteXML,
   type TipoCaptura,
 } from '../../utils/capturaArchivos';
 import { diferirCarga } from '../../utils/efectos';
@@ -49,7 +53,10 @@ import {
 import {
   ScanLine,
   Upload,
+  UploadCloud,
   FileCode,
+  FileArchive,
+  Files,
   RotateCcw,
   FileSpreadsheet,
   Search,
@@ -120,6 +127,8 @@ export const CapturaHomologacionPage: React.FC = () => {
 
   // Subida de archivos
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadFiles, setUploadFiles] = useState<File[]>([]);
+  const [resumenLote, setResumenLote] = useState<ResumenLoteXml | null>(null);
   const [uploadTipo, setUploadTipo] = useState<TipoCaptura>('XML');
   const [textoOcr, setTextoOcr] = useState<string>('');
   const [selectedAlmacenId, setSelectedAlmacenId] = useState<number | string>('');
@@ -314,11 +323,42 @@ export const CapturaHomologacionPage: React.FC = () => {
   // Manejo de cambio de archivo y detección de tipo
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const file = e.target.files[0];
+      const files = Array.from(e.target.files);
+      setSuccessMsg(null);
+      setResumenLote(null);
+
+      // Si estamos en modo XML y se eligen múltiples archivos o un archivo .zip, se activa el modo lote
+      const esLoteXml =
+        uploadTipo === 'XML' &&
+        (files.length > 1 || files.some((f) => f.name.toLowerCase().endsWith('.zip')));
+
+      if (esLoteXml) {
+        if (preUploadPreviewUrl) {
+          URL.revokeObjectURL(preUploadPreviewUrl);
+        }
+        setPreUploadPreviewUrl(null);
+        setUploadFile(null);
+        setUploadFiles(files);
+
+        // Validar cada archivo
+        let primerError: string | null = null;
+        for (const f of files) {
+          const err = validarArchivoLoteXML(f);
+          if (err) {
+            primerError = err;
+            break;
+          }
+        }
+        setErrorMsg(primerError);
+        return;
+      }
+
+      // Modo individual estándar
+      setUploadFiles([]);
+      const file = files[0];
       const tipo = tipoSugerido(file.name, uploadTipo);
       setUploadFile(file);
       setUploadTipo(tipo);
-      setSuccessMsg(null);
       const valErr = validarArchivoCaptura(file, tipo);
       setErrorMsg(valErr);
       if (!valErr) {
@@ -341,6 +381,7 @@ export const CapturaHomologacionPage: React.FC = () => {
       URL.revokeObjectURL(preUploadPreviewUrl);
     }
     setUploadFile(null);
+    setUploadFiles([]);
     setPreUploadPreviewUrl(null);
     const el = document.getElementById('captura-file-input') as HTMLInputElement | null;
     if (el) el.value = '';
@@ -349,6 +390,50 @@ export const CapturaHomologacionPage: React.FC = () => {
   // Subir captura
   const handleSubirCaptura = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // 1. Caso Lote XML / ZIP
+    if (uploadTipo === 'XML' && uploadFiles.length > 0) {
+      for (const f of uploadFiles) {
+        const err = validarArchivoLoteXML(f);
+        if (err) {
+          setErrorMsg(err);
+          return;
+        }
+      }
+      setErrorMsg(null);
+      setSuccessMsg(null);
+      setResumenLote(null);
+
+      try {
+        setLoading(true);
+        const res = await subirLoteXmlCaptura(uploadFiles);
+        setResumenLote(res);
+
+        const totalHomologados = res.resultados.filter(
+          (r) => r.estado !== 'ERROR' && r.pendientes_homologacion === 0
+        ).length;
+
+        setSuccessMsg(
+          `Lote procesado: ${res.nuevos} nuevos, ${res.duplicados} duplicados reutilizados, ${totalHomologados} homologados al 100% y ${res.errores} errores.`
+        );
+
+        handleLimpiarArchivo();
+        await cargarCapturas();
+
+        if (res.ultima_captura_id) {
+          setSelectedCapturaId(res.ultima_captura_id);
+          setMostrarVisor(true);
+        }
+        setMostrarSubida(true);
+      } catch (err) {
+        setErrorMsg(mensajesDeErrorApi(err, 'Error al procesar lote de comprobantes XML / ZIP.').join(' '));
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // 2. Caso Individual estándar
     if (!uploadFile) {
       setErrorMsg('Seleccione un archivo XML o documento para procesar.');
       return;
@@ -937,6 +1022,117 @@ export const CapturaHomologacionPage: React.FC = () => {
                 </ol>
               </CardHeader>
               <CardContent className="pt-4">
+                {resumenLote && (
+                  <div className="p-3.5 mb-4 rounded-xl border border-indigo-200 bg-white shadow-xs space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Files className="h-5 w-5 text-indigo-600" />
+                        <h4 className="text-xs font-bold text-slate-900">
+                          Resumen de Procesamiento del Lote
+                        </h4>
+                        <span className="text-[11px] text-slate-500">
+                          ({resumenLote.total_procesados} {resumenLote.total_procesados === 1 ? 'comprobante' : 'comprobantes'})
+                        </span>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="xs"
+                        onClick={() => setResumenLote(null)}
+                        className="text-slate-400 hover:text-slate-700"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+                      <div className="p-2 rounded-lg border border-emerald-100 bg-emerald-50/60">
+                        <div className="flex items-center justify-center gap-1 text-emerald-700 font-semibold text-[11px]">
+                          <CheckCircle2 className="h-3 w-3" />
+                          <span>Nuevos</span>
+                        </div>
+                        <div className="text-base font-bold text-emerald-800 mt-0.5">{resumenLote.nuevos}</div>
+                      </div>
+
+                      <div className="p-2 rounded-lg border border-sky-100 bg-sky-50/60">
+                        <div className="flex items-center justify-center gap-1 text-sky-700 font-semibold text-[11px]">
+                          <span>Duplicados</span>
+                        </div>
+                        <div className="text-base font-bold text-sky-800 mt-0.5">{resumenLote.duplicados}</div>
+                      </div>
+
+                      <div className="p-2 rounded-lg border border-indigo-100 bg-indigo-50/60">
+                        <div className="flex items-center justify-center gap-1 text-indigo-700 font-semibold text-[11px]">
+                          <span>100% Homologados</span>
+                        </div>
+                        <div className="text-base font-bold text-indigo-800 mt-0.5">
+                          {resumenLote.resultados.filter((r) => r.estado !== 'ERROR' && r.pendientes_homologacion === 0).length}
+                        </div>
+                      </div>
+
+                      <div className="p-2 rounded-lg border border-rose-100 bg-rose-50/60">
+                        <div className="flex items-center justify-center gap-1 text-rose-700 font-semibold text-[11px]">
+                          <AlertTriangle className="h-3 w-3" />
+                          <span>Errores</span>
+                        </div>
+                        <div className="text-base font-bold text-rose-800 mt-0.5">{resumenLote.errores}</div>
+                      </div>
+                    </div>
+
+                    <div className="max-h-40 overflow-y-auto divide-y divide-slate-100 rounded border border-slate-200 bg-slate-50/50 text-[11px]">
+                      {resumenLote.resultados.map((item, idx) => (
+                        <div
+                          key={idx}
+                          className={`px-3 py-1.5 flex items-center justify-between gap-2 hover:bg-white transition-colors ${
+                            item.captura_id ? 'cursor-pointer' : ''
+                          }`}
+                          onClick={() => {
+                            if (item.captura_id) {
+                              setSelectedCapturaId(item.captura_id);
+                              setMostrarVisor(true);
+                            }
+                          }}
+                        >
+                          <div className="min-w-0 flex items-center gap-2">
+                            {item.estado === 'NUEVO' ? (
+                              <Badge variant="success" size="xs" className="shrink-0">NUEVO</Badge>
+                            ) : item.estado === 'DUPLICADO_REUTILIZADO' ? (
+                              <Badge variant="neutral" size="xs" className="shrink-0">DUPLICADO</Badge>
+                            ) : (
+                              <Badge variant="destructive" size="xs" className="shrink-0">ERROR</Badge>
+                            )}
+                            <div className="truncate">
+                              <span className="font-mono text-slate-800 font-medium">{item.nombre_archivo}</span>
+                              {item.serie_numero && (
+                                <span className="ml-1.5 text-slate-500 font-mono">({item.serie_numero})</span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="shrink-0 flex items-center gap-2 text-right">
+                            {item.estado !== 'ERROR' && item.pendientes_homologacion !== null && (
+                              <span
+                                className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                                  item.pendientes_homologacion === 0
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-amber-100 text-amber-800'
+                                }`}
+                              >
+                                {item.pendientes_homologacion === 0 ? '100% Homologado' : `${item.pendientes_homologacion} pendientes`}
+                              </span>
+                            )}
+                            {item.estado === 'ERROR' && (
+                              <span className="text-[10px] text-rose-600 max-w-xs truncate" title={item.detalle}>
+                                {item.detalle}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <form onSubmit={handleSubirCaptura} className="space-y-4">
                   <div className="space-y-1.5">
                     <Label>Tipo de Captura</Label>
@@ -949,6 +1145,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                           key={t}
                           onClick={() => {
                             setUploadTipo(t);
+                            setUploadFiles([]);
                             setErrorMsg(uploadFile ? validarArchivoCaptura(uploadFile, t) : null);
                           }}
                           className={`py-1.5 text-[11px] font-semibold rounded transition-colors ${
@@ -968,18 +1165,62 @@ export const CapturaHomologacionPage: React.FC = () => {
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
                     <div className="sm:col-span-2 space-y-1.5 min-w-0">
-                      <Label htmlFor="captura-file-input">Archivo del Comprobante</Label>
+                      <Label htmlFor="captura-file-input">
+                        {uploadTipo === 'XML' ? 'Comprobante(s) XML o Paquete ZIP' : 'Archivo del Comprobante'}
+                      </Label>
                       <Input
                         id="captura-file-input"
                         type="file"
-                        accept={acceptCaptura(uploadTipo)}
+                        multiple={uploadTipo === 'XML'}
+                        accept={uploadTipo === 'XML' ? acceptCapturaXMLConZip() : acceptCaptura(uploadTipo)}
                         onChange={handleFileChange}
                         aria-describedby="captura-formatos"
                         className="cursor-pointer"
                       />
                       <span id="captura-formatos" className="text-[11px] text-slate-500 block">
-                        Formatos permitidos: {formatosVisibles(uploadTipo)}
+                        Formatos permitidos: {uploadTipo === 'XML' ? '.xml, .zip · máx. 10 MB' : formatosVisibles(uploadTipo)}
                       </span>
+                      {uploadFiles.length > 0 && (
+                        <div className="mt-2 p-2.5 rounded-lg border border-indigo-200 bg-indigo-50/50 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              {uploadFiles.some((f) => f.name.toLowerCase().endsWith('.zip')) ? (
+                                <FileArchive className="h-5 w-5 text-indigo-600 shrink-0" />
+                              ) : (
+                                <Files className="h-5 w-5 text-indigo-600 shrink-0" />
+                              )}
+                              <span className="text-xs font-semibold text-indigo-900 truncate">
+                                Lote listo para procesar ({uploadFiles.length} {uploadFiles.length === 1 ? 'archivo' : 'archivos'}
+                                {uploadFiles.some((f) => f.name.toLowerCase().endsWith('.zip')) ? ' / ZIP' : ''})
+                              </span>
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="xs"
+                              onClick={handleLimpiarArchivo}
+                              className="text-slate-500 hover:text-rose-600 shrink-0"
+                              title="Quitar archivos"
+                            >
+                              <X className="h-4 w-4 mr-1" />
+                              Quitar
+                            </Button>
+                          </div>
+                          <div className="max-h-24 overflow-y-auto divide-y divide-indigo-100 bg-white rounded border border-indigo-100 px-2 py-1 text-[11px]">
+                            {uploadFiles.slice(0, 5).map((f, idx) => (
+                              <div key={idx} className="py-1 flex justify-between items-center text-slate-700">
+                                <span className="truncate pr-2 font-mono text-[10px]">{f.name}</span>
+                                <span className="text-slate-400 shrink-0 text-[10px]">{Math.round(f.size / 1024)} KB</span>
+                              </div>
+                            ))}
+                            {uploadFiles.length > 5 && (
+                              <div className="py-1 text-center text-slate-500 font-medium text-[10px]">
+                                + {uploadFiles.length - 5} archivos más en el lote
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                       {uploadFile && (
                         <div className="mt-2 p-2.5 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-between gap-3">
                           <div className="flex items-center gap-3 min-w-0">
@@ -1028,15 +1269,21 @@ export const CapturaHomologacionPage: React.FC = () => {
                       <Button
                         type="submit"
                         variant="primary"
-                        disabled={loading || !uploadFile}
+                        disabled={loading || (!uploadFile && uploadFiles.length === 0)}
                         className="w-full"
                       >
                         {loading ? (
                           <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                        ) : uploadFiles.length > 0 ? (
+                          <UploadCloud className="h-4 w-4 mr-1.5" />
                         ) : (
                           <Upload className="h-4 w-4 mr-1.5" />
                         )}
-                        {loading ? 'Procesando...' : 'Subir y Extraer Datos'}
+                        {loading
+                          ? 'Procesando...'
+                          : uploadFiles.length > 0
+                          ? 'Procesar Lote XML / ZIP'
+                          : 'Subir y Extraer Datos'}
                       </Button>
                     </div>
                   </div>

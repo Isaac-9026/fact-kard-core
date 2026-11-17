@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import io
 import json
 import logging
 import os
@@ -7,18 +8,20 @@ import re
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
+import zipfile
 import zlib
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Dict, List, Optional, Tuple
 
 from django.conf import settings
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import transaction
 from rest_framework.exceptions import ValidationError
 
 logger = logging.getLogger(__name__)
 
-from apps.documentos.uploads import nombre_seguro
+from apps.documentos.uploads import nombre_seguro, validar_archivo_captura
 from apps.documentos.afectacion_igv import (
     TOLERANCIA_IGV, igv_esperado, resolver_afectacion, tasa_igv, validar_igv_linea,
 )
@@ -1680,3 +1683,256 @@ def generar_borrador_desde_captura(
         'incidencias': incidencias_creadas,
         'mensaje': 'Comprobante borrador generado exitosamente en estado BORRADOR y PENDIENTE.',
     }
+
+
+def procesar_lote_xml_captura(
+    *,
+    empresa_id: int,
+    usuario,
+    archivos: List[Any],
+) -> Dict[str, Any]:
+    """
+    Procesa un conjunto de archivos subidos (.xml y/o paquetes .zip con XMLs).
+    Límites de seguridad:
+    - Máximo 100 archivos XML por lote.
+    - Tamaño máximo por archivo o paquete .zip: CAPTURA_MAX_BYTES (10 MB).
+    - Protección contra Zip Bomb (descomprimido <= 25 MB, <= 100 entradas).
+    Tolerancia a fallos parciales:
+    - Cada XML se valida y procesa de forma aislada.
+    - Si un archivo falla (ValidationError, mal formado), se registra con estado='ERROR'
+      sin interrumpir el procesamiento de los demás comprobantes del lote.
+    """
+    max_bytes = int(getattr(settings, 'CAPTURA_MAX_BYTES', 10 * 1024 * 1024))
+    max_mb = max_bytes // (1024 * 1024)
+    max_xml_por_lote = 100
+    max_uncompressed_bytes = 25 * 1024 * 1024  # 25 MB
+
+    resultados: List[Dict[str, Any]] = []
+    items_a_procesar: List[Tuple[str, Any]] = []
+    ultima_captura_id: Optional[int] = None
+
+    for f in archivos:
+        nombre_f = getattr(f, 'name', '') or 'archivo'
+        nombre_lower = nombre_f.lower()
+
+        if nombre_lower.endswith('.zip'):
+            # Validación de tamaño del archivo zip
+            if getattr(f, 'size', 0) > max_bytes:
+                resultados.append({
+                    'nombre_archivo': nombre_f,
+                    'estado': 'ERROR',
+                    'captura_id': None,
+                    'serie_numero': None,
+                    'pendientes_homologacion': None,
+                    'detalle': f'El archivo supera el tamaño máximo permitido ({max_mb} MB).',
+                })
+                continue
+            if getattr(f, 'size', 0) == 0:
+                resultados.append({
+                    'nombre_archivo': nombre_f,
+                    'estado': 'ERROR',
+                    'captura_id': None,
+                    'serie_numero': None,
+                    'pendientes_homologacion': None,
+                    'detalle': 'El archivo ZIP está vacío.',
+                })
+                continue
+
+            try:
+                zip_content = f.read()
+                zf = zipfile.ZipFile(io.BytesIO(zip_content))
+            except Exception as e:
+                resultados.append({
+                    'nombre_archivo': nombre_f,
+                    'estado': 'ERROR',
+                    'captura_id': None,
+                    'serie_numero': None,
+                    'pendientes_homologacion': None,
+                    'detalle': f'El archivo no es un archivo ZIP válido o está dañado: {str(e)}',
+                })
+                continue
+
+            infolist = zf.infolist()
+            if len(infolist) > 100:
+                resultados.append({
+                    'nombre_archivo': nombre_f,
+                    'estado': 'ERROR',
+                    'captura_id': None,
+                    'serie_numero': None,
+                    'pendientes_homologacion': None,
+                    'detalle': 'El archivo ZIP contiene más de 100 archivos (máximo 100 por lote).',
+                })
+                continue
+
+            total_descomprimido = sum(info.file_size for info in infolist)
+            if total_descomprimido > max_uncompressed_bytes:
+                resultados.append({
+                    'nombre_archivo': nombre_f,
+                    'estado': 'ERROR',
+                    'captura_id': None,
+                    'serie_numero': None,
+                    'pendientes_homologacion': None,
+                    'detalle': 'El archivo ZIP descomprimido supera el límite de seguridad de 25 MB.',
+                })
+                continue
+
+            xml_entries = []
+            for info in infolist:
+                if info.is_dir():
+                    continue
+                base_name = os.path.basename(info.filename.replace('\\', '/'))
+                if not base_name or base_name.startswith('.') or '__MACOSX' in info.filename:
+                    continue
+                if base_name.lower().endswith('.xml'):
+                    xml_entries.append((info, base_name))
+
+            if not xml_entries:
+                resultados.append({
+                    'nombre_archivo': nombre_f,
+                    'estado': 'ERROR',
+                    'captura_id': None,
+                    'serie_numero': None,
+                    'pendientes_homologacion': None,
+                    'detalle': 'El archivo ZIP no contiene comprobantes XML válidos.',
+                })
+                continue
+
+            for info, base_name in xml_entries:
+                if len(items_a_procesar) >= max_xml_por_lote:
+                    resultados.append({
+                        'nombre_archivo': base_name,
+                        'estado': 'ERROR',
+                        'captura_id': None,
+                        'serie_numero': None,
+                        'pendientes_homologacion': None,
+                        'detalle': f'Se superó el límite máximo de {max_xml_por_lote} archivos XML por lote.',
+                    })
+                    continue
+                try:
+                    xml_bytes = zf.read(info)
+                    file_obj = SimpleUploadedFile(name=base_name, content=xml_bytes, content_type='application/xml')
+                    items_a_procesar.append((base_name, file_obj))
+                except Exception as exc:
+                    resultados.append({
+                        'nombre_archivo': base_name,
+                        'estado': 'ERROR',
+                        'captura_id': None,
+                        'serie_numero': None,
+                        'pendientes_homologacion': None,
+                        'detalle': f'Error al extraer entrada del archivo ZIP: {str(exc)}',
+                    })
+
+        elif nombre_lower.endswith('.xml'):
+            if len(items_a_procesar) >= max_xml_por_lote:
+                resultados.append({
+                    'nombre_archivo': nombre_f,
+                    'estado': 'ERROR',
+                    'captura_id': None,
+                    'serie_numero': None,
+                    'pendientes_homologacion': None,
+                    'detalle': f'Se superó el límite máximo de {max_xml_por_lote} archivos XML por lote.',
+                })
+                continue
+            items_a_procesar.append((nombre_f, f))
+
+        else:
+            resultados.append({
+                'nombre_archivo': nombre_f,
+                'estado': 'ERROR',
+                'captura_id': None,
+                'serie_numero': None,
+                'pendientes_homologacion': None,
+                'detalle': f"Extensión '{os.path.splitext(nombre_f)[1] or '(sin extensión)'}' no permitida para lote XML (solo .xml o .zip).",
+            })
+
+    # Procesar cada comprobante XML aislado
+    for nombre_orig, file_obj in items_a_procesar:
+        try:
+            if getattr(file_obj, 'size', 0) > max_bytes:
+                raise ValidationError({'archivo': f'El archivo supera el tamaño máximo permitido ({max_mb} MB).'})
+
+            # 1. Controles y saneado de nombre XML
+            nombre_saneado = validar_archivo_captura(file_obj, 'XML')
+            file_obj.seek(0)
+
+            # 2. Subida y extracción UBL
+            captura, fue_creado = procesar_subida_captura(
+                empresa_id=empresa_id,
+                usuario=usuario,
+                archivo=file_obj,
+                tipo='XML',
+                nombre_archivo=nombre_saneado,
+            )
+
+            # 3. Serie y número extraído
+            campo_sn = captura.campos.filter(seccion='CABECERA', nombre_campo='serie_numero').first()
+            serie_num = campo_sn.valor_extraido if campo_sn else None
+
+            # 4. Estado de homologación
+            pendientes = None
+            try:
+                from apps.inventario.homologacion import homologacion_de_captura
+                homo = homologacion_de_captura(captura)
+                pendientes = homo.get('pendientes_homologacion')
+            except Exception as e:
+                logger.warning(f"No se pudo calcular homologación de captura {captura.id}: {e}")
+
+            estado_item = 'NUEVO' if fue_creado else 'DUPLICADO_REUTILIZADO'
+            detalle_item = (
+                'Procesado correctamente.'
+                if fue_creado
+                else 'Archivo idéntico detectado (hash SHA-256 ya existente), reutilizando captura.'
+            )
+
+            resultados.append({
+                'nombre_archivo': nombre_orig,
+                'estado': estado_item,
+                'captura_id': captura.id,
+                'serie_numero': serie_num,
+                'pendientes_homologacion': pendientes,
+                'detalle': detalle_item,
+            })
+            ultima_captura_id = captura.id
+
+        except ValidationError as ve:
+            detalle_msg = getattr(ve, 'detail', None) or str(ve)
+            if isinstance(detalle_msg, dict):
+                msg_txt = '; '.join(f"{k}: {', '.join(v) if isinstance(v, list) else v}" for k, v in detalle_msg.items())
+            elif isinstance(detalle_msg, list):
+                msg_txt = '; '.join(str(v) for v in detalle_msg)
+            else:
+                msg_txt = str(detalle_msg)
+
+            resultados.append({
+                'nombre_archivo': nombre_orig,
+                'estado': 'ERROR',
+                'captura_id': None,
+                'serie_numero': None,
+                'pendientes_homologacion': None,
+                'detalle': msg_txt,
+            })
+
+        except Exception as exc:
+            resultados.append({
+                'nombre_archivo': nombre_orig,
+                'estado': 'ERROR',
+                'captura_id': None,
+                'serie_numero': None,
+                'pendientes_homologacion': None,
+                'detalle': str(exc),
+            })
+
+    total_procesados = len(resultados)
+    nuevos = sum(1 for r in resultados if r['estado'] == 'NUEVO')
+    duplicados = sum(1 for r in resultados if r['estado'] == 'DUPLICADO_REUTILIZADO')
+    errores = sum(1 for r in resultados if r['estado'] == 'ERROR')
+
+    return {
+        'total_procesados': total_procesados,
+        'nuevos': nuevos,
+        'duplicados': duplicados,
+        'errores': errores,
+        'ultima_captura_id': ultima_captura_id,
+        'resultados': resultados,
+    }
+

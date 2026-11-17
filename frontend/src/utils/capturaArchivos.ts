@@ -88,6 +88,22 @@ export const PASOS_CAPTURA = [
   'Crear comprobante',
 ] as const;
 
+/** Atributo `accept` cuando se permite seleccionar lote de XML o paquete ZIP. */
+export const acceptCapturaXMLConZip = (): string => '.xml,.zip';
+
+/** Validación previa para archivos individuales dentro de una selección de lote XML o ZIP. */
+export const validarArchivoLoteXML = (archivo: { name: string; size: number }): string | null => {
+  const ext = extension(archivo.name);
+  if (!['.xml', '.zip'].includes(ext)) {
+    return `El archivo "${archivo.name}" no es válido. Solo se admiten archivos .xml o paquetes .zip.`;
+  }
+  if (archivo.size <= 0) return `El archivo "${archivo.name}" está vacío.`;
+  if (archivo.size > CAPTURA_MAX_BYTES) {
+    return `El archivo "${archivo.name}" supera el tamaño máximo permitido (${CAPTURA_MAX_MB} MB).`;
+  }
+  return null;
+};
+
 /**
  * Paso en el que está la captura seleccionada (índice de PASOS_CAPTURA): sin captura → Archivo;
  * subida y sin comprobante → Validación (revisar, corregir y homologar); con borrador → Crear
