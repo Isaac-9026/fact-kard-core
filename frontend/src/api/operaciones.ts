@@ -156,3 +156,60 @@ export const confirmarNotaInterna = async (id: number): Promise<NotaInterna> =>
 export const eliminarNotaInternaBorrador = async (id: number): Promise<void> => {
   await apiClient.delete(`/inventario/notas-internas/${id}/`);
 };
+
+export interface FilaDiagnosticoSaldoInicial {
+  numero_fila: number;
+  codigo_interno: string;
+  descripcion_producto: string;
+  cantidad: string;
+  cpp_inicial: string;
+  valor_pen: string;
+  estado_fila: 'NUEVO' | 'ACTUALIZAR' | 'ERROR';
+  observacion: string;
+  producto_id?: number | null;
+  saldo_existente_id?: number | null;
+}
+
+export interface ResumenImportacionSaldoInicial {
+  total_filas: number;
+  validas?: number;
+  nuevos?: number;
+  actualizables?: number;
+  con_error?: number;
+  creados?: number;
+  actualizados?: number;
+  confirmados_kardex?: number;
+  omitidos_por_error?: number;
+}
+
+export interface ResultadoImportacionSaldosIniciales {
+  modo: 'PREVISUALIZAR' | 'CONFIRMAR';
+  periodo_id: number;
+  periodo_codigo: string;
+  almacen_id: number;
+  almacen_nombre: string;
+  resumen: ResumenImportacionSaldoInicial;
+  filas: FilaDiagnosticoSaldoInicial[];
+}
+
+export const descargarPlantillaSaldosInicialesExcel = async (): Promise<Blob> => {
+  const response = await apiClient.get('/inventario/saldos-iniciales/plantilla-excel/', {
+    responseType: 'blob',
+  });
+  return response.data;
+};
+
+export const importarSaldosInicialesExcel = async (
+  formData: FormData,
+): Promise<ResultadoImportacionSaldosIniciales> => {
+  const response = await apiClient.post<ResultadoImportacionSaldosIniciales>(
+    '/inventario/saldos-iniciales/importar-excel/',
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    },
+  );
+  return response.data;
+};

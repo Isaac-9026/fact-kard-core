@@ -8,6 +8,7 @@ import {
   Plus,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Pencil,
   Ban,
   Building2,
@@ -19,6 +20,10 @@ import {
   Coins,
   Activity,
   Package,
+  FileSpreadsheet,
+  Download,
+  Upload,
+  Loader2,
 } from 'lucide-react'
 
 import { obtenerTiposOperacion, type TipoOperacion } from '../../api/catalogos'
@@ -30,23 +35,27 @@ import {
   confirmarSaldoInicial,
   createNotaInterna,
   createSaldoInicial,
+  descargarPlantillaSaldosInicialesExcel,
   eliminarNotaInternaBorrador,
   eliminarSaldoInicialBorrador,
   getNotaInterna,
   getNotasInternas,
   getSaldoInicial,
   getSaldosIniciales,
+  importarSaldosInicialesExcel,
   updateNotaInterna,
   updateSaldoInicial,
   type NotaInterna,
   type NotaInternaDetallePayload,
   type NotaInternaFiltros,
+  type ResultadoImportacionSaldosIniciales,
   type SaldoInicial,
   type SaldoInicialFiltros,
 } from '../../api/operaciones'
 import { obtenerPeriodos, type Periodo } from '../../api/periodos'
 import { useAuth } from '../../context/useAuth'
 import { campoFechaNotaInterna, formularioNotaTrasRespuesta } from '../../utils/notaInternaForm'
+import { descargarBlob } from '../../utils/descargaArchivo'
 import { PageHeader } from '../../components/ui/page-header'
 import { Button } from '../../components/ui/button'
 import { Card, CardContent } from '../../components/ui/card'
@@ -178,6 +187,18 @@ export const OperacionesInternasPage = () => {
   const [notaParaExtorno, setNotaParaExtorno] = useState<NotaInterna | null>(null)
   const [motivoExtorno, setMotivoExtorno] = useState('')
   const [borradorAEliminar, setBorradorAEliminar] = useState<{ tipo: 'saldo' | 'nota'; id: number; descripcion: string } | null>(null)
+
+  // Modal de Importación Masiva de Saldos Iniciales (.xlsx)
+  const [importarModalOpen, setImportarModalOpen] = useState(false)
+  const [archivoExcel, setArchivoExcel] = useState<File | null>(null)
+  const [importPeriodoId, setImportPeriodoId] = useState('')
+  const [importAlmacenId, setImportAlmacenId] = useState('')
+  const [autoConfirmar, setAutoConfirmar] = useState(true)
+  const [descargandoPlantilla, setDescargandoPlantilla] = useState(false)
+  const [procesandoImportacion, setProcesandoImportacion] = useState(false)
+  const [errorImportacion, setErrorImportacion] = useState<string | null>(null)
+  const [resultadoImportacion, setResultadoImportacion] = useState<ResultadoImportacionSaldosIniciales | null>(null)
+  const [filtroEstadoDiagnostico, setFiltroEstadoDiagnostico] = useState<'TODOS' | 'NUEVO' | 'ACTUALIZAR' | 'ERROR'>('TODOS')
 
   const requestRef = useRef(0)
 
@@ -380,6 +401,72 @@ export const OperacionesInternasPage = () => {
     } catch {
       setError('El cambio se guardó, pero la lista no pudo actualizarse. Recarga la página.')
     }
+  }
+
+  const handleDescargarPlantilla = async () => {
+    try {
+      setDescargandoPlantilla(true)
+      setErrorImportacion(null)
+      const blob = await descargarPlantillaSaldosInicialesExcel()
+      descargarBlob(blob, 'plantilla_saldos_iniciales_op16.xlsx')
+    } catch {
+      setErrorImportacion('Error al descargar la plantilla oficial de saldos iniciales.')
+    } finally {
+      setDescargandoPlantilla(false)
+    }
+  }
+
+  const handleProcesarExcel = async (modo: 'PREVISUALIZAR' | 'CONFIRMAR') => {
+    if (!archivoExcel) {
+      setErrorImportacion('Seleccione un archivo Excel (.xlsx).')
+      return
+    }
+    if (!importPeriodoId) {
+      setErrorImportacion('Seleccione un período contable abierto.')
+      return
+    }
+    if (!importAlmacenId) {
+      setErrorImportacion('Seleccione un almacén destino.')
+      return
+    }
+
+    try {
+      setProcesandoImportacion(true)
+      setErrorImportacion(null)
+      const formData = new FormData()
+      formData.append('archivo', archivoExcel)
+      formData.append('periodo', importPeriodoId)
+      formData.append('almacen', importAlmacenId)
+      formData.append('modo', modo)
+      formData.append('auto_confirmar', String(autoConfirmar))
+
+      const res = await importarSaldosInicialesExcel(formData)
+      setResultadoImportacion(res)
+
+      if (modo === 'CONFIRMAR') {
+        const confirmados = res.resumen.confirmados_kardex ?? 0
+        const creados = res.resumen.creados ?? 0
+        const actualizados = res.resumen.actualizados ?? 0
+        const msg = confirmados > 0
+          ? `Importación completada: ${confirmados} saldo(s) inicial(es) confirmados en el Kardex (Op. 16).`
+          : `Importación completada: ${creados} saldo(s) inicial(es) creados y ${actualizados} actualizados.`
+        setSuccess(msg)
+        cerrarModalImportar()
+        await refrescar()
+      }
+    } catch (err: unknown) {
+      setErrorImportacion(extraerError(err))
+    } finally {
+      setProcesandoImportacion(false)
+    }
+  }
+
+  const cerrarModalImportar = () => {
+    setImportarModalOpen(false)
+    setArchivoExcel(null)
+    setResultadoImportacion(null)
+    setErrorImportacion(null)
+    setFiltroEstadoDiagnostico('TODOS')
   }
 
   const abrirNuevo = () => {
@@ -611,21 +698,46 @@ export const OperacionesInternasPage = () => {
           </Badge>
         }
         actions={
-          <Button
-            variant="primary"
-            onClick={abrirNuevo}
-            disabled={!puedeCrear || catalogosLoading}
-            title={
-              !tienePermisoCrear
-                ? 'Los saldos iniciales requieren rol ADMIN'
-                : recursosFaltantes.length
-                ? `Faltan: ${recursosFaltantes.join(', ')}`
-                : undefined
-            }
-          >
-            <Plus className="h-4 w-4 mr-1.5" />
-            Nuevo {tab === 'saldos' ? 'Saldo Inicial' : 'Nota Interna'}
-          </Button>
+          <div className="flex items-center gap-2">
+            {tab === 'saldos' && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  limpiarMensajes()
+                  setErrorImportacion(null)
+                  setResultadoImportacion(null)
+                  setArchivoExcel(null)
+                  if (!importPeriodoId && periodosAbiertos.length > 0) {
+                    setImportPeriodoId(String(periodosAbiertos[0].id))
+                  }
+                  if (!importAlmacenId && almacenes.length > 0) {
+                    setImportAlmacenId(String(almacenes[0].id))
+                  }
+                  setImportarModalOpen(true)
+                }}
+                disabled={!esAdmin || catalogosLoading}
+                title={!esAdmin ? 'La importación requiere rol ADMIN' : 'Importación masiva de saldos iniciales vía Excel'}
+              >
+                <FileSpreadsheet className="h-4 w-4 mr-1.5 text-indigo-600" />
+                Importar Excel (Op. 16)
+              </Button>
+            )}
+            <Button
+              variant="primary"
+              onClick={abrirNuevo}
+              disabled={!puedeCrear || catalogosLoading}
+              title={
+                !tienePermisoCrear
+                  ? 'Los saldos iniciales requieren rol ADMIN'
+                  : recursosFaltantes.length
+                  ? `Faltan: ${recursosFaltantes.join(', ')}`
+                  : undefined
+              }
+            >
+              <Plus className="h-4 w-4 mr-1.5" />
+              Nuevo {tab === 'saldos' ? 'Saldo Inicial' : 'Nota Interna'}
+            </Button>
+          </div>
         }
       />
 
@@ -1821,6 +1933,302 @@ export const OperacionesInternasPage = () => {
               Dado que este registro está en estado <strong className="text-amber-700">BORRADOR</strong>, no ha impactado
               Kardex ni balances valorizados. Desaparecerá por completo sin dejar registros anulados innecesarios.
             </p>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal: Importación Masiva de Saldos Iniciales vía Excel (.xlsx) */}
+      {importarModalOpen && (
+        <Modal
+          isOpen={importarModalOpen}
+          onClose={cerrarModalImportar}
+          title="Importación Masiva de Saldos Iniciales (Operación 16 SUNAT)"
+          description="Carga y valida masivamente saldos iniciales usando la plantilla oficial con previsualización fila por fila antes de impactar el Kardex."
+          icon={<FileSpreadsheet className="h-5 w-5 text-indigo-600" />}
+          maxWidth="5xl"
+        >
+          <div className="space-y-4">
+            {/* Paso 1: Período, Almacén y Descarga de Plantilla */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <div className="space-y-1.5">
+                <Label required>Período Contable Abierto</Label>
+                <Select
+                  required
+                  value={importPeriodoId}
+                  onChange={(e) => {
+                    setImportPeriodoId(e.target.value)
+                    setResultadoImportacion(null)
+                    setErrorImportacion(null)
+                  }}
+                >
+                  <option value="">Seleccionar Período</option>
+                  {periodosAbiertos.map((p) => (
+                    <option key={p.id} value={p.id}>{etiquetaPeriodo(p)}</option>
+                  ))}
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label required>Almacén Destino</Label>
+                <Select
+                  required
+                  value={importAlmacenId}
+                  onChange={(e) => {
+                    setImportAlmacenId(e.target.value)
+                    setResultadoImportacion(null)
+                    setErrorImportacion(null)
+                  }}
+                >
+                  <option value="">Seleccionar Almacén</option>
+                  {almacenes.map((a) => (
+                    <option key={a.id} value={a.id}>{a.codigo} · {a.nombre}</option>
+                  ))}
+                </Select>
+              </div>
+
+              <div className="flex flex-col justify-end space-y-1.5">
+                <Label className="text-slate-600">Plantilla Oficial</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDescargarPlantilla}
+                  disabled={descargandoPlantilla}
+                  className="w-full justify-center"
+                >
+                  {descargandoPlantilla ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5 mr-1.5 text-indigo-600" />
+                  )}
+                  Descargar Plantilla (.xlsx)
+                </Button>
+              </div>
+            </div>
+
+            {/* Paso 2: Selección de archivo y botón Previsualizar */}
+            <div className="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
+              <span className="text-xs font-semibold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
+                <Upload className="h-4 w-4 text-indigo-600" />
+                Archivo Excel (.xlsx) con Saldos Iniciales
+              </span>
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                <div className="flex-1">
+                  <Input
+                    type="file"
+                    accept=".xlsx"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0] || null
+                      setArchivoExcel(f)
+                      setResultadoImportacion(null)
+                      setErrorImportacion(null)
+                    }}
+                    className="text-xs file:mr-2 file:py-1 file:px-2 file:rounded-md file:border-0 file:text-xs file:font-medium file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  disabled={!archivoExcel || !importPeriodoId || !importAlmacenId || procesandoImportacion}
+                  onClick={() => handleProcesarExcel('PREVISUALIZAR')}
+                >
+                  {procesandoImportacion ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                  ) : (
+                    <Search className="h-3.5 w-3.5 mr-1.5" />
+                  )}
+                  Previsualizar Saldos
+                </Button>
+              </div>
+              {archivoExcel && (
+                <p className="text-[11px] text-slate-500 font-mono">
+                  Archivo seleccionado: {archivoExcel.name}
+                </p>
+              )}
+            </div>
+
+            {errorImportacion && (
+              <div
+                role="alert"
+                className="flex items-start gap-2.5 rounded-lg border border-rose-200 bg-rose-50/90 p-3 text-xs text-rose-700 animate-in fade-in"
+              >
+                <AlertCircle className="h-4 w-4 shrink-0 text-rose-600 mt-0.5" />
+                <span className="font-medium leading-relaxed">{errorImportacion}</span>
+              </div>
+            )}
+
+            {/* Paso 3: Diagnóstico Previo y Tabla de Filas */}
+            {resultadoImportacion && (
+              <div className="space-y-3 pt-2 border-t border-slate-200">
+                {/* KPIs de Diagnóstico */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="rounded-lg border border-slate-200 bg-white p-3 text-center">
+                    <span className="text-xs text-slate-500 block">Total Filas</span>
+                    <span className="text-lg font-bold text-slate-900">{resultadoImportacion.resumen.total_filas}</span>
+                  </div>
+                  <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3 text-center">
+                    <span className="text-xs text-emerald-700 font-medium flex items-center justify-center gap-1">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" /> Nuevos
+                    </span>
+                    <span className="text-lg font-bold text-emerald-700">{resultadoImportacion.resumen.nuevos ?? 0}</span>
+                  </div>
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3 text-center">
+                    <span className="text-xs text-amber-700 font-medium flex items-center justify-center gap-1">
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-600" /> A Actualizar
+                    </span>
+                    <span className="text-lg font-bold text-amber-700">{resultadoImportacion.resumen.actualizables ?? 0}</span>
+                  </div>
+                  <div className="rounded-lg border border-rose-200 bg-rose-50/50 p-3 text-center">
+                    <span className="text-xs text-rose-700 font-medium flex items-center justify-center gap-1">
+                      <AlertCircle className="h-3.5 w-3.5 text-rose-600" /> Con Error
+                    </span>
+                    <span className="text-lg font-bold text-rose-700">{resultadoImportacion.resumen.con_error ?? 0}</span>
+                  </div>
+                </div>
+
+                {/* Filtro y Header de Tabla */}
+                <div className="flex items-center justify-between text-xs pt-1">
+                  <span className="font-semibold text-slate-700">Detalle de pre-validación fila por fila:</span>
+                  <div className="flex items-center gap-1">
+                    {(['TODOS', 'NUEVO', 'ACTUALIZAR', 'ERROR'] as const).map((filtro) => (
+                      <button
+                        key={filtro}
+                        type="button"
+                        onClick={() => setFiltroEstadoDiagnostico(filtro)}
+                        className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                          filtroEstadoDiagnostico === filtro
+                            ? 'bg-indigo-600 text-white'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                      >
+                        {filtro}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Tabla de Filas con Scroll */}
+                <div className="max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white">
+                  <Table>
+                    <TableHeader className="sticky top-0 bg-slate-50 z-10 shadow-xs">
+                      <TableRow>
+                        <TableHead className="w-12 text-center text-xs">Fila</TableHead>
+                        <TableHead className="w-28 text-xs">Código</TableHead>
+                        <TableHead className="text-xs">Descripción</TableHead>
+                        <TableHead className="w-24 text-right text-xs">Cantidad</TableHead>
+                        <TableHead className="w-24 text-right text-xs">CPP Inicial (S/)</TableHead>
+                        <TableHead className="w-24 text-right text-xs">Valor Total (S/)</TableHead>
+                        <TableHead className="w-24 text-center text-xs">Estado</TableHead>
+                        <TableHead className="text-xs">Observación</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {resultadoImportacion.filas
+                        .filter((f) => filtroEstadoDiagnostico === 'TODOS' || f.estado_fila === filtroEstadoDiagnostico)
+                        .map((f) => (
+                          <TableRow key={f.numero_fila} className={f.estado_fila === 'ERROR' ? 'bg-rose-50/40' : undefined}>
+                            <TableCell className="text-center font-mono text-xs">{f.numero_fila}</TableCell>
+                            <TableCell className="font-mono text-xs font-semibold">{f.codigo_interno}</TableCell>
+                            <TableCell className="text-xs">{f.descripcion_producto || '—'}</TableCell>
+                            <TableCell className="text-right font-mono text-xs">
+                              {f.cantidad ? formatearDecimal(f.cantidad, { min: 2, max: 4 }) : '—'}
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-xs">
+                              {f.cpp_inicial ? `S/ ${formatearDecimal(f.cpp_inicial, { min: 2, max: 6 })}` : '—'}
+                            </TableCell>
+                            <TableCell className="text-right font-mono text-xs">
+                              {f.valor_pen ? `S/ ${formatearDecimal(f.valor_pen, { min: 2, max: 2 })}` : '—'}
+                            </TableCell>
+                            <TableCell className="text-center">
+                              {f.estado_fila === 'NUEVO' && (
+                                <Badge variant="success" size="xs">NUEVO</Badge>
+                              )}
+                              {f.estado_fila === 'ACTUALIZAR' && (
+                                <Badge variant="warning" size="xs">ACTUALIZAR</Badge>
+                              )}
+                              {f.estado_fila === 'ERROR' && (
+                                <Badge variant="destructive" size="xs">ERROR</Badge>
+                              )}
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {f.observacion ? (
+                                <span className={f.estado_fila === 'ERROR' ? 'text-rose-700 font-medium' : 'text-slate-600'}>
+                                  {f.observacion}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 text-[11px]">Correcto</span>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {/* Opción de Confirmación Automática */}
+                <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 p-3 flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    id="chkAutoConfirmarSaldos"
+                    checked={autoConfirmar}
+                    onChange={(e) => setAutoConfirmar(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <label htmlFor="chkAutoConfirmarSaldos" className="text-xs text-slate-700 cursor-pointer">
+                    <span className="font-semibold block text-slate-900">
+                      Confirmar automáticamente en el Kardex (Operación 16 SUNAT) al importar
+                    </span>
+                    Si está marcado, registra los saldos en estado <strong>CONFIRMADO</strong>, genera los movimientos de apertura en el Kardex y actualiza los costos promedio. Si se desmarca, se guardarán como <strong>BORRADOR</strong> para revisión manual previa.
+                  </label>
+                </div>
+
+                {/* Alerta de Validación */}
+                {(resultadoImportacion.resumen.con_error ?? 0) > 0 ? (
+                  <p className="text-xs text-rose-700 font-medium flex items-center gap-1.5">
+                    <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
+                    El archivo contiene {resultadoImportacion.resumen.con_error} fila(s) con error. Corrija los códigos o importes en el Excel antes de procesar la importación definitiva.
+                  </p>
+                ) : (
+                  <p className="text-xs text-emerald-700 font-medium flex items-center gap-1.5">
+                    <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                    Validación exitosa. Listo para procesar {(resultadoImportacion.resumen.nuevos ?? 0) + (resultadoImportacion.resumen.actualizables ?? 0)} saldo(s) inicial(es).
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Acciones del Modal */}
+            <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-200">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={cerrarModalImportar}
+                disabled={procesandoImportacion}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                disabled={
+                  !resultadoImportacion ||
+                  (resultadoImportacion.resumen.con_error ?? 0) > 0 ||
+                  ((resultadoImportacion.resumen.nuevos ?? 0) === 0 && (resultadoImportacion.resumen.actualizables ?? 0) === 0) ||
+                  procesandoImportacion
+                }
+                onClick={() => handleProcesarExcel('CONFIRMAR')}
+              >
+                {procesandoImportacion ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                ) : (
+                  <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                )}
+                Procesar Importación ({resultadoImportacion ? (resultadoImportacion.resumen.nuevos ?? 0) + (resultadoImportacion.resumen.actualizables ?? 0) : 0} saldos)
+              </Button>
+            </div>
           </div>
         </Modal>
       )}

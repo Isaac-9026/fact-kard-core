@@ -19,7 +19,9 @@ from apps.inventario.views import (
     ProductoUnidadListCreateView,
     SaldoInicialDetailView,
     SaldoInicialConfirmarView,
+    SaldoInicialImportarExcelView,
     SaldoInicialListCreateView,
+    SaldoInicialPlantillaExcelView,
     TerceroDetailView,
     TerceroHistorialView,
     TerceroListCreateView,
@@ -65,6 +67,16 @@ urlpatterns = [
         'saldos-iniciales/',
         SaldoInicialListCreateView.as_view(),
         name='saldo-inicial-list-create',
+    ),
+    path(
+        'saldos-iniciales/plantilla-excel/',
+        SaldoInicialPlantillaExcelView.as_view(),
+        name='saldo-inicial-plantilla-excel',
+    ),
+    path(
+        'saldos-iniciales/importar-excel/',
+        SaldoInicialImportarExcelView.as_view(),
+        name='saldo-inicial-importar-excel',
     ),
     path(
         'saldos-iniciales/<int:pk>/',
