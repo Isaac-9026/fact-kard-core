@@ -432,6 +432,98 @@ class NotaInternaAnularView(NotaInternaMixin, generics.GenericAPIView):
             return Response(self.get_serializer(nota).data)
 
 
+class SaldoInicialPlantillaExcelView(EmpresaActivaMixin, generics.GenericAPIView):
+    """
+    Descarga la plantilla Excel (.xlsx) oficial para la importación masiva de saldos iniciales (Op. 16 SUNAT).
+    Incluye las columnas obligatorias en la Hoja 1 y el catálogo de productos activos de la empresa en la Hoja 2.
+    """
+    admin_write_required = False
+
+    def get(self, request, *args, **kwargs):
+        from apps.inventario.importacion_saldo_inicial_excel import generar_plantilla_excel_saldos_iniciales
+        buffer = generar_plantilla_excel_saldos_iniciales(request.empresa_id)
+        response = HttpResponse(
+            buffer.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        response['Content-Disposition'] = 'attachment; filename="plantilla_saldos_iniciales_op16.xlsx"'
+        return response
+
+
+class SaldoInicialImportarExcelView(EmpresaActivaMixin, generics.GenericAPIView):
+    """
+    Importación masiva de saldos iniciales (Op. 16 SUNAT) vía Excel (.xlsx).
+    Soporta modo='PREVISUALIZAR' (diagnóstico sin guardar) y modo='CONFIRMAR' (escritura atómica).
+    """
+    parser_classes = (MultiPartParser, FormParser)
+    admin_write_required = True
+
+    def post(self, request, *args, **kwargs):
+        archivo = request.FILES.get('archivo')
+        if not archivo:
+            return Response(
+                {'error': 'Debe adjuntar un archivo Excel (.xlsx).'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not archivo.name.lower().endswith('.xlsx'):
+            return Response(
+                {'error': 'El archivo debe tener formato .xlsx (Excel).'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        periodo_id = request.data.get('periodo') or request.data.get('periodo_id')
+        almacen_id = request.data.get('almacen') or request.data.get('almacen_id')
+        if not periodo_id:
+            return Response(
+                {'error': 'Debe seleccionar un período contable.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not almacen_id:
+            return Response(
+                {'error': 'Debe seleccionar un almacén destino.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            periodo_id = int(periodo_id)
+            almacen_id = int(almacen_id)
+        except (TypeError, ValueError):
+            return Response(
+                {'error': 'Los identificadores de período y almacén deben ser numéricos.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        modo = (request.data.get('modo') or 'PREVISUALIZAR').strip().upper()
+        auto_conf_raw = request.data.get('auto_confirmar')
+        if isinstance(auto_conf_raw, str):
+            auto_confirmar = auto_conf_raw.lower() in ('true', '1', 't', 'si', 'yes')
+        elif isinstance(auto_conf_raw, bool):
+            auto_confirmar = auto_conf_raw
+        else:
+            auto_confirmar = True
+
+        from apps.inventario.importacion_saldo_inicial_excel import procesar_importacion_excel_saldos_iniciales
+        try:
+            resultado = procesar_importacion_excel_saldos_iniciales(
+                empresa_id=request.empresa_id,
+                periodo_id=periodo_id,
+                almacen_id=almacen_id,
+                archivo=archivo,
+                modo=modo,
+                auto_confirmar=auto_confirmar,
+                usuario=request.user,
+            )
+            return Response(resultado, status=status.HTTP_200_OK)
+        except ValidationError as val_err:
+            detalles = val_err.message_dict if hasattr(val_err, 'message_dict') else {'error': str(val_err)}
+            return Response(detalles, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            return Response(
+                {'error': f'Error al procesar el archivo: {exc}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+
 class SaldoInicialConfirmarView(EmpresaActivaMixin, generics.GenericAPIView):
     serializer_class = SaldoInicialSerializer
 
