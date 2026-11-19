@@ -327,13 +327,13 @@ export const CatalogosPage: React.FC = () => {
                       </strong>
                     </div>
                     <div className="rounded-lg bg-emerald-50 border border-emerald-200/80 p-2 text-center">
-                      <span className="text-emerald-700 text-[11px] font-semibold block">TC Compra:</span>
+                      <span className="text-emerald-700 text-xs font-semibold block">TC Compra:</span>
                       <strong className="font-mono tabular-nums text-emerald-800 text-base">
                         S/ {resolverResult.compra}
                       </strong>
                     </div>
                     <div className="rounded-lg bg-indigo-50 border border-indigo-200/80 p-2 text-center">
-                      <span className="text-indigo-700 text-[11px] font-semibold block">TC Venta:</span>
+                      <span className="text-indigo-700 text-xs font-semibold block">TC Venta:</span>
                       <strong className="font-mono tabular-nums text-indigo-800 text-base">
                         S/ {resolverResult.venta}
                       </strong>
@@ -400,7 +400,7 @@ export const CatalogosPage: React.FC = () => {
                           {tc.venta ?? '—'}
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline" className="font-mono text-[10px]">
+                          <Badge variant="outline" className="font-mono text-xs">
                             {tc.fuente}
                           </Badge>
                         </TableCell>
@@ -534,7 +534,7 @@ export const CatalogosPage: React.FC = () => {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <code className="text-[11px] font-mono text-slate-600">
+                        <code className="text-xs font-mono text-slate-600">
                           {o.origen_requerido || 'NINGUNO'}
                         </code>
                       </TableCell>

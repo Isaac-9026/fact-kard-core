@@ -615,7 +615,7 @@ export const MainLayout: React.FC = () => {
                     {usuario?.username || 'Usuario'}
                   </span>
                   <span
-                    className={`text-[10px] font-medium mt-0.5 ${
+                    className={`text-xs font-medium mt-0.5 ${
                       themingTokens ? 'text-[var(--tenant-sidebar-text-muted)]' : 'text-slate-500'
                     }`}
                   >
@@ -769,9 +769,10 @@ export const MainLayout: React.FC = () => {
         </header>
 
         {/* 3. CONTENIDO DE LA PÁGINA */}
-        <main className="min-w-0 flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto">
+        {/* 3. CONTENIDO DE LA PÁGINA */}
+        <main className="min-w-0 flex-1 p-3.5 sm:p-5 lg:p-6 max-w-[1380px] w-full mx-auto">
           {soloConsulta && (
-            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-medium text-amber-800" role="status">
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-900" role="status">
               Modo solo consulta: puede ver y exportar la información, pero no registrar ni modificar operaciones.
             </div>
           )}

@@ -549,7 +549,7 @@ export const PeriodosPage: React.FC = () => {
                   className="font-mono tabular-nums"
                   required
                 />
-                <p className="text-[11px] text-slate-500">
+                <p className="text-xs text-slate-500">
                   El complemento (100% - %) se integrará automáticamente al costo unitario de adquisición.
                 </p>
               </div>

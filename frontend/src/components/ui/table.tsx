@@ -13,7 +13,7 @@ export const Table = React.forwardRef<HTMLTableElement, TableProps>(
         containerClassName
       )}
     >
-      <table ref={ref} className={cn('w-full caption-bottom text-xs text-left border-collapse', className)} {...props} />
+      <table ref={ref} className={cn('w-full caption-bottom text-sm text-left border-collapse', className)} {...props} />
     </div>
   )
 )
@@ -24,7 +24,7 @@ export const TableHeader = React.forwardRef<HTMLTableSectionElement, React.HTMLA
     <thead
       ref={ref}
       className={cn(
-        'sticky top-0 z-10 bg-slate-100/95 backdrop-blur-xs border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wider text-slate-600 select-none',
+        'sticky top-0 z-10 bg-slate-100/95 backdrop-blur-xs border-b border-slate-200 text-xs font-bold uppercase tracking-wider text-slate-700 select-none',
         className
       )}
       {...props}
@@ -66,7 +66,7 @@ export const TableHead = React.forwardRef<HTMLTableCellElement, React.ThHTMLAttr
     <th
       ref={ref}
       className={cn(
-        'h-8 px-2.5 py-1.5 align-middle font-semibold text-slate-600 whitespace-nowrap',
+        'h-9 px-3 py-1.5 align-middle font-bold text-slate-700 whitespace-nowrap text-xs',
         numeric && 'text-right font-mono tabular-nums',
         className
       )}
@@ -81,7 +81,7 @@ export const TableCell = React.forwardRef<HTMLTableCellElement, React.TdHTMLAttr
     <td
       ref={ref}
       className={cn(
-        'px-2.5 py-1.5 align-middle text-slate-700',
+        'px-3 py-1.5 sm:py-2 align-middle text-slate-800 text-sm font-normal',
         numeric && 'text-right font-mono tabular-nums',
         className
       )}

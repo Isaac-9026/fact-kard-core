@@ -713,7 +713,7 @@ export const EmpresasPage: React.FC = () => {
                           value={configForm.tolerancia_residuo_pen}
                           onChange={(e) => setConfigForm({ ...configForm, tolerancia_residuo_pen: e.target.value })}
                         />
-                        <p className="text-[10px] text-slate-400">Residuo contable absorbible (máx. S/ 0.05000000).</p>
+                        <p className="text-xs text-slate-400">Residuo contable absorbible (máx. S/ 0.05000000).</p>
                       </div>
 
                       <div className="space-y-1.5">
@@ -727,7 +727,7 @@ export const EmpresasPage: React.FC = () => {
                           value={configForm.decimales_calculo}
                           onChange={(e) => setConfigForm({ ...configForm, decimales_calculo: Number(e.target.value) })}
                         />
-                        <p className="text-[10px] text-slate-400">Estándar nacional: 6 decimales para CPP.</p>
+                        <p className="text-xs text-slate-400">Estándar nacional: 6 decimales para CPP.</p>
                       </div>
 
                       <div className="space-y-1.5 sm:col-span-2">
@@ -865,7 +865,7 @@ export const EmpresasPage: React.FC = () => {
                                 </Button>
                               )}
                             </div>
-                            <p className="text-[11px] text-slate-500 leading-relaxed">
+                            <p className="text-xs text-slate-500 leading-relaxed">
                               PNG, JPG o WebP (máx. 512 KB). Se optimiza automáticamente en el cliente a WebP 256×256 con protección binaria anti-spoofing en el servidor.
                             </p>
                             {colorSugeridoExtraido && (
@@ -876,11 +876,11 @@ export const EmpresasPage: React.FC = () => {
                                   className="inline-block h-3.5 w-3.5 rounded-full border border-slate-300 shadow-2xs"
                                   style={{ backgroundColor: colorSugeridoExtraido }}
                                 />
-                                <code className="font-mono font-semibold text-[11px]">{colorSugeridoExtraido}</code>
+                                <code className="font-mono font-semibold text-xs">{colorSugeridoExtraido}</code>
                                 <button
                                   type="button"
                                   onClick={() => setIdentidadColor(colorSugeridoExtraido)}
-                                  className="text-[11px] font-medium text-indigo-600 hover:underline cursor-pointer ml-1"
+                                  className="text-xs font-medium text-indigo-600 hover:underline cursor-pointer ml-1"
                                 >
                                   Aplicar
                                 </button>
@@ -896,7 +896,7 @@ export const EmpresasPage: React.FC = () => {
                           <Label className="text-xs font-bold uppercase tracking-wider text-slate-600">
                             Tema de Navegación del Sidebar
                           </Label>
-                          <span className="text-[11px] text-slate-500 font-mono">
+                          <span className="text-xs text-slate-500 font-mono">
                             {identidadColor ? identidadColor.toUpperCase() : 'BLANCO (ESTÁNDAR)'}
                           </span>
                         </div>
@@ -919,7 +919,7 @@ export const EmpresasPage: React.FC = () => {
                                 <Check className="h-2.5 w-2.5 text-indigo-600" strokeWidth={3} />
                               )}
                             </span>
-                            <span className="truncate text-[11px]">Predeterminado (Blanco)</span>
+                            <span className="truncate text-xs">Predeterminado (Blanco)</span>
                           </button>
 
                           {/* 9 Paletas Ejecutivas */}
@@ -943,7 +943,7 @@ export const EmpresasPage: React.FC = () => {
                                 >
                                   {isSelected && <Check className="h-2.5 w-2.5 text-white" strokeWidth={3} />}
                                 </span>
-                                <span className="truncate text-[11px]">{p.nombre}</span>
+                                <span className="truncate text-xs">{p.nombre}</span>
                               </button>
                             )
                           })}
@@ -1065,7 +1065,7 @@ export const EmpresasPage: React.FC = () => {
                               {empresaActiva.razon_social}
                             </span>
                             <span
-                              className="text-[11px] font-mono font-medium tabular-nums tracking-tight leading-tight text-center"
+                              className="text-xs font-mono font-medium tabular-nums tracking-tight leading-tight text-center"
                               style={{ color: tokensPreview['--tenant-sidebar-text-muted'] }}
                             >
                               RUC {empresaActiva.ruc}
@@ -1143,7 +1143,7 @@ export const EmpresasPage: React.FC = () => {
                               {usuario?.username || 'Usuario'}
                             </span>
                             <span
-                              className="text-[10px] font-medium mt-0.5"
+                              className="text-xs font-medium mt-0.5"
                               style={{ color: tokensPreview['--tenant-sidebar-text-muted'] }}
                             >
                               {esAdminActiva ? 'Administrador' : 'Operador'}
@@ -1177,7 +1177,7 @@ export const EmpresasPage: React.FC = () => {
                             <span className="text-[13px] font-bold leading-snug line-clamp-2 px-1 text-center text-slate-900">
                               {empresaActiva.razon_social}
                             </span>
-                            <span className="text-[11px] font-mono font-medium tabular-nums tracking-tight leading-tight text-center text-slate-500">
+                            <span className="text-xs font-mono font-medium tabular-nums tracking-tight leading-tight text-center text-slate-500">
                               RUC {empresaActiva.ruc}
                             </span>
                           </div>
@@ -1215,7 +1215,7 @@ export const EmpresasPage: React.FC = () => {
                             <span className="text-xs font-semibold truncate text-slate-800">
                               {usuario?.username || 'Usuario'}
                             </span>
-                            <span className="text-[10px] font-medium mt-0.5 text-slate-500">
+                            <span className="text-xs font-medium mt-0.5 text-slate-500">
                               {esAdminActiva ? 'Administrador' : 'Operador'}
                             </span>
                           </div>
@@ -1231,14 +1231,14 @@ export const EmpresasPage: React.FC = () => {
                             <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
                             <span>Garantía de Contraste WCAG 2.1 (AAA / AA)</span>
                           </div>
-                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300">
+                          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300">
                             ✨ Gradient Mesh
                           </span>
                         </div>
-                        <p className="text-[11px] leading-relaxed text-emerald-700">
+                        <p className="text-xs leading-relaxed text-emerald-700">
                           Fondo profundo con malla de gradientes radiales continuos (Gradient Mesh) y contraste certificado &gt;= 7.0:1.
                         </p>
-                        <div className="grid grid-cols-2 gap-2 pt-1 text-[10px] font-mono">
+                        <div className="grid grid-cols-2 gap-2 pt-1 text-xs font-mono">
                           <div className="rounded bg-white/80 p-1.5 border border-emerald-200">
                             <span className="text-slate-500 block">Fondo Sólido:</span>
                             <span className="font-bold text-slate-800">{tokensPreview['--tenant-sidebar-bg']}</span>
@@ -1255,10 +1255,10 @@ export const EmpresasPage: React.FC = () => {
                           <CheckCircle2 className="h-4 w-4 text-indigo-600 shrink-0" />
                           <span>Diseño Predeterminado (Blanco Neutro)</span>
                         </div>
-                        <p className="text-[11px] leading-relaxed text-slate-600">
+                        <p className="text-xs leading-relaxed text-slate-600">
                           El menú lateral se visualiza con el fondo blanco estándar de FACT-KARD, garantizando máxima claridad visual y preservando el logo corporativo.
                         </p>
-                        <div className="grid grid-cols-2 gap-2 pt-1 text-[10px] font-mono">
+                        <div className="grid grid-cols-2 gap-2 pt-1 text-xs font-mono">
                           <div className="rounded bg-white p-1.5 border border-slate-200">
                             <span className="text-slate-500 block">Fondo Sidebar:</span>
                             <span className="font-bold text-slate-800">#FFFFFF (Blanco)</span>

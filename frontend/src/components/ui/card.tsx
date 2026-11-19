@@ -22,14 +22,14 @@ CardHeader.displayName = 'CardHeader'
 
 export const CardTitle = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLHeadingElement>>(
   ({ className, ...props }, ref) => (
-    <h3 ref={ref} className={cn('font-semibold text-sm leading-snug tracking-tight text-slate-900', className)} {...props} />
+    <h3 ref={ref} className={cn('font-semibold text-sm sm:text-base leading-snug tracking-tight text-slate-900', className)} {...props} />
   )
 )
 CardTitle.displayName = 'CardTitle'
 
 export const CardDescription = React.forwardRef<HTMLParagraphElement, React.HTMLAttributes<HTMLParagraphElement>>(
   ({ className, ...props }, ref) => (
-    <p ref={ref} className={cn('text-[11px] text-slate-500 mt-0.5', className)} {...props} />
+    <p ref={ref} className={cn('text-xs text-slate-500 mt-0.5', className)} {...props} />
   )
 )
 CardDescription.displayName = 'CardDescription'
@@ -71,7 +71,7 @@ export function KpiCard({ title, value, subtitle, icon, badge, className, trend 
     <Card className={cn('overflow-hidden relative border-slate-200/90 bg-white shadow-2xs hover:border-slate-300 transition-colors', className)}>
       <div className="p-3 sm:p-3.5">
         <div className="flex items-center justify-between gap-1.5">
-          <span className="text-[11px] font-semibold text-slate-500 tracking-wider uppercase truncate">{title}</span>
+          <span className="text-xs font-semibold text-slate-600 tracking-wider uppercase truncate">{title}</span>
           <div className="flex items-center gap-1.5 shrink-0">
             {badge}
             {icon && (
@@ -82,7 +82,7 @@ export function KpiCard({ title, value, subtitle, icon, badge, className, trend 
           </div>
         </div>
         <div className="mt-2 flex items-baseline gap-2">
-          <div className="text-xl sm:text-2xl font-bold font-mono tabular-nums tracking-tight text-slate-900 truncate">
+          <div className="text-2xl font-bold font-mono tabular-nums tracking-tight text-slate-900 truncate">
             {value}
           </div>
           {trend && (
@@ -91,7 +91,7 @@ export function KpiCard({ title, value, subtitle, icon, badge, className, trend 
             </span>
           )}
         </div>
-        {subtitle && <p className="mt-0.5 text-[11px] text-slate-500 truncate">{subtitle}</p>}
+        {subtitle && <p className="mt-1 text-xs text-slate-500 truncate">{subtitle}</p>}
       </div>
     </Card>
   )

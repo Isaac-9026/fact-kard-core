@@ -84,7 +84,7 @@ export const SidebarGroupLabel = React.forwardRef<HTMLDivElement, React.HTMLAttr
       ref={ref}
       data-sidebar="group-label"
       className={cn(
-        'flex h-6 shrink-0 items-center px-2 text-[11px] font-bold tracking-wider text-slate-700 uppercase select-none',
+        'flex h-6 shrink-0 items-center px-2 text-xs font-bold tracking-wider text-slate-700 uppercase select-none',
         className
       )}
       {...props}
@@ -132,7 +132,7 @@ SidebarMenuItem.displayName = 'SidebarMenuItem'
 // Variantes de estilo exportadas junto al componente (patrón shadcn).
 // eslint-disable-next-line react-refresh/only-export-components
 export const sidebarMenuButtonVariants = cva(
-  'peer/menu-button flex w-full items-center gap-3 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors select-none outline-none focus-visible:ring-2 focus-visible:ring-slate-900 cursor-pointer',
+  'peer/menu-button flex w-full items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-xs sm:text-[13px] font-medium transition-colors select-none outline-none focus-visible:ring-2 focus-visible:ring-slate-900 cursor-pointer',
   {
     variants: {
       variant: {
@@ -140,9 +140,9 @@ export const sidebarMenuButtonVariants = cva(
         active: 'bg-indigo-50 text-indigo-700 font-semibold shadow-2xs border border-indigo-100/60',
       },
       size: {
-        default: 'h-8 text-xs',
-        sm: 'h-7 text-xs',
-        lg: 'h-10 text-sm',
+        default: 'h-8.5 text-xs sm:text-[13px]',
+        sm: 'h-7.5 text-xs',
+        lg: 'h-9.5 text-sm',
       },
     },
     defaultVariants: {

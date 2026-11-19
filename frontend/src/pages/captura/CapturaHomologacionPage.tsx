@@ -958,7 +958,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                     Cargar Nuevo Comprobante
                     <Badge variant="neutral" size="xs">XML · PDF · Imagen</Badge>
                   </h3>
-                  <p className="text-[11px] text-slate-500 truncate">
+                  <p className="text-xs text-slate-600 truncate">
                     Procesamiento asistido por IA o XML oficial UBL 2.1 sin registrar hasta su confirmación.
                   </p>
                 </div>
@@ -1000,7 +1000,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                   Cargue un comprobante en XML UBL 2.1, PDF, imagen o escaneado. Los datos extraídos se muestran para revisarlos y corregirlos:
                   nada se registra hasta que usted genere el borrador y lo confirme en Comprobantes.
                 </CardDescription>
-                <ol aria-label="Pasos de la captura" className="mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px]">
+                <ol aria-label="Pasos de la captura" className="mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs">
                   {PASOS_CAPTURA.map((paso, i) => {
                     const actual = pasoActualCaptura(capturaDetalle);
                     return (
@@ -1150,7 +1150,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                             setUploadFiles([]);
                             setErrorMsg(uploadFile ? validarArchivoCaptura(uploadFile, t) : null);
                           }}
-                          className={`py-1.5 text-[11px] font-semibold rounded transition-colors ${
+                          className={`py-1.5 text-xs font-bold rounded transition-colors ${
                             uploadTipo === t
                               ? 'bg-white text-indigo-600 shadow-xs'
                               : 'text-slate-600 hover:text-slate-900'
@@ -1160,7 +1160,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                         </button>
                       ))}
                     </div>
-                    <p className="text-[11px] text-slate-600" data-testid="captura-ayuda-tipo">
+                    <p className="text-xs text-slate-700" data-testid="captura-ayuda-tipo">
                       {DESCRIPCION_TIPO_CAPTURA[uploadTipo].texto}
                     </p>
                   </div>
@@ -1179,7 +1179,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                         aria-describedby="captura-formatos"
                         className="cursor-pointer"
                       />
-                      <span id="captura-formatos" className="text-[11px] text-slate-500 block">
+                      <span id="captura-formatos" className="text-xs text-slate-600 block">
                         Formatos permitidos: {uploadTipo === 'XML' ? '.xml, .zip · máx. 10 MB' : formatosVisibles(uploadTipo)}
                       </span>
                       {uploadFiles.length > 0 && (
@@ -1244,10 +1244,10 @@ export const CapturaHomologacionPage: React.FC = () => {
                               </div>
                             )}
                             <div className="min-w-0">
-                              <span className="text-[11px] text-indigo-600 font-medium block break-all">
+                              <span className="text-xs text-indigo-700 font-medium font-medium block break-all">
                                 Seleccionado: <strong>{uploadFile.name}</strong> ({(uploadFile.size / 1024).toFixed(1)} KB)
                               </span>
-                              <span className="text-[10px] text-slate-500 block mt-0.5">
+                              <span className="text-xs text-slate-600 block mt-0.5">
                                 Listo para procesar y extraer con IA
                               </span>
                             </div>
@@ -1295,7 +1295,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                       <Label htmlFor="texto-ocr-input">
                         Texto del comprobante (OCR)
                       </Label>
-                      <p className="text-[11px] text-indigo-900 bg-indigo-50 border border-indigo-200 rounded px-2.5 py-1.5">
+                      <p className="text-xs text-indigo-950 font-medium bg-indigo-50 border border-indigo-200 rounded px-2.5 py-1.5">
                         El sistema procesa imágenes y PDFs escaneados automáticamente mediante IA multimodal (Gemini).
                         Si desea ingresar o complementar el texto manualmente, puede pegarlo en este campo opcional.
                         Revise y confirme siempre los campos extraídos antes de generar el comprobante en borrador.
@@ -1324,7 +1324,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                   <CardTitle className="text-xs font-bold text-slate-800 uppercase tracking-wider">
                     Bandeja de Comprobantes
                   </CardTitle>
-                  <CardDescription className="text-[11px] text-slate-500">
+                  <CardDescription className="text-xs text-slate-600">
                     {capturasFiltradas.length} de {capturas.length} comprobante(s)
                   </CardDescription>
                 </div>
@@ -1351,7 +1351,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                   leftIcon={<Search className="h-3.5 w-3.5" />}
                   className="h-7 text-xs"
                 />
-                <div className="grid grid-cols-3 gap-1 rounded bg-slate-100 p-0.5 text-[10px] font-semibold text-slate-600">
+                <div className="grid grid-cols-3 gap-1 rounded bg-slate-100 p-0.5 text-xs font-bold text-slate-700">
                   <button
                     type="button"
                     onClick={() => setFiltroEstadoCaptura('todos')}
@@ -1387,7 +1387,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                   <div className="text-center py-10 px-2 space-y-2">
                     <FileText className="h-8 w-8 text-slate-300 mx-auto" />
                     <p className="text-xs text-slate-600 font-medium">No hay comprobantes cargados</p>
-                    <p className="text-[11px] text-slate-400">Use el botón superior para subir su primer comprobante.</p>
+                    <p className="text-xs text-slate-500">Use el botón superior para subir su primer comprobante.</p>
                   </div>
                 ) : capturasFiltradas.length === 0 ? (
                   <p className="text-xs text-slate-500 text-center py-8">
@@ -1438,10 +1438,10 @@ export const CapturaHomologacionPage: React.FC = () => {
                           <p className="text-xs font-semibold text-slate-900 truncate" title={c.ruta_archivo}>
                             {c.ruta_archivo.split('/').pop()}
                           </p>
-                          <p className="text-[11px] font-mono text-slate-500 mt-0.5 truncate" title={c.hash_sha256}>
+                          <p className="text-xs font-mono text-slate-700 mt-0.5 truncate" title={c.hash_sha256}>
                             SHA: {c.hash_sha256.slice(0, 14)}…
                           </p>
-                          <div className="flex items-center justify-between text-[10px] text-slate-400 mt-2 pt-1.5 border-t border-slate-100">
+                          <div className="flex items-center justify-between text-xs text-slate-500 mt-2 pt-1.5 border-t border-slate-100">
                             <span>{c.subido_por_username || 'Usuario'}</span>
                             <span className="font-mono tabular-nums">{new Date(c.creado_en).toLocaleDateString('es-PE')}</span>
                           </div>
@@ -1480,7 +1480,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                             </Badge>
                           )}
                         </div>
-                        <p className="text-[11px] font-mono text-slate-500 mt-1 select-all break-all">
+                        <p className="text-xs font-mono text-slate-700 mt-1 select-all break-all">
                           Hash SHA-256: {capturaDetalle.hash_sha256}
                         </p>
                       </div>
@@ -1500,7 +1500,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                         </div>
 
                         <div className="space-y-1">
-                          <Label className="text-[11px]">Almacén Destino:</Label>
+                          <Label className="text-xs font-semibold text-slate-700">Almacén Destino:</Label>
                           <Select
                             value={selectedAlmacenId}
                             onChange={(e) => setSelectedAlmacenId(e.target.value)}
@@ -1577,7 +1577,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                               </span>
                               <div className="min-w-0">
                                 <div className="flex items-center gap-1.5">
-                                  <CardTitle className="text-[11px] font-bold text-slate-800 uppercase tracking-wider truncate">
+                                  <CardTitle className="text-xs font-bold text-slate-800 uppercase tracking-wider truncate">
                                     Visor Original
                                   </CardTitle>
                                   {previewActiva && (
@@ -1587,7 +1587,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                                   )}
                                 </div>
                                 <p
-                                  className="text-[10px] text-slate-500 truncate"
+                                  className="text-xs text-slate-600 truncate"
                                   title={previewActiva?.nombre || capturaDetalle.ruta_archivo}
                                 >
                                   {previewActiva?.nombre || capturaDetalle.ruta_archivo.split('/').pop()}
@@ -1604,7 +1604,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                                   size="xs"
                                   onClick={() => setEsPantallaCompleta(true)}
                                   title="Ver comprobante en pantalla completa (Esc para salir)"
-                                  className="h-6 px-2 text-[10px] font-semibold text-indigo-700 border-indigo-200 bg-indigo-50/50 hover:bg-indigo-100/70 hover:text-indigo-900 transition-colors flex items-center gap-1 cursor-pointer"
+                                  className="h-7 px-2.5 text-xs font-semibold text-indigo-700 border-indigo-200 bg-indigo-50/50 hover:bg-indigo-100/70 hover:text-indigo-900 transition-colors flex items-center gap-1 cursor-pointer"
                                 >
                                   <Maximize2 className="h-3 w-3" />
                                   <span className="hidden sm:inline">Ampliar</span>
@@ -1621,7 +1621,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                                 <button
                                   type="button"
                                   onClick={() => setModoAjuste('pagina')}
-                                  className={`px-1.5 py-0.5 text-[10px] font-medium rounded transition-colors cursor-pointer ${
+                                  className={`px-1.5 py-0.5 text-xs font-medium rounded transition-colors cursor-pointer ${
                                     modoAjuste === 'pagina'
                                       ? 'bg-indigo-50 text-indigo-700 font-semibold shadow-2xs'
                                       : 'text-slate-600 hover:text-slate-900'
@@ -1633,7 +1633,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                                 <button
                                   type="button"
                                   onClick={() => setModoAjuste('ancho')}
-                                  className={`px-1.5 py-0.5 text-[10px] font-medium rounded transition-colors cursor-pointer ${
+                                  className={`px-1.5 py-0.5 text-xs font-medium rounded transition-colors cursor-pointer ${
                                     modoAjuste === 'ancho'
                                       ? 'bg-indigo-50 text-indigo-700 font-semibold shadow-2xs'
                                       : 'text-slate-600 hover:text-slate-900'
@@ -1657,7 +1657,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                                 >
                                   <ZoomOut className="h-3 w-3" />
                                 </Button>
-                                <span className="text-[10px] font-mono font-semibold text-slate-700 w-7 text-center select-none">
+                                <span className="text-xs font-mono font-bold text-slate-700 w-7 text-center select-none">
                                   {zoomPct}%
                                 </span>
                                 <Button
@@ -1686,7 +1686,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                                   variant="ghost"
                                   size="xs"
                                   onClick={handleResetView}
-                                  className="text-[10px] h-6 px-1 text-slate-500 hover:text-slate-800"
+                                  className="text-xs h-7 px-2 text-slate-600 hover:text-slate-800"
                                   title="Restablecer vista"
                                 >
                                   Reset
@@ -1721,7 +1721,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                                     </div>
                                   </div>
                                   {/* Barra de atajos de teclado sutil en el pie del visor */}
-                                  <div className="mt-2 pt-1 border-t border-slate-100 flex items-center justify-center gap-2 text-[10px] text-slate-500 font-medium select-none flex-wrap">
+                                  <div className="mt-2 pt-1 border-t border-slate-100 flex items-center justify-center gap-2 text-xs text-slate-600 font-medium select-none flex-wrap">
                                     <span className="flex items-center gap-1">
                                       <kbd className="px-1 py-0.5 rounded bg-slate-100 border border-slate-300 text-[9px] font-mono shadow-2xs font-semibold text-slate-700">+/-</kbd>
                                       <span>Zoom</span>
@@ -1756,7 +1756,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                                   <FileCode className="h-8 w-8 text-indigo-600 shrink-0" />
                                   <div>
                                     <p className="font-semibold">Archivo XML UBL 2.1 estructurado</p>
-                                    <p className="text-[11px] text-indigo-700 mt-0.5">
+                                    <p className="text-xs text-indigo-800 font-medium mt-0.5">
                                       Los datos de este comprobante electrónico fueron leídos directamente desde sus etiquetas XML oficiales con 100% de confianza.
                                     </p>
                                   </div>
@@ -1766,7 +1766,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                               <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-xs text-slate-600 space-y-2">
                                 <FileText className="h-7 w-7 text-slate-400 mx-auto" />
                                 <p className="font-semibold text-slate-800">Vista previa no disponible en la sesión</p>
-                                <p className="text-[11px] text-slate-500 max-w-xs mx-auto">
+                                <p className="text-xs text-slate-600 max-w-xs mx-auto">
                                   Vincule el archivo original desde su equipo para renderizarlo aquí sin volver a subirlo al servidor.
                                 </p>
                                 <div className="pt-1">
@@ -1828,7 +1828,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                                         )}
                                       </div>
                                       <p
-                                        className="text-[11px] text-slate-500 truncate max-w-xs sm:max-w-md"
+                                        className="text-xs text-slate-600 truncate max-w-xs sm:max-w-md"
                                         title={previewActiva?.nombre || capturaDetalle.ruta_archivo}
                                       >
                                         {previewActiva?.nombre || capturaDetalle.ruta_archivo.split('/').pop()}
@@ -1969,10 +1969,10 @@ export const CapturaHomologacionPage: React.FC = () => {
                                 {/* Pie de pantalla completa con atajos de teclado ergonómicos */}
                                 {previewActiva?.tipo === 'image' && (
                                   <div className="py-2 px-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-500 shrink-0">
-                                    <span className="text-[11px] text-slate-500 font-medium">
+                                    <span className="text-xs text-slate-600 font-medium">
                                       Visualizando en alta resolución contra datos homologados
                                     </span>
-                                    <div className="flex items-center gap-2.5 text-[10px] text-slate-500 font-medium select-none">
+                                    <div className="flex items-center gap-2.5 text-xs text-slate-600 font-medium select-none">
                                       <span className="flex items-center gap-1">
                                         <kbd className="px-1 py-0.5 rounded bg-white border border-slate-300 text-[9px] font-mono shadow-2xs font-semibold text-slate-700">+/-</kbd>
                                         <span>Zoom</span>
@@ -2011,14 +2011,14 @@ export const CapturaHomologacionPage: React.FC = () => {
                             <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
                             <span>Observaciones y Alertas de Validación Contable (OCR):</span>
                           </div>
-                          <ul className="list-disc list-inside space-y-0.5 pl-1 text-[11px] text-amber-900">
+                          <ul className="list-disc list-inside space-y-0.5 pl-1 text-xs text-amber-950 font-medium">
                             {alertasValidacion.map((alerta) => (
                               <li key={alerta.id}>
                                 {alerta.valor_corregido || alerta.valor_extraido}
                               </li>
                             ))}
                           </ul>
-                          <p className="text-[11px] text-amber-700 font-medium pt-1 border-t border-amber-200/60">
+                          <p className="text-xs text-amber-800 font-medium font-medium pt-1 border-t border-amber-200/60">
                             Por favor revise y corrija los valores marcados en rojo antes de convertir este comprobante a borrador.
                           </p>
                         </div>
@@ -2030,7 +2030,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                           <CardTitle className="text-xs font-bold text-slate-800 uppercase tracking-wider">
                             Datos Extraídos de Cabecera
                           </CardTitle>
-                          <span className="text-[11px] text-slate-500 font-medium">
+                          <span className="text-xs text-slate-600 font-medium">
                             {camposCabecera.length} campos identificados
                           </span>
                         </CardHeader>
@@ -2041,7 +2041,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                               return (
                                 <div key={c.id} className="p-2.5 rounded-lg border border-slate-200 bg-slate-50/70 text-xs">
                                   <div className="flex items-center justify-between mb-1">
-                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                                    <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
                                       {c.nombre_campo.replace('_', ' ')}
                                     </span>
                                     {renderConfianzaBadge(c.confianza)}
@@ -2079,7 +2079,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                                         {c.valor_corregido ? (
                                           <span className="text-amber-800">
                                             {c.valor_corregido}{' '}
-                                            <span className="line-through text-slate-400 font-normal text-[10px]">
+                                            <span className="line-through text-slate-500 font-normal text-xs">
                                               ({c.valor_extraido})
                                             </span>
                                           </span>
@@ -2129,21 +2129,21 @@ export const CapturaHomologacionPage: React.FC = () => {
                         </CardHeader>
                         <CardContent className="p-0">
                           <div className="overflow-x-auto">
-                            <table className="w-full text-xs text-left border-collapse">
+                            <table className="w-full text-sm text-left border-collapse">
                               <thead>
-                                <tr className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wider text-slate-600 border-b border-slate-200">
-                                  <th className="py-2 px-3">Línea</th>
-                                  <th className="py-2 px-3">Código Ext.</th>
-                                  <th className="py-2 px-3">Descripción Ítem</th>
-                                  <th className="py-2 px-2">Und.</th>
-                                  <th className="py-2 px-3 text-right">Cantidad</th>
-                                  <th className="py-2 px-3 text-right">P. Unit.</th>
-                                  <th className="py-2 px-3 text-right">Total</th>
-                                  <th className="py-2 px-2 text-center">Conf.</th>
-                                  <th className="py-2 px-3 text-center">Homologación</th>
+                                <tr className="bg-slate-50 text-xs font-bold uppercase tracking-wider text-slate-700 border-b border-slate-200">
+                                  <th className="py-2.5 px-3">Línea</th>
+                                  <th className="py-2.5 px-3">Código Ext.</th>
+                                  <th className="py-2.5 px-3">Descripción Ítem</th>
+                                  <th className="py-2.5 px-2">Und.</th>
+                                  <th className="py-2.5 px-3 text-right">Cantidad</th>
+                                  <th className="py-2.5 px-3 text-right">P. Unit.</th>
+                                  <th className="py-2.5 px-3 text-right">Total</th>
+                                  <th className="py-2.5 px-2 text-center">Conf.</th>
+                                  <th className="py-2.5 px-3 text-center">Homologación</th>
                                 </tr>
                               </thead>
-                              <tbody className="divide-y divide-slate-100 font-mono tabular-nums">
+                              <tbody className="divide-y divide-slate-100 font-mono tabular-nums text-sm">
                                 {lineasAgrupadas.map(([numLinea, camposMap]) => {
                                   const homLinea = capturaDetalle.homologacion?.lineas.find((l) => l.linea === Number(numLinea));
                                   const codCampo = camposMap['codigo_externo'];
@@ -2170,7 +2170,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                                     <tr key={numLinea} className="hover:bg-slate-50/80 transition-colors">
                                       <td className="py-2 px-3 font-bold text-slate-900">#{numLinea}</td>
                                       <td className="py-2 px-3">
-                                        <code className="bg-slate-100 px-1.5 py-0.5 rounded text-[11px] border border-slate-200">
+                                        <code className="bg-slate-100 px-1.5 py-0.5 rounded text-xs border border-slate-200">
                                           {codVal}
                                         </code>
                                       </td>
@@ -2366,7 +2366,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                                               Homologar
                                             </Button>
                                             {homLinea?.motivo?.startsWith('existe') && (
-                                              <span className="block mt-1 font-sans text-[10px] text-amber-700">{homLinea.motivo}</span>
+                                              <span className="block mt-1 font-sans text-xs text-amber-800 font-medium">{homLinea.motivo}</span>
                                             )}
                                           </>
                                         )}
@@ -2499,9 +2499,9 @@ export const CapturaHomologacionPage: React.FC = () => {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-xs text-left border-collapse">
+                  <table className="w-full text-sm text-left border-collapse">
                     <thead>
-                      <tr className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wider text-slate-600 border-b border-slate-200">
+                      <tr className="bg-slate-50 text-xs font-bold uppercase tracking-wider text-slate-700 border-b border-slate-200">
                         <th className="py-2.5 px-3">Proveedor (Tercero)</th>
                         <th className="py-2.5 px-3">Código Externo</th>
                         <th className="py-2.5 px-3">Descripción Externa</th>
@@ -2514,19 +2514,19 @@ export const CapturaHomologacionPage: React.FC = () => {
                         <th className="py-2.5 px-3 text-center">Acciones</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody className="divide-y divide-slate-100 text-sm">
                       {equivalenciasFiltradas.map((eq) => (
                         <tr key={eq.id} className="hover:bg-slate-50/80 transition-colors">
                           <td className="py-2.5 px-3">
                             <span className="font-semibold text-slate-900 block truncate max-w-[180px]">
                               {eq.tercero_info?.razon_social}
                             </span>
-                            <span className="font-mono text-[11px] text-slate-500">
+                            <span className="font-mono text-xs text-slate-600">
                               RUC: {eq.tercero_info?.numero_documento}
                             </span>
                           </td>
                           <td className="py-2.5 px-3">
-                            <code className="bg-slate-100 px-1.5 py-0.5 rounded text-[11px] border border-slate-200 font-mono">
+                            <code className="bg-slate-100 px-1.5 py-0.5 rounded text-xs border border-slate-200 font-mono">
                               {eq.codigo_externo || '—'}
                             </code>
                           </td>
@@ -2544,10 +2544,10 @@ export const CapturaHomologacionPage: React.FC = () => {
                           <td className="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-slate-900">
                             {formatearDecimal(eq.factor_conversion, { min: 4, max: 8 })}
                           </td>
-                          <td className="py-2.5 px-3 text-slate-600 text-[11px]">
+                          <td className="py-2.5 px-3 text-slate-700 text-xs">
                             <span>{eq.confirmado_por_username || 'Admin'}</span>
                             {eq.confirmado_en && (
-                              <span className="block font-mono text-[10px] text-slate-400">
+                              <span className="block font-mono text-xs text-slate-500">
                                 {new Date(eq.confirmado_en).toLocaleDateString('es-PE')}
                               </span>
                             )}
@@ -2668,7 +2668,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                           <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
                           {sugerenciaResultado.mensaje}
                         </div>
-                        <div className="mt-1 font-mono text-[11px]">
+                        <div className="mt-1 font-mono text-xs">
                           Producto Vinculado:{' '}
                           <strong>
                             {sugerenciaResultado.sugerencia?.producto_info?.producto_codigo} -{' '}
@@ -2683,7 +2683,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                           <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
                           {sugerenciaResultado.mensaje}
                         </div>
-                        <div className="mt-1 text-[11px]">
+                        <div className="mt-1 text-xs">
                           Estado retornado: <code className="font-mono bg-white px-1 py-0.5 rounded border border-rose-200">{sugerenciaResultado.estado}</code> (generaría incidencia contable).
                         </div>
                       </div>

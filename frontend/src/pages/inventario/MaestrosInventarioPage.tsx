@@ -697,7 +697,7 @@ export const MaestrosInventarioPage = ({ vista }: MaestrosInventarioPageProps = 
                         <TableCell className="font-medium text-slate-800">
                           {producto.descripcion}
                           {producto.precio_venta_sugerido && (
-                            <span className="block font-mono text-[10px] font-normal text-slate-400">
+                            <span className="block font-mono text-xs font-normal text-slate-400">
                               P. venta sug. {formatearDecimal(producto.precio_venta_sugerido, { min: 2, max: 8 })}
                             </span>
                           )}
@@ -707,7 +707,7 @@ export const MaestrosInventarioPage = ({ vista }: MaestrosInventarioPageProps = 
                             <span className="font-mono text-xs font-semibold text-slate-800">
                               {producto.tipo_existencia_codigo}
                             </span>
-                            <span className="text-[10px] text-slate-400 truncate max-w-xs">
+                            <span className="text-xs text-slate-400 truncate max-w-xs">
                               {producto.tipo_existencia_descripcion}
                             </span>
                           </div>
@@ -860,7 +860,7 @@ export const MaestrosInventarioPage = ({ vista }: MaestrosInventarioPageProps = 
                             onChange={(e) => setUnidadForm({ ...unidadForm, factor_a_base: e.target.value })}
                             className="font-mono tabular-nums"
                           />
-                          <p className="text-[10px] text-slate-400">
+                          <p className="text-xs text-slate-400">
                             Equivalencia exacta en unidades base (hasta 8 decimales).
                           </p>
                         </div>
@@ -963,7 +963,7 @@ export const MaestrosInventarioPage = ({ vista }: MaestrosInventarioPageProps = 
                   {terceros.map((tercero) => (
                     <TableRow key={tercero.id}>
                       <TableCell numeric className="font-bold text-slate-900">
-                        <span className="text-[10px] text-slate-400 block font-normal">{etiquetaTipoDocumento(tercero.tipo_documento)}</span>
+                        <span className="text-xs text-slate-400 block font-normal">{etiquetaTipoDocumento(tercero.tipo_documento)}</span>
                         {tercero.numero_documento}
                       </TableCell>
                       <TableCell>
@@ -1149,7 +1149,7 @@ export const MaestrosInventarioPage = ({ vista }: MaestrosInventarioPageProps = 
                     </option>
                   ))}
                 </Select>
-                <p className="text-[10px] text-slate-400">
+                <p className="text-xs text-slate-400">
                   Esta unidad representará el factor estándar 1.00000000 para costeo en Kardex.
                 </p>
               </div>
@@ -1183,7 +1183,7 @@ export const MaestrosInventarioPage = ({ vista }: MaestrosInventarioPageProps = 
                   ))}
                 </Select>
               </div>
-              <p className="text-[10px] text-slate-400 sm:col-span-2">
+              <p className="text-xs text-slate-400 sm:col-span-2">
                 Solo se sugieren al registrar una venta; no intervienen en el costo, el CPP ni el Kardex.
               </p>
             </div>
@@ -1338,7 +1338,7 @@ export const MaestrosInventarioPage = ({ vista }: MaestrosInventarioPageProps = 
                 </label>
               </div>
               {terceroSinRol && (
-                <p className="text-[11px] text-rose-600 font-medium">Selecciona al menos una relación comercial.</p>
+                <p className="text-xs text-rose-600 font-medium">Selecciona al menos una relación comercial.</p>
               )}
             </div>
           </form>

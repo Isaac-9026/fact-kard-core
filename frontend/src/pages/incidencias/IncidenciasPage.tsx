@@ -256,7 +256,7 @@ export const IncidenciasPage: React.FC = () => {
         {/* KPI 1: Salud de Cierre */}
         <Card className="p-4 rounded-xl border border-slate-200/90 shadow-2xs bg-white">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
               Control Pre-Cierre
             </span>
             <span
@@ -281,7 +281,7 @@ export const IncidenciasPage: React.FC = () => {
               {metricas.bloqueantes === 1 ? 'bloqueo crítico' : 'bloqueos críticos'}
             </span>
           </div>
-          <p className="mt-1 text-[11px] text-slate-400">
+          <p className="mt-1 text-xs text-slate-400">
             {metricas.bloqueantes > 0
               ? 'Impiden el cierre oficial del período'
               : 'Kardex habilitado para cierre contable'}
@@ -291,7 +291,7 @@ export const IncidenciasPage: React.FC = () => {
         {/* KPI 2: Incidencias Pendientes */}
         <Card className="p-4 rounded-xl border border-slate-200/90 shadow-2xs bg-white">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
               Pendientes de Revisión
             </span>
             <span className="h-8 w-8 rounded-lg bg-amber-50 text-amber-600 border border-amber-100 flex items-center justify-center">
@@ -306,7 +306,7 @@ export const IncidenciasPage: React.FC = () => {
               {metricas.pendientes === 1 ? 'observación activa' : 'observaciones activas'}
             </span>
           </div>
-          <p className="mt-1 text-[11px] text-slate-400">
+          <p className="mt-1 text-xs text-slate-400">
             {metricas.pendientes > 0 ? 'Por resolver o descartar por admin' : 'Sin inconsistencias pendientes'}
           </p>
         </Card>
@@ -314,7 +314,7 @@ export const IncidenciasPage: React.FC = () => {
         {/* KPI 3: Subsanadas / Resueltas */}
         <Card className="p-4 rounded-xl border border-slate-200/90 shadow-2xs bg-white">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
               Historial de Subsanación
             </span>
             <span className="h-8 w-8 rounded-lg bg-slate-50 text-slate-600 border border-slate-200 flex items-center justify-center">
@@ -334,7 +334,7 @@ export const IncidenciasPage: React.FC = () => {
               </span>
             )}
           </div>
-          <p className="mt-1 text-[11px] text-slate-400">
+          <p className="mt-1 text-xs text-slate-400">
             Trazabilidad con usuario y timestamp
           </p>
         </Card>
@@ -342,7 +342,7 @@ export const IncidenciasPage: React.FC = () => {
         {/* KPI 4: Último Recálculo */}
         <Card className="p-4 rounded-xl border border-slate-200/90 shadow-2xs bg-white">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
               Último Recálculo CPP
             </span>
             <span className="h-8 w-8 rounded-lg bg-indigo-50 text-indigo-600 border border-indigo-100 flex items-center justify-center">
@@ -358,7 +358,7 @@ export const IncidenciasPage: React.FC = () => {
               <span className="text-sm font-semibold text-slate-500">Sin recálculos</span>
             )}
           </div>
-          <p className="mt-1 text-[11px] text-slate-400 truncate">
+          <p className="mt-1 text-xs text-slate-400 truncate">
             {metricas.ultimoRecalculo
               ? `${metricas.ultimoRecalculo.detalles?.length || 0} movs reevaluados · ${metricas.ultimoRecalculo.estado}`
               : 'CPP cronológico vigente en Kardex'}
@@ -512,7 +512,7 @@ export const IncidenciasPage: React.FC = () => {
                           </TableCell>
                           <TableCell>
                             <div className="font-medium text-slate-800 text-xs leading-relaxed">{i.descripcion}</div>
-                            <div className="text-[10px] text-slate-400 mt-0.5 font-mono">
+                            <div className="text-xs text-slate-400 mt-0.5 font-mono">
                               Detectado: {formatearFechaHora(i.detectado_en)}
                             </div>
                           </TableCell>

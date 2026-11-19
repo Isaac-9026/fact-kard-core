@@ -26,7 +26,7 @@ export function CodigoAfectacionLinea({ documento, detalle, opciones, catalogo, 
 
   if (!editable) {
     return (
-      <span className="block text-[10px] text-slate-500" data-testid="codigo-afectacion-guardado">
+      <span className="block text-xs text-slate-500" data-testid="codigo-afectacion-guardado">
         {guardado ? `Cat. 07: ${guardado}${descripcion ? ` — ${descripcion}` : ''}` : 'Cat. 07: sin código'}
       </span>
     )
@@ -52,7 +52,7 @@ export function CodigoAfectacionLinea({ documento, detalle, opciones, catalogo, 
       <select
         aria-label={`Código Catálogo 07 de la línea ${detalle.linea}`}
         data-testid="codigo-afectacion-detalle"
-        className={`w-full min-w-[12rem] h-7 rounded border bg-white px-1.5 text-[11px] ${guardado ? 'border-slate-200' : 'border-amber-400'}`}
+        className={`w-full min-w-[12rem] h-7 rounded border bg-white px-1.5 text-xs ${guardado ? 'border-slate-200' : 'border-amber-400'}`}
         value={valor}
         disabled={guardando}
         onChange={(e) => guardar(e.target.value)}
@@ -60,7 +60,7 @@ export function CodigoAfectacionLinea({ documento, detalle, opciones, catalogo, 
         <option value="">Código Cat. 07…</option>
         {opciones.map((c) => <option key={c.codigo} value={c.codigo}>{c.codigo} — {c.descripcion}</option>)}
       </select>
-      {error && <span className="block text-[10px] text-rose-600" role="alert">{error}</span>}
+      {error && <span className="block text-xs text-rose-600" role="alert">{error}</span>}
     </span>
   )
 }

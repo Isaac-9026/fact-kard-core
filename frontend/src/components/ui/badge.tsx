@@ -16,10 +16,10 @@ const badgeVariants = cva(
         outline: 'border-slate-200 bg-white text-slate-700',
       },
       size: {
-        default: 'text-xs px-2.5 py-0.5',
-        xs: 'text-[9px] px-1.5 py-0 font-semibold',
-        sm: 'text-[10px] px-2 py-0.2',
-        lg: 'text-sm px-3 py-1',
+        default: 'text-xs px-2.5 py-0.5 font-semibold',
+        xs: 'text-xs px-2 py-0.5 font-semibold',
+        sm: 'text-xs px-2 py-0.5 font-semibold',
+        lg: 'text-xs sm:text-sm px-3.5 py-1 font-semibold',
       },
     },
     defaultVariants: {

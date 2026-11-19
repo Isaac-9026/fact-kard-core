@@ -155,7 +155,7 @@ export function RegistroComercialPage() {
                       <TableCell className="font-mono whitespace-nowrap">{f.serie}-{f.numero}</TableCell>
                       <TableCell className="min-w-[180px]">
                         <span className="block">{f.tercero_razon_social || '—'}</span>
-                        <span className="font-mono text-[11px] text-slate-500">{f.tercero_numero_documento}</span>
+                        <span className="font-mono text-xs text-slate-500">{f.tercero_numero_documento}</span>
                       </TableCell>
                       <TableCell>{f.moneda_codigo}</TableCell>
                       <TableCell numeric>{formatearDecimal(f.base)}</TableCell>

@@ -167,10 +167,10 @@ export const AuditoriaPage: React.FC = () => {
         <div className="text-xs text-slate-600 leading-relaxed">
           <strong className="text-slate-900 font-semibold">Garantía de Fidelidad Contable:</strong> Todo evento operacional,
           confirmación en Kardex, asignación de permisos, cierre y extorno genera un registro persistente con{' '}
-          <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[11px] text-slate-800">valor_anterior</code> y{' '}
-          <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[11px] text-slate-800">valor_nuevo</code>. Los triggers
-          SQL inalterables <code className="font-mono text-[11px]">trg_auditoria_no_update</code> y{' '}
-          <code className="font-mono text-[11px]">trg_auditoria_no_delete</code> impiden cualquier alteración física en base de datos.
+          <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs text-slate-800">valor_anterior</code> y{' '}
+          <code className="rounded bg-slate-100 px-1 py-0.5 font-mono text-xs text-slate-800">valor_nuevo</code>. Los triggers
+          SQL inalterables <code className="font-mono text-xs">trg_auditoria_no_update</code> y{' '}
+          <code className="font-mono text-xs">trg_auditoria_no_delete</code> impiden cualquier alteración física en base de datos.
         </div>
       </div>
 
@@ -217,7 +217,7 @@ export const AuditoriaPage: React.FC = () => {
 
           {/* Pastillas de filtro rápido */}
           <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100 text-xs">
-            <span className="text-[11px] font-medium text-slate-400">Entidad:</span>
+            <span className="text-xs font-bold text-slate-600">Entidad:</span>
             {ENTIDADES_COMUNES.map((ent) => {
               const activa = filtroEntidad.toUpperCase() === ent
               return (
@@ -225,7 +225,7 @@ export const AuditoriaPage: React.FC = () => {
                   key={ent}
                   type="button"
                   onClick={() => setFiltroEntidad(activa ? '' : ent)}
-                  className={`inline-flex items-center rounded-md px-2 py-0.5 font-mono text-[11px] transition-colors ${
+                  className={`inline-flex items-center rounded-md px-2 py-0.5 font-mono text-xs transition-colors ${
                     activa
                       ? 'bg-indigo-600 text-white font-medium shadow-2xs'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
@@ -236,7 +236,7 @@ export const AuditoriaPage: React.FC = () => {
               )
             })}
             <span className="mx-1 text-slate-300">|</span>
-            <span className="text-[11px] font-medium text-slate-400">Acción:</span>
+            <span className="text-xs font-bold text-slate-600">Acción:</span>
             {ACCIONES_COMUNES.map((acc) => {
               const activa = filtroAccion.toUpperCase() === acc
               return (
@@ -244,7 +244,7 @@ export const AuditoriaPage: React.FC = () => {
                   key={acc}
                   type="button"
                   onClick={() => setFiltroAccion(activa ? '' : acc)}
-                  className={`inline-flex items-center rounded-md px-2 py-0.5 font-mono text-[11px] transition-colors ${
+                  className={`inline-flex items-center rounded-md px-2 py-0.5 font-mono text-xs transition-colors ${
                     activa
                       ? 'bg-slate-800 text-white font-medium shadow-2xs'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
@@ -318,12 +318,12 @@ export const AuditoriaPage: React.FC = () => {
                         </span>
                       </TableCell>
                       <TableCell className="w-32 text-center">
-                        <Badge variant={getActionBadgeVariant(log.accion)} size="sm" className="font-mono text-[10px]">
+                        <Badge variant={getActionBadgeVariant(log.accion)} size="sm" className="font-mono text-xs font-semibold">
                           {log.accion}
                         </Badge>
                       </TableCell>
                       <TableCell className="w-36 text-center">
-                        <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-800 font-medium border border-slate-200/60">
+                        <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-800 font-medium border border-slate-200/60">
                           {log.entidad}
                         </code>
                       </TableCell>
@@ -341,7 +341,7 @@ export const AuditoriaPage: React.FC = () => {
                             variant="outline"
                             onClick={() => setSelectedLog(log)}
                             title="Ver diferencias JSON"
-                            className="font-mono text-[11px] gap-1 shadow-2xs hover:bg-slate-100"
+                            className="font-mono text-xs gap-1 shadow-2xs hover:bg-slate-100"
                           >
                             <Code2 className="h-3 w-3 text-indigo-600" /> Ver
                           </Button>
@@ -398,14 +398,14 @@ export const AuditoriaPage: React.FC = () => {
                       variant="ghost"
                       size="xs"
                       onClick={() => handleCopyJson('before', selectedLog.valor_anterior)}
-                      className="h-6 text-[11px] text-rose-700 hover:bg-rose-100 gap-1"
+                      className="h-6 text-xs text-rose-700 hover:bg-rose-100 gap-1"
                     >
                       {copiedSide === 'before' ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
                       {copiedSide === 'before' ? 'Copiado' : 'Copiar JSON'}
                     </Button>
                   )}
                 </div>
-                <pre className="rounded-xl border border-rose-200 bg-rose-50/40 p-3.5 font-mono text-[11px] text-slate-800 overflow-x-auto max-h-80 leading-relaxed overscroll-contain shadow-2xs">
+                <pre className="rounded-xl border border-rose-200 bg-rose-50/40 p-3.5 font-mono text-xs text-slate-800 overflow-x-auto max-h-80 leading-relaxed overscroll-contain shadow-2xs">
                   {formatJson(selectedLog.valor_anterior)}
                 </pre>
               </div>
@@ -423,14 +423,14 @@ export const AuditoriaPage: React.FC = () => {
                       variant="ghost"
                       size="xs"
                       onClick={() => handleCopyJson('after', selectedLog.valor_nuevo)}
-                      className="h-6 text-[11px] text-emerald-700 hover:bg-emerald-100 gap-1"
+                      className="h-6 text-xs text-emerald-700 hover:bg-emerald-100 gap-1"
                     >
                       {copiedSide === 'after' ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
                       {copiedSide === 'after' ? 'Copiado' : 'Copiar JSON'}
                     </Button>
                   )}
                 </div>
-                <pre className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-3.5 font-mono text-[11px] text-slate-800 overflow-x-auto max-h-80 leading-relaxed overscroll-contain shadow-2xs">
+                <pre className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-3.5 font-mono text-xs text-slate-800 overflow-x-auto max-h-80 leading-relaxed overscroll-contain shadow-2xs">
                   {formatJson(selectedLog.valor_nuevo)}
                 </pre>
               </div>

@@ -384,7 +384,7 @@ export const UsuariosPage: React.FC = () => {
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50/75 text-[11px] font-semibold text-slate-600 uppercase tracking-wider">
+              <tr className="border-b border-slate-200 bg-slate-50/75 text-xs font-semibold text-slate-600 uppercase tracking-wider">
                 <th className="py-3 px-4">Usuario / Identidad</th>
                 <th className="py-3 px-4">Estado</th>
                 <th className="py-3 px-4">Empresas Asignadas</th>
@@ -421,17 +421,17 @@ export const UsuariosPage: React.FC = () => {
                             <div className="font-semibold text-slate-900 flex items-center gap-1.5">
                               <span>{u.username}</span>
                               {esPropio && (
-                                <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                <span className="inline-flex items-center px-1.5 py-0.2 rounded text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
                                   Tú
                                 </span>
                               )}
                               {u.es_admin_global && (
-                                <span className="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
+                                <span className="inline-flex items-center px-1.5 py-0.2 rounded text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200">
                                   Admin Global
                                 </span>
                               )}
                             </div>
-                            <div className="text-[11px] text-slate-500">{u.email}</div>
+                            <div className="text-xs text-slate-500">{u.email}</div>
                           </div>
                         </div>
                       </td>
@@ -450,7 +450,7 @@ export const UsuariosPage: React.FC = () => {
                             {u.asignaciones.map((asig) => (
                               <span
                                 key={asig.id || asig.empresa_id}
-                                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] border ${
+                                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs border ${
                                   asig.activo
                                     ? asig.rol === 'ADMIN'
                                       ? 'bg-amber-50/60 border-amber-200/80 text-amber-900'
@@ -462,7 +462,7 @@ export const UsuariosPage: React.FC = () => {
                                 <span className="font-medium truncate max-w-[140px]">
                                   {asig.empresa_razon_social}
                                 </span>
-                                <span className="font-mono text-[10px] text-slate-500">
+                                <span className="font-mono text-xs text-slate-500">
                                   {asig.empresa_ruc}
                                 </span>
                                 <span
@@ -632,14 +632,14 @@ export const UsuariosPage: React.FC = () => {
                 <Building2 className="h-4 w-4 text-indigo-600" />
                 <span>Asignación de Empresas y Roles en el Estudio</span>
               </label>
-              <span className="text-[11px] text-slate-500">
+              <span className="text-xs text-slate-500">
                 Seleccione las empresas a las que tendrá acceso
               </span>
             </div>
 
             <div className="border border-slate-200 rounded-xl overflow-hidden max-h-60 overflow-y-auto">
               <table className="w-full text-left border-collapse">
-                <thead className="bg-slate-50 text-[11px] font-semibold text-slate-600 sticky top-0 border-b border-slate-200">
+                <thead className="bg-slate-50 text-xs font-semibold text-slate-600 sticky top-0 border-b border-slate-200">
                   <tr>
                     <th className="py-2 px-3 w-10 text-center">Acceso</th>
                     <th className="py-2 px-3">Empresa</th>
@@ -681,7 +681,7 @@ export const UsuariosPage: React.FC = () => {
                           </td>
                           <td className="py-2 px-3">
                             <div className="font-medium text-slate-900">{emp.razon_social}</div>
-                            <div className="text-[10px] font-mono text-slate-500">
+                            <div className="text-xs font-mono text-slate-500">
                               RUC: {emp.ruc}
                             </div>
                           </td>
@@ -771,7 +771,7 @@ export const UsuariosPage: React.FC = () => {
                 className="w-full pl-9 pr-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
               />
             </div>
-            <p className="text-[11px] text-slate-500 mt-1">
+            <p className="text-xs text-slate-500 mt-1">
               Comunique esta clave de manera segura al usuario para su próximo inicio de sesión.
             </p>
           </div>

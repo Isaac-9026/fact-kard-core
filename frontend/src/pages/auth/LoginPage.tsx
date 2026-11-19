@@ -255,7 +255,7 @@ export const LoginPage: React.FC = () => {
                 </button>
               </div>
               {capsLockActive && (
-                <div className="flex items-center gap-1.5 text-[11px] text-amber-700 font-medium animate-in fade-in duration-150 pt-0.5">
+                <div className="flex items-center gap-1.5 text-xs text-amber-700 font-medium animate-in fade-in duration-150 pt-0.5">
                   <span className="inline-flex items-center justify-center h-3.5 w-3.5 rounded bg-amber-100 text-amber-800 font-bold text-[9px]">
                     ⇪
                   </span>
@@ -357,7 +357,7 @@ export const LoginPage: React.FC = () => {
 
           {/* Tipografía editorial en la base con jerarquía impecable */}
           <div className="relative z-10 max-w-lg">
-            <span className="text-[11px] font-semibold uppercase tracking-widest text-slate-400 block mb-2.5">
+            <span className="text-xs font-semibold uppercase tracking-widest text-slate-300 block mb-2.5">
               Control de Inventario &bull; Kardex Valorizado
             </span>
             <h2 className="text-xl sm:text-2xl xl:text-3xl font-extrabold tracking-tight text-white leading-snug">

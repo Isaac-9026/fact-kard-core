@@ -112,7 +112,7 @@ export function ConsultaRucBoton<T extends Record<string, unknown>>({ ruc, formu
             )}
             <Button type="button" size="sm" variant="ghost" onClick={() => despachar({ tipo: 'CANCELAR' })}>Cancelar</Button>
           </div>
-          <p className="text-[11px] text-slate-500">Revise y luego guarde el formulario normalmente; la consulta no guarda nada.</p>
+          <p className="text-xs text-slate-500">Revise y luego guarde el formulario normalmente; la consulta no guarda nada.</p>
         </div>
       )}
     </div>
