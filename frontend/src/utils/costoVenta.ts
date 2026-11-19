@@ -86,7 +86,6 @@ export const filasFormula = (b: {
     fila('compras', '+', 'Compras', b.compras),
     fila('subtotal', '', 'Subtotal', subtotal),
     fila('saldo_final', '−', 'Saldo final', b.saldo_final),
-    // Las mermas no son costo de venta: solo si hubo, se restan en su propia línea.
     ...(b.mermas && !esCero(b.mermas.valor) ? [fila('mermas', '−', 'Mermas', b.mermas)] : []),
     fila('costo_venta', '=', 'Costo de venta', b.costo_venta),
   ];

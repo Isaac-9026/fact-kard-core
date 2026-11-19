@@ -1,7 +1,3 @@
-/**
- * Cierra la sesión tras 30 minutos sin uso (mouse, teclado, scroll o toque). El aviso se muestra
- * en la pantalla de ingreso. La sesión además vence a las 8 horas en el backend.
- */
 import { useEffect, useRef } from 'react'
 import { AVISO_INACTIVIDAD, CLAVE_AVISO_LOGIN, MINUTOS_INACTIVIDAD, venciaPorInactividad } from '../utils/seguridad'
 
@@ -20,7 +16,7 @@ export function useCierrePorInactividad(cerrarSesion: () => void, activo: boolea
       try {
         sessionStorage.setItem(CLAVE_AVISO_LOGIN, AVISO_INACTIVIDAD)
       } catch {
-        // sin almacenamiento: igual se cierra la sesión
+        /* sin almacenamiento */
       }
       cerrarSesion()
     }, 30_000)

@@ -205,7 +205,7 @@ export const KardexPage: React.FC = () => {
         badge={
           <div className="flex items-center gap-1.5 flex-wrap">
             <Badge variant="info" size="xs">Fase 8 · Bloque 5</Badge>
-            <Badge variant="success" size="xs" dot>SUNAT Formato 13.1</Badge>
+            <Badge variant="success" size="xs" dot>Formato 13.1</Badge>
           </div>
         }
       />

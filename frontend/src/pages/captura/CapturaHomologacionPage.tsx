@@ -96,12 +96,14 @@ import { Label } from '../../components/ui/label';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../components/ui/tabs';
 import { formatearDecimal } from '../../utils/decimal';
 import { AFECTACIONES_IGV } from '../../utils/afectacionIgv';
+import { useSoloConsulta } from '../../hooks/useSoloConsulta';
 
 /** QA2-001: valor del selector para el proveedor del comprobante que aún no está registrado. */
 const PROVEEDOR_DE_CAPTURA = 'captura';
 
 export const CapturaHomologacionPage: React.FC = () => {
   const { empresaActiva } = useAuth();
+  const soloConsulta = useSoloConsulta();
 
   // Pestaña activa: 'capturas' | 'homologaciones'
   const [activeTab, setActiveTab] = useState<'capturas' | 'homologaciones'>('capturas');
@@ -945,7 +947,7 @@ export const CapturaHomologacionPage: React.FC = () => {
         {/* ==================================================================== */}
         <TabsContent value="capturas" className="space-y-5 pt-2">
           {/* Tarjeta de Carga de Comprobantes (Colapsable) */}
-          {!mostrarSubida && capturas.length > 0 ? (
+          {soloConsulta || (!mostrarSubida && capturas.length > 0) ? (
             <div className="rounded-xl border border-slate-200 bg-white p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 shrink-0">
@@ -961,7 +963,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                   </p>
                 </div>
               </div>
-              <Button
+              {!soloConsulta && <Button
                 type="button"
                 variant="outline"
                 size="sm"
@@ -971,7 +973,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                 <Plus className="h-3.5 w-3.5 mr-1 text-indigo-600" />
                 Subir Nuevo Comprobante
                 <ChevronDown className="h-3.5 w-3.5 ml-1 text-slate-400" />
-              </Button>
+              </Button>}
             </div>
           ) : (
             <Card className="border-indigo-100 shadow-xs">
@@ -1519,7 +1521,7 @@ export const CapturaHomologacionPage: React.FC = () => {
                             variant="primary"
                             size="sm"
                             onClick={handleGenerarBorrador}
-                            disabled={loading || Boolean(capturaDetalle.documento_id)}
+                            disabled={soloConsulta || loading || Boolean(capturaDetalle.documento_id)}
                           >
                             <FileSpreadsheet className="h-4 w-4 mr-1.5" />
                             {capturaDetalle.documento_id

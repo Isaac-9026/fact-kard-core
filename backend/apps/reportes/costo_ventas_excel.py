@@ -1,9 +1,4 @@
-"""
-Hoja "Costo de Venta" del Excel del Kardex Valorizado (5ta hoja).
-
-Mismos números que la pantalla de Costo de Venta (no recalcula nada): arriba el resumen de la
-empresa con la fórmula del dueño y el desglose; abajo el detalle por producto (Unid. / P.U. / Total).
-"""
+"""Hoja "Costo de Venta" del Excel del Kardex Valorizado."""
 from decimal import Decimal
 
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -65,17 +60,40 @@ def _nota(hoja, fila, texto):
     return fila + 1
 
 
-def escribir_hoja_sin_periodo(hoja, *, razon_social, ruc):
-    """El costo de venta es por período: sin período elegido solo se deja la indicación."""
-    _titulo(hoja, 'COSTO DE VENTA')
+def escribir_hoja_por_mes(hoja, reportes, *, razon_social, ruc, notas=()):
+    _titulo(hoja, 'COSTO DE VENTA POR MES')
     hoja['A2'] = f'{razon_social} — RUC {ruc}'
-    _nota(hoja, 4, 'Seleccione un período en el Kardex Valorizado para calcular el costo de venta '
-                   '(Saldo inicial + Compras − Saldo final = Costo de venta).')
-    hoja.column_dimensions['A'].width = 40
+    hoja['A3'] = 'Importes en soles (PEN). Cada mes con su P.U. promedio.'
+    fila = 4
+    for nota in (*notas, 'Para ver el detalle por producto, elija un período en el Kardex Valorizado.'):
+        fila = _nota(hoja, fila, nota)
+    fila += 1
+    columnas = (('Período', None), ('Saldo inicial', 'saldo_inicial'), ('+ Compras', 'compras'),
+                ('Subtotal', 'disponible'), ('− Saldo final', 'saldo_final'), ('− Mermas', 'mermas'),
+                ('= Costo de venta', 'costo_venta'))
+    for col, (texto, _) in enumerate(columnas, start=1):
+        _celda(hoja, fila, col, texto, negrita=True, relleno=AZUL_CLARO)
+    fila += 1
+    sumas = {'compras': Decimal(0), 'mermas': Decimal(0), 'costo_venta': Decimal(0)}
+    for reporte in reportes:
+        t = reporte['totales']
+        _celda(hoja, fila, 1, reporte['periodo_desde']['etiqueta'])
+        for col, (_, clave) in enumerate(columnas[1:], start=2):
+            _celda(hoja, fila, col, _num(t[clave]['valor']), FMT_MONTO, negrita=clave == 'costo_venta')
+            if clave in sumas:
+                sumas[clave] += Decimal(t[clave]['valor'])
+        fila += 1
+    _celda(hoja, fila, 1, 'TOTAL', negrita=True, relleno=AZUL_CLARO)
+    for col, (_, clave) in enumerate(columnas[1:], start=2):
+        _celda(hoja, fila, col, sumas.get(clave), FMT_MONTO, negrita=True, relleno=AZUL_CLARO)
+    if not reportes:
+        _nota(hoja, fila + 2, 'No hay movimientos de inventario registrados.')
+    hoja.column_dimensions['A'].width = 14
+    for col in range(2, len(columnas) + 1):
+        hoja.column_dimensions[get_column_letter(col)].width = 17
 
 
 def escribir_hoja_costo_venta(hoja, reporte, notas=()):
-    """Resumen de la empresa arriba y detalle por producto abajo, en una sola hoja."""
     _titulo(hoja, 'COSTO DE VENTA')
     hoja['A2'] = f"{reporte['empresa']['razon_social']} — RUC {reporte['empresa']['ruc']}"
     desde, hasta = reporte['periodo_desde']['etiqueta'], reporte['periodo_hasta']['etiqueta']
@@ -99,7 +117,6 @@ def escribir_hoja_costo_venta(hoja, reporte, notas=()):
         *[(f'      {ETIQUETAS_COMPRA[k]}', t['compras_detalle'][k], False) for k in CLAVES_COMPRA],
         ('Subtotal', t['disponible']['valor'], False),
         ('− Saldo final (al P.U. promedio)', t['saldo_final']['valor'], False),
-        # Las mermas no son costo de venta: solo si hubo, se restan en su propia línea.
         *([('− Mermas (al P.U. promedio)', t['mermas']['valor'], False)] if not _es_cero(t['mermas']['valor']) else []),
         ('= COSTO DE VENTA', t['costo_venta']['valor'], True),
     ]
@@ -180,7 +197,6 @@ def escribir_hoja_costo_venta(hoja, reporte, notas=()):
     anchos = {1: 40, 2: 40, 3: 8}
     for c in range(1, ultima_col + 1):
         hoja.column_dimensions[get_column_letter(c)].width = anchos.get(c, 15)
-    # Al imprimir: horizontal y todo el ancho en una sola página.
     hoja.page_setup.orientation = 'landscape'
     hoja.sheet_properties.pageSetUpPr.fitToPage = True
     hoja.page_setup.fitToWidth = 1

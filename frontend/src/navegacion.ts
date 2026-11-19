@@ -89,7 +89,7 @@ export const NAV_SECCIONES: SeccionNav[] = [
     title: 'CIERRE Y REPORTES',
     items: [
       { path: '/cierres', label: 'Cierres y Snapshots', icono: 'cierres' },
-      { path: '/formato-13-1', label: 'Formato 13.1 SUNAT', icono: 'formato131' },
+      { path: '/formato-13-1', label: 'Formato 13.1', icono: 'formato131' },
       { path: '/registro-ventas-compras', label: 'Registro de ventas y compras', icono: 'registroComercial' },
     ],
   },

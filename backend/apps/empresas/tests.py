@@ -73,7 +73,19 @@ class EmpresasApiTest(TestCase):
             moneda_base_codigo=self.moneda,
         )
 
+    def test_solo_admin_global_crea_empresas(self):
+        datos = {'ruc': '20601234567', 'razon_social': 'NUEVA EMPRESA S.A.C.', 'moneda_base_codigo': 'PEN'}
+        otra = self.crear_empresa('20609999991', 'EMPRESA ACTUAL S.A.C.')
+        for rol in ('USUARIO', 'ADMIN', 'CONSULTA'):
+            with self.subTest(rol=rol):
+                UsuarioEmpresa.objects.update_or_create(usuario=self.usuario, empresa=otra, defaults={'rol': rol})
+                response = self.client.post(reverse('empresa-list-create'), datos, format='json')
+                self.assertEqual(response.status_code, 403)
+        self.assertFalse(Empresa.objects.filter(ruc='20601234567').exists())
+
     def test_api_crear_empresa_crea_config_y_asignacion_admin(self):
+        self.usuario.es_admin_global = True
+        self.usuario.save(update_fields=['es_admin_global'])
         response = self.client.post(
             reverse('empresa-list-create'),
             {

@@ -373,11 +373,20 @@ class CostoVentasApiTests(CostoVentasBase):
         textos = [str(f[0]) for f in hoja.iter_rows(values_only=True) if f[0]]
         self.assertTrue(any('no aplica el filtro de almacén' in t for t in textos))
 
-    def test_excel_kardex_sin_periodo_pide_elegirlo(self):
+    def test_excel_kardex_sin_periodo_trae_tabla_por_mes(self):
+        self.documento_confirmado('COMPRA', [self.linea('COMPRA', '10', '10')], fecha='2026-02-05', periodo=self.febrero)
+        self.documento_confirmado('VENTA', [self.linea('VENTA', '20', '15')], fecha='2026-02-10', periodo=self.febrero)
         hoja = self._hoja_kardex()
-        textos = [str(f[0]) for f in hoja.iter_rows(values_only=True) if f[0]]
-        self.assertTrue(any('Seleccione un período' in t for t in textos))
-        self.assertNotIn('= COSTO DE VENTA', textos)
+        filas = list(hoja.iter_rows(values_only=True))
+        meses = {f[0]: f for f in filas if f[0] in ('2026-01', '2026-02', 'TOTAL')}
+        enero = self.reporte()['totales']
+        febrero = self.reporte(self.febrero)['totales']
+        self.assertEqual(D(str(meses['2026-01'][6])), D(enero['costo_venta']['valor']))
+        self.assertEqual(D(str(meses['2026-02'][6])), D(febrero['costo_venta']['valor']))
+        self.assertEqual(D(str(meses['TOTAL'][6])),
+                         D(enero['costo_venta']['valor']) + D(febrero['costo_venta']['valor']))
+        self.assertIsNone(meses['TOTAL'][1])
+        self.assertTrue(any('elija un período' in str(f[0]) for f in filas if f[0]))
 
     def test_ya_no_hay_excel_separado(self):
         resp = self.client.get('/api/reportes/costo-ventas/excel/', {'periodo_id': self.enero.id}, **self.headers)

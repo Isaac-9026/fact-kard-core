@@ -75,6 +75,7 @@ import { Modal } from '../../components/ui/modal'
 import { Paginacion } from '../../components/ui/paginacion'
 import { diferirCarga } from '../../utils/efectos'
 import { formatearDecimal } from '../../utils/decimal'
+import { useSoloConsulta } from '../../hooks/useSoloConsulta'
 
 type TabId = 'saldos' | 'notas'
 const PAGE_SIZE = 25
@@ -156,6 +157,7 @@ const etiquetaPeriodo = (periodo: Periodo) =>
 
 export const OperacionesInternasPage = () => {
   const { empresaActiva } = useAuth()
+  const soloConsulta = useSoloConsulta()
   const esAdmin = empresaActiva?.rol === 'ADMIN'
   const [tab, setTab] = useState<TabId>('saldos')
   const [periodos, setPeriodos] = useState<Periodo[]>([])
@@ -701,7 +703,7 @@ export const OperacionesInternasPage = () => {
     )
   }
 
-  const tienePermisoCrear = tab === 'notas' || esAdmin
+  const tienePermisoCrear = !soloConsulta && (tab === 'notas' || esAdmin)
   const puedeCrear = tienePermisoCrear && recursosFaltantes.length === 0
 
   // Paginación en cliente

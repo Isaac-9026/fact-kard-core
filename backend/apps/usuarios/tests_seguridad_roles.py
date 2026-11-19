@@ -1,12 +1,4 @@
-"""
-Seguridad interna del Core (roles y contraseñas):
-
-1. Rol CONSULTA: solo lectura en todo el API (ve y exporta, no modifica).
-2. Confirmar con contraseña: anular comprobante, reabrir período y recalcular Kardex.
-3. Sesión de 8 horas por defecto.
-4. Contraseña segura (10+ caracteres, no común, no solo números, no parecida al usuario)
-   y bloqueo de la cuenta 15 minutos tras 5 intentos fallidos.
-"""
+"""Rol CONSULTA, confirmación con contraseña, sesión y bloqueo por intentos."""
 from datetime import timedelta
 
 from django.conf import settings

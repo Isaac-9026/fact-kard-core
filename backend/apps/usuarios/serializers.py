@@ -3,14 +3,10 @@ from apps.usuarios.models import ROLES_EMPRESA, Usuario, UsuarioEmpresa
 
 
 def validar_password_segura(value, *, username=None, email=None):
-    """
-    Contraseña segura (mismas reglas para crear, resetear y cambiar):
-    mínimo 10 caracteres, no común, no solo números y no parecida al usuario o correo.
-    """
     from django.contrib.auth.password_validation import validate_password
     from django.core.exceptions import ValidationError as DjangoValidationError
     try:
-        validate_password(value, user=Usuario(username=username or '', email=email or ''))  # sin guardar
+        validate_password(value, user=Usuario(username=username or '', email=email or ''))
     except DjangoValidationError as exc:
         raise serializers.ValidationError(list(exc.messages))
     return value

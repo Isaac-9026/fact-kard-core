@@ -161,10 +161,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Django REST Framework
 # Bloque 6: duración del token (segundos) y límite de intentos de login por IP.
-# Sesión: 8 horas (una jornada). El frontend además cierra la sesión tras 30 min sin uso.
 TOKEN_MAX_AGE_SECONDS = config('TOKEN_MAX_AGE_SECONDS', default=60 * 60 * 8, cast=int)
 LOGIN_THROTTLE_RATE = config('LOGIN_THROTTLE_RATE', default='10/min')
-# Bloqueo por cuenta: tras LOGIN_MAX_INTENTOS fallidos seguidos, LOGIN_BLOQUEO_MINUTOS sin poder entrar.
 LOGIN_MAX_INTENTOS = config('LOGIN_MAX_INTENTOS', default=5, cast=int)
 LOGIN_BLOQUEO_MINUTOS = config('LOGIN_BLOQUEO_MINUTOS', default=15, cast=int)
 

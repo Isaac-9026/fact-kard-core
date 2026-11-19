@@ -29,7 +29,6 @@ export const LoginPage: React.FC = () => {
     return localStorage.getItem(STORAGE_KEY_RECORDAR) !== null
   })
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
-  // Aviso que deja el cierre por inactividad (se lee una vez y se borra).
   const [infoMsg, setInfoMsg] = useState<React.ReactNode | null>(() => {
     try {
       const aviso = sessionStorage.getItem(CLAVE_AVISO_LOGIN)
@@ -359,13 +358,13 @@ export const LoginPage: React.FC = () => {
           {/* Tipografía editorial en la base con jerarquía impecable */}
           <div className="relative z-10 max-w-lg">
             <span className="text-[11px] font-semibold uppercase tracking-widest text-slate-400 block mb-2.5">
-              Facturación Electrónica &bull; Kardex Valorizado
+              Control de Inventario &bull; Kardex Valorizado
             </span>
             <h2 className="text-xl sm:text-2xl xl:text-3xl font-extrabold tracking-tight text-white leading-snug">
-              Control tributario y Kardex con precisión milimétrica.
+              Inventario y Kardex con precisión milimétrica.
             </h2>
             <p className="mt-2.5 text-xs sm:text-sm text-slate-300 font-normal leading-relaxed">
-              Sincronización en tiempo real entre inventarios físicos y comprobantes electrónicos SUNAT.
+              Costo promedio ponderado, stock por almacén y Formato 13.1 en un solo lugar.
             </p>
           </div>
         </div>

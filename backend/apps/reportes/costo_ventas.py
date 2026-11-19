@@ -1,28 +1,7 @@
 """
-Costo de venta del período por el método contable de inventarios, con PROMEDIO PONDERADO DEL
-PERÍODO (un solo costo unitario para todo el rango, como lo trabaja el dueño):
-
-    Saldo inicial + Compras netas = Disponible (subtotal)
-    P.U. promedio = valor disponible ÷ unidades disponibles
-    Saldo final   = unidades finales × P.U. promedio
-    Mermas        = unidades de merma y desmedro × P.U. promedio (no son costo de venta)
-    Costo de venta = Disponible − Saldo final − Mermas
-
-Reporte de SOLO LECTURA: no escribe en la base ni toca el motor del Kardex.
-
-- Saldo inicial: valor del inventario según el Kardex al día anterior al primer período del rango
-  (último movimiento previo), más los documentos de SALDO INICIAL registrados dentro del rango.
-- Compras netas: compras + bonificaciones − devoluciones a proveedor ± notas de crédito/débito de
-  compra (ajustes de valor). Una compra anulada (extorno) resta.
-- Saldo final: unidades del Kardex al último día del rango, valorizadas al P.U. promedio del período
-  (redondeado a céntimos).
-- Mermas y desmedros: se restan en su propia línea, valorizados al P.U. promedio del período.
-- Desglose informativo: unidades de cada tipo de salida (sin mermas) × P.U. promedio; el redondeo va a
-  "otros", así su suma es exactamente el costo de venta (`diferencia` = 0).
-- Referencia: el Kardex usa promedio móvil (cambia con cada compra); su saldo final y su costo de venta
-  (también sin mermas) se informan en `kardex` y `diferencia_metodo`.
-
-Las cantidades están en la unidad base de cada producto. Los importes, en soles (PEN).
+Costo de venta con promedio ponderado del período:
+Saldo inicial + Compras − Saldo final − Mermas = Costo de venta.
+Solo lectura sobre la valorización del Kardex.
 """
 from collections import defaultdict
 from datetime import timedelta
@@ -61,7 +40,6 @@ GRUPOS_DESGLOSE = {
     'TRANSFERENCIA_ENTRADA': 'transferencias',
 }
 CLAVES_COMPRA = ('compras', 'bonificaciones', 'devoluciones', 'notas_credito_debito')
-# Desglose interno del costo de venta (sin mermas: van en su propia línea).
 CLAVES_DESGLOSE = ('ventas', 'devoluciones_venta', 'consumo_retiros', 'ajustes', 'transferencias', 'otros')
 FORMULA = 'Saldo inicial + Compras − Saldo final − Mermas = Costo de venta'
 
@@ -210,15 +188,12 @@ def generar_costo_ventas(*, empresa_id, periodo_id, periodo_hasta_id=None, produ
         sf_cant = q8(p['sf_cant'])
         sf_kardex = q8(p['sf_valor'])
 
-        # Promedio ponderado del período: un solo P.U. para el saldo final, las mermas y el costo de venta.
         pu = disp_valor / disp_cant if disp_cant > ZERO else None
         sf_valor = q2(sf_cant * pu) if pu is not None else sf_kardex
-        # Las mermas y desmedros no son costo de venta: van en su propia línea y se restan.
         merma_cant = q8(p['desglose']['mermas_desmedros'][0])
         merma_valor = q2(merma_cant * pu) if pu is not None else ZERO
         cv_cant = q8(disp_cant - sf_cant - merma_cant)
         cv_valor = q8(disp_valor - sf_valor - merma_valor)
-        # Referencia del Kardex (promedio móvil), también sin mermas.
         merma_kardex = q8(p['desglose']['mermas_desmedros'][1])
         cv_kardex = q8(disp_valor - sf_kardex - merma_kardex)
 

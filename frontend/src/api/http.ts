@@ -75,8 +75,6 @@ export const registrarManejadorSesionInvalida = (manejador: () => void) => {
 /** Se llama tras un login exitoso para volver a escuchar 401 de la nueva sesión. */
 export const reiniciarControlSesion = () => controlCierreSesion.reiniciar();
 
-// Acciones críticas: el backend pide confirmar la contraseña (403 code=confirmacion_password).
-// Una ventana la pide y la misma petición se reintenta con `password_confirmacion`.
 type PedirPassword = (mensaje: string) => Promise<string | null>;
 let pedirPassword: PedirPassword | null = null;
 

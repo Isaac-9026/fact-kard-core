@@ -95,6 +95,7 @@ import { useValorDiferido } from '../../utils/useValorDiferido'
 import {
   PAGE_SIZE_DEFECTO, claveConsulta, irAPagina, paginaVigente, paramsPaginacion, type EstadoPagina,
 } from '../../utils/paginacion'
+import { useSoloConsulta } from '../../hooks/useSoloConsulta'
 
 interface LineaFormulario {
   tempId: string
@@ -149,6 +150,7 @@ interface ErrorModal {
 export const DocumentosPage: React.FC<DocumentosPageProps> = ({ vista = 'COMPROBANTES' }) => {
   const { empresaActiva, usuario } = useAuth()
   const esAdmin = Boolean(usuario?.es_admin_global || empresaActiva?.rol === 'ADMIN')
+  const soloConsulta = useSoloConsulta()
   const configVista = CONFIG_VISTAS[vista]
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -897,11 +899,11 @@ export const DocumentosPage: React.FC<DocumentosPageProps> = ({ vista = 'COMPROB
         title={configVista.titulo}
         description={configVista.descripcion}
         icon={<FileSpreadsheet className="h-5 w-5" />}
-        actions={
+        actions={!soloConsulta && (
           <Button variant="primary" onClick={abrirNuevo}>
             <Plus className="h-4 w-4 mr-1.5" /> {configVista.botonNuevo}
           </Button>
-        }
+        )}
       />
 
       {errorGlobal && (
@@ -1033,14 +1035,13 @@ export const DocumentosPage: React.FC<DocumentosPageProps> = ({ vista = 'COMPROB
                 <TableHead numeric className="w-28">Total</TableHead>
                 <TableHead className="w-32">Revisión</TableHead>
                 <TableHead className="w-28">Estado</TableHead>
-                <TableHead className="w-36">SUNAT</TableHead>
                 <TableHead className="w-36 text-center">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {documentos.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={12} className="text-center py-10 text-slate-400 text-xs">
+                  <TableCell colSpan={11} className="text-center py-10 text-slate-400 text-xs">
                     No se encontraron comprobantes registrados para los filtros seleccionados.
                   </TableCell>
                 </TableRow>
@@ -1120,20 +1121,6 @@ export const DocumentosPage: React.FC<DocumentosPageProps> = ({ vista = 'COMPROB
                           {doc.estado}
                         </Badge>
                       </TableCell>
-                      <TableCell>
-                        {doc.emision_electronica_resumen ? (
-                          <div className="flex flex-col items-start gap-0.5">
-                            <Badge variant={doc.emision_electronica_resumen.estado === 'RECHAZADO' ? 'destructive'
-                              : doc.emision_electronica_resumen.estado.startsWith('ACEPTADO') ? 'success' : 'neutral'} size="sm">
-                              {doc.emision_electronica_resumen.estado}
-                            </Badge>
-                            <span className="text-[10px] text-slate-500">
-                              {doc.emision_electronica_resumen.ambiente}
-                              {doc.emision_electronica_resumen.pdf_disponible ? ' · PDF' : ''}
-                            </span>
-                          </div>
-                        ) : <span className="text-xs text-slate-400">No preparado</span>}
-                      </TableCell>
                       <TableCell className="text-center">
                         <div className="flex items-center justify-center gap-1">
                           {/* Ver Detalle */}
@@ -1151,7 +1138,7 @@ export const DocumentosPage: React.FC<DocumentosPageProps> = ({ vista = 'COMPROB
                           </Button>
 
                           {/* Mesa de Revisión */}
-                          {doc.estado === 'BORRADOR' && (
+                          {!soloConsulta && doc.estado === 'BORRADOR' && (
                             <Button
                               type="button"
                               size="icon-sm"
@@ -1171,7 +1158,7 @@ export const DocumentosPage: React.FC<DocumentosPageProps> = ({ vista = 'COMPROB
                           )}
 
                           {/* Confirmar Documento */}
-                          {doc.estado === 'BORRADOR' && doc.estado_revision === 'REVISADO' && (
+                          {!soloConsulta && doc.estado === 'BORRADOR' && doc.estado_revision === 'REVISADO' && (
                             <Button
                               type="button"
                               size="icon-sm"
@@ -1185,7 +1172,7 @@ export const DocumentosPage: React.FC<DocumentosPageProps> = ({ vista = 'COMPROB
                           )}
 
                           {/* Anular Documento */}
-                          {doc.estado !== 'ANULADO' && (
+                          {!soloConsulta && doc.estado !== 'ANULADO' && (
                             <Button
                               type="button"
                               size="icon-sm"

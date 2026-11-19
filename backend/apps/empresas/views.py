@@ -68,6 +68,11 @@ def _empresa_activa(request):
 
 
 class EmpresaListCreateView(APIView):
+    def get_permissions(self):
+        if self.request.method == 'POST':
+            return [EsAdminGlobal()]
+        return super().get_permissions()
+
     def get(self, request):
         usuario = _usuario_actual(request)
         empresas = Empresa.objects.filter(

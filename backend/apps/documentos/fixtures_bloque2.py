@@ -123,7 +123,7 @@ def construir_xml_ubl(*, tipo='01', serie='F001', numero='501', fecha='2026-01-1
 class Bloque2Fixture:
     """Mezclar con django.test.TestCase."""
 
-    PASSWORD_PRUEBAS = 'Prueba-Segura-2026'  # para confirmar acciones críticas (anular, reabrir, recalcular)
+    PASSWORD_PRUEBAS = 'Prueba-Segura-2026'
     RUC_PROVEEDOR = '20555000111'
 
     def crear_base(self):

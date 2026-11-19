@@ -121,7 +121,6 @@ def obtener_empresas_usuario(usuario: Usuario, request=None):
 
 
 def registrar_intento_fallido(usuario, ahora):
-    """Suma un intento fallido; al llegar al máximo bloquea la cuenta unos minutos (y reinicia el conteo)."""
     maximo = getattr(settings, 'LOGIN_MAX_INTENTOS', 5)
     minutos = getattr(settings, 'LOGIN_BLOQUEO_MINUTOS', 15)
     intentos = usuario.intentos_fallidos + 1
@@ -509,7 +508,6 @@ class UsuarioResetPasswordView(APIView):
 
         password_nuevo = serializer.validated_data['password_nuevo']
         usuario.set_password(password_nuevo)
-        # El reseteo también desbloquea la cuenta si estaba bloqueada por intentos fallidos.
         usuario.intentos_fallidos = 0
         usuario.bloqueado_hasta = None
         usuario.save()

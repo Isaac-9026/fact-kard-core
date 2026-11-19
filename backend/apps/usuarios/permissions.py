@@ -13,8 +13,6 @@ MENSAJE_SOLO_CONSULTA = ('Su rol es de solo CONSULTA: puede ver y exportar la in
 
 
 class SoloConsulta(PermissionDenied):
-    """403 con `code` en el cuerpo para que el frontend lo reconozca."""
-
     def __init__(self):
         super().__init__({'detail': MENSAJE_SOLO_CONSULTA, 'code': 'solo_consulta'})
 
@@ -100,7 +98,6 @@ class TieneEmpresaActiva(BasePermission):
         request.empresa_id = empresa_id
         request.rol_empresa = ue.rol
         exigir_empresa_operativa(request, empresa_id, view=view)
-        # Rol CONSULTA = solo lectura en todo el API (regla central, igual que la empresa INACTIVA).
         if ue.rol == 'CONSULTA' and request.method not in METODOS_LECTURA:
             raise SoloConsulta()
         return True
@@ -211,19 +208,12 @@ class EsAdminEstudio(BasePermission):
 
 
 class ConfirmacionPasswordRequerida(PermissionDenied):
-    """403 con `code` en el cuerpo: el frontend pide la contraseña y reintenta la acción."""
-
     def __init__(self, mensaje='Para esta acción debe confirmar su contraseña.'):
         super().__init__({'detail': mensaje, 'code': 'confirmacion_password'})
 
 
 class RequiereConfirmacionPassword(BasePermission):
-    """
-    Reautenticación para acciones críticas e irreversibles (anular comprobante, reabrir período,
-    recalcular Kardex): la petición debe traer `password_confirmacion` con la contraseña del usuario.
-    Si alguien usa una sesión abierta ajena, no puede ejecutarlas sin conocer la contraseña.
-    Solo aplica a escrituras; las lecturas pasan.
-    """
+    """Acciones críticas: exige `password_confirmacion` con la contraseña del usuario."""
 
     def has_permission(self, request, view):
         if request.method in METODOS_LECTURA:

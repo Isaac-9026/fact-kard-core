@@ -10,7 +10,7 @@ from apps.inventario.models import Producto, Almacen
 from apps.kardex.models import Incidencia
 from apps.reportes.costo_ventas import generar_costo_ventas
 from apps.reportes.costo_ventas_excel import (
-    TITULO_HOJA as TITULO_HOJA_COSTO_VENTA, escribir_hoja_costo_venta, escribir_hoja_sin_periodo,
+    TITULO_HOJA as TITULO_HOJA_COSTO_VENTA, escribir_hoja_costo_venta, escribir_hoja_por_mes,
 )
 from apps.reportes.excel_seguro import neutralizar_formulas
 from apps.reportes.saldos_corte import resumen_saldos_al_corte
@@ -593,25 +593,31 @@ def generar_libro_excel_kardex(
     ajustar_ancho_columnas(ws4)
 
     # =========================================================================
-    # HOJA 5: Costo de Venta (mismos números que la pantalla de Costo de Venta)
+    # HOJA 5: Costo de Venta
     # =========================================================================
     ws5 = wb.create_sheet(title=TITULO_HOJA_COSTO_VENTA)
+    notas_cv = notas_costo_venta(almacen=almacen_filtro, tipo_operacion_id=tipo_operacion_id,
+                                 fecha_desde=fecha_desde, fecha_hasta=fecha_hasta)
     if periodo_filtro:
         reporte_cv = generar_costo_ventas(
             empresa_id=empresa_id, periodo_id=periodo_filtro.id, producto_id=producto_id,
         )
-        escribir_hoja_costo_venta(ws5, reporte_cv, notas=notas_costo_venta(
-            almacen=almacen_filtro, tipo_operacion_id=tipo_operacion_id,
-            fecha_desde=fecha_desde, fecha_hasta=fecha_hasta,
-        ))
+        escribir_hoja_costo_venta(ws5, reporte_cv, notas=notas_cv)
     else:
-        escribir_hoja_sin_periodo(ws5, razon_social=razon_social, ruc=ruc)
+        periodos_ids = (
+            Periodo.objects.filter(empresa_id=empresa_id, movimientos__isnull=False)
+            .distinct().order_by('fecha_inicio', 'orden').values_list('id', flat=True)
+        )
+        reportes_cv = [
+            generar_costo_ventas(empresa_id=empresa_id, periodo_id=pid, producto_id=producto_id)
+            for pid in periodos_ids
+        ]
+        escribir_hoja_por_mes(ws5, reportes_cv, razon_social=razon_social, ruc=ruc, notas=notas_cv)
 
     return wb
 
 
 def notas_costo_venta(*, almacen=None, tipo_operacion_id=None, fecha_desde=None, fecha_hasta=None):
-    """Filtros del Kardex que no aplican al costo de venta (se calcula por empresa y período completo)."""
     notas = []
     if almacen:
         notas.append('El costo de venta se calcula para toda la empresa: no aplica el filtro de almacén.')

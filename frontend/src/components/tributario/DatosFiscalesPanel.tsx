@@ -121,8 +121,8 @@ export function DatosFiscalesPanel({ esAdmin }: { esAdmin: boolean }) {
       <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>Preparación del emisor</CardTitle>
-          <CardDescription>Requisitos previos; todavía no se conecta a SUNAT.</CardDescription>
+          <CardTitle>Datos del emisor</CardTitle>
+          <CardDescription>Verifica que los datos fiscales de la empresa estén completos.</CardDescription>
         </CardHeader>
         <CardContent>
           {datos && (

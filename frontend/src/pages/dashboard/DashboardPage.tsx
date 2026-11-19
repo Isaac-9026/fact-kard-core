@@ -509,13 +509,13 @@ export const DashboardPage: React.FC = () => {
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-bold font-mono uppercase tracking-wider text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200/60">
-                    04 CIERRE & SUNAT
+                    04 CIERRE & 13.1
                   </span>
                   <Lock className="h-4 w-4 text-slate-400 group-hover:text-indigo-600 transition-colors" />
                 </div>
                 <h4 className="font-semibold text-xs text-slate-900 pt-0.5">Cierre & Formato 13.1</h4>
                 <p className="text-[11px] text-slate-500 leading-relaxed">
-                  Congelamiento inmutable con snapshot criptográfico SHA-256 y reporte oficial SUNAT.
+                  Congelamiento inmutable con snapshot criptográfico SHA-256 y libro Formato 13.1.
                 </p>
               </div>
               <div className="flex items-center gap-1.5 pt-1">
@@ -695,7 +695,6 @@ export const DashboardPage: React.FC = () => {
               </div>
             </div>
 
-            {/* 4. Trazabilidad lista para Formato 13.1 SUNAT y Snapshot SHA-256 */}
             <div className="flex items-start gap-2.5 p-2 rounded-lg border border-slate-100 bg-slate-50/70">
               {bloqueanCierre.length === 0 && datos.periodo ? (
                 <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
@@ -703,7 +702,7 @@ export const DashboardPage: React.FC = () => {
                 <AlertCircle className="h-4 w-4 text-slate-400 shrink-0 mt-0.5" />
               )}
               <div className="min-w-0">
-                <h5 className="text-xs font-semibold text-slate-900">Trazabilidad SUNAT & Hash SHA-256</h5>
+                <h5 className="text-xs font-semibold text-slate-900">Trazabilidad Formato 13.1 y hash SHA-256</h5>
                 <p className="text-[11px] text-slate-500 leading-tight">
                   {bloqueanCierre.length === 0 && datos.periodo
                     ? 'Libro Formato 13.1 listo para congelamiento y firma inmutable'

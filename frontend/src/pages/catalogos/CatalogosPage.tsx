@@ -47,8 +47,10 @@ import {
   payloadTipoCambio,
   type NuevoTipoCambioForm,
 } from '../../utils/tipoCambioForm'
+import { useSoloConsulta } from '../../hooks/useSoloConsulta'
 
 export const CatalogosPage: React.FC = () => {
+  const soloConsulta = useSoloConsulta()
   const [activeTab, setActiveTab] = useState<string>('tc')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -353,9 +355,11 @@ export const CatalogosPage: React.FC = () => {
                 leftIcon={<Search className="h-4 w-4" />}
               />
             </div>
-            <Button variant="primary" onClick={() => setModalTcOpen(true)}>
-              <Plus className="h-4 w-4 mr-1.5" /> Registrar Tipo de Cambio
-            </Button>
+            {!soloConsulta && (
+              <Button variant="primary" onClick={() => setModalTcOpen(true)}>
+                <Plus className="h-4 w-4 mr-1.5" /> Registrar Tipo de Cambio
+              </Button>
+            )}
           </div>
 
           {/* Exchange Rates Table */}

@@ -1,6 +1,5 @@
 from django.db import models
 
-# Roles por empresa. CONSULTA = solo lectura (ver reportes y exportar, sin modificar nada).
 ROLES_EMPRESA = ['ADMIN', 'USUARIO', 'CONSULTA']
 
 
@@ -10,7 +9,6 @@ class Usuario(models.Model):
     password_hash = models.CharField(max_length=255)
     es_admin_global = models.BooleanField(default=False, db_default=False)
     activo = models.BooleanField(default=True, db_default=True)
-    # Bloqueo por intentos fallidos de login (5 intentos → 15 minutos).
     intentos_fallidos = models.PositiveSmallIntegerField(default=0, db_default=0)
     bloqueado_hasta = models.DateTimeField(null=True, blank=True)
 

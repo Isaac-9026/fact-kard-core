@@ -79,6 +79,7 @@ export const EmpresasPage: React.FC = () => {
     actualizarIdentidadEmpresa,
   } = useAuth()
   const esAdminActiva = Boolean(usuario?.es_admin_global || empresaActiva?.rol === 'ADMIN')
+  const esAdminGlobal = Boolean(usuario?.es_admin_global)
   const [monedas, setMonedas] = useState<Moneda[]>([])
   const [establecimientos, setEstablecimientos] = useState<Establecimiento[]>([])
   const [config, setConfig] = useState<ConfigEmpresa | null>(null)
@@ -305,7 +306,7 @@ export const EmpresasPage: React.FC = () => {
         title="Empresas y Configuración"
         description="Administra organizaciones multi-tenant, establecimientos anexos SUNAT y parámetros de motor contable."
         icon={<Building2 className="h-5 w-5" />}
-        actions={
+        actions={esAdminGlobal && (
           <Button
             variant={mostrarEmpresa ? 'secondary' : 'primary'}
             onClick={() => setMostrarEmpresa((v) => !v)}
@@ -320,7 +321,7 @@ export const EmpresasPage: React.FC = () => {
               </>
             )}
           </Button>
-        }
+        )}
       />
 
       {error && (
@@ -343,7 +344,7 @@ export const EmpresasPage: React.FC = () => {
         </div>
       )}
 
-      {mostrarEmpresa && (
+      {esAdminGlobal && mostrarEmpresa && (
         <Card className="border-indigo-200/80 shadow-md">
           <CardHeader>
             <CardTitle>Registrar Nueva Empresa</CardTitle>

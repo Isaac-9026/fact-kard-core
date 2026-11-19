@@ -44,7 +44,7 @@ test('menú con las secciones y opciones en el orden del flujo', () => {
       ['OPERACIONES', ['Comprobantes', 'Notas de Crédito / Débito', 'Transferencias', 'Captura XML / OCR']],
       ['FINANZAS', ['Cuentas por cobrar', 'Cuentas por pagar']],
       ['KARDEX', ['Kardex Valorizado', 'Incidencias y Recálculo', 'Costo de Venta']],
-      ['CIERRE Y REPORTES', ['Cierres y Snapshots', 'Formato 13.1 SUNAT', 'Registro de ventas y compras']],
+      ['CIERRE Y REPORTES', ['Cierres y Snapshots', 'Formato 13.1', 'Registro de ventas y compras']],
       ['SEGURIDAD', ['Auditoría Inmutable']],
     ],
   );

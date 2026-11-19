@@ -30,6 +30,7 @@ import { Input } from '../../components/ui/input'
 import { Select } from '../../components/ui/select'
 import { Label } from '../../components/ui/label'
 import { diferirCarga } from '../../utils/efectos'
+import { useSoloConsulta } from '../../hooks/useSoloConsulta'
 
 interface LineaTransferencia {
   producto: string
@@ -52,6 +53,7 @@ const errorApi = (error: unknown): string => {
 
 export const TransferenciasPage: React.FC = () => {
   const { empresaActiva } = useAuth()
+  const soloConsulta = useSoloConsulta()
   const [transferencias, setTransferencias] = useState<Transferencia[]>([])
   const [almacenes, setAlmacenes] = useState<Almacen[]>([])
   const [productos, setProductos] = useState<Producto[]>([])
@@ -213,7 +215,7 @@ export const TransferenciasPage: React.FC = () => {
       )}
 
       {/* Formulario de Nueva Transferencia */}
-      <Card>
+      {!soloConsulta && (<Card>
         <CardHeader>
           <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 border border-indigo-100 text-indigo-600">
@@ -359,7 +361,7 @@ export const TransferenciasPage: React.FC = () => {
             </div>
           </form>
         </CardContent>
-      </Card>
+      </Card>)}
 
       {/* Tabla de Historial de Transferencias */}
       <Card>
@@ -417,7 +419,7 @@ export const TransferenciasPage: React.FC = () => {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      {t.estado === 'BORRADOR' ? (
+                      {t.estado === 'BORRADOR' && !soloConsulta ? (
                         <Button
                           type="button"
                           size="xs"
