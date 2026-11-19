@@ -36,7 +36,7 @@ from apps.documentos.captura_services import (
     corregir_campo_captura,
     generar_borrador_desde_captura,
 )
-from apps.usuarios.permissions import EsAdminEmpresa, TieneEmpresaActiva
+from apps.usuarios.permissions import EsAdminEmpresa, RequiereConfirmacionPassword, TieneEmpresaActiva
 
 
 class DocumentoListCreateView(generics.ListCreateAPIView):
@@ -223,7 +223,7 @@ class DocumentoAnularView(APIView):
     """
     Anula un documento comercial con motivo obligatorio y registro en Auditoría.
     """
-    permission_classes = [TieneEmpresaActiva, EsAdminEmpresa]
+    permission_classes = [TieneEmpresaActiva, EsAdminEmpresa, RequiereConfirmacionPassword]
 
     @extend_schema(
         summary="Anular documento",

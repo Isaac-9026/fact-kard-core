@@ -31,7 +31,9 @@ from apps.inventario.sustentos_pdf import (
     guardar_sustento_pdf,
 )
 from apps.usuarios.models import UsuarioEmpresa
-from apps.usuarios.permissions import EsAdminEmpresa, EsAdminGlobal, TieneEmpresaActiva, exigir_empresa_operativa
+from apps.usuarios.permissions import (
+    EsAdminEmpresa, EsAdminGlobal, RequiereConfirmacionPassword, TieneEmpresaActiva, exigir_empresa_operativa,
+)
 from apps.auditoria.services import registrar_auditoria
 
 
@@ -358,7 +360,7 @@ class PeriodoListCreateView(APIView):
 
 
 class PeriodoReabrirView(APIView):
-    permission_classes = [TieneEmpresaActiva, EsAdminEmpresa]
+    permission_classes = [TieneEmpresaActiva, EsAdminEmpresa, RequiereConfirmacionPassword]
 
     def post(self, request, pk):
         serializer = ReabrirPeriodoSerializer(data=request.data)

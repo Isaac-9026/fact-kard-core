@@ -52,6 +52,22 @@ class CostoVentasBase(Bloque2Fixture, TestCase):
         )
         confirmar_saldo_inicial(saldo_id=saldo.id, empresa_id=self.empresa.id, usuario=self.usuario)
 
+    def merma(self, cantidad, fecha, periodo=None):
+        nota = NotaInterna.objects.create(
+            empresa=self.empresa, almacen=self.almacen, periodo=periodo or self.enero,
+            tipo_operacion=TipoOperacion.objects.get(codigo_interno='MERMA'),
+            fecha=fecha, motivo='Merma de prueba', creado_por=self.usuario,
+        )
+        NotaInternaDetalle.objects.create(nota_interna=nota, producto=self.producto, cantidad_base=D(cantidad))
+        confirmar_nota_interna(nota_id=nota.id, empresa_id=self.empresa.id, usuario=self.usuario)
+
+    def crear_tipo_merma(self):
+        TipoOperacion.objects.get_or_create(
+            codigo_interno='MERMA',
+            defaults=dict(codigo_sunat='13', descripcion='MERMA', naturaleza='SALIDA',
+                          origen_requerido='NOTA_INTERNA', es_interna=True),
+        )
+
     def reporte(self, periodo=None, hasta=None, **kwargs):
         return generar_costo_ventas(
             empresa_id=self.empresa.id, periodo_id=(periodo or self.enero).id,
@@ -108,11 +124,51 @@ class EjemploDelDuenoTests(CostoVentasBase):
         self.assertEqual(dec(fila['costo_promedio']), D('21.25'))
         self.assertEqual(dec(fila['desglose']['ventas']['valor']), D('1062.50'))
         self.assertEqual(dec(fila['diferencia']), D('0'))
+        self.assertEqual(dec(fila['mermas']['valor']), D('0'))
         # El Kardex (promedio móvil) vendió a 20.00: se informa la diferencia por método.
         self.assertEqual(dec(fila['kardex']['costo_venta']['valor']), D('1000'))
         self.assertEqual(dec(fila['kardex']['saldo_final']['valor']), D('3250'))
         self.assertEqual(dec(fila['diferencia_metodo']), D('62.50'))
-        self.assertEqual(dec(self.reporte()['totales']['diferencia_metodo']), D('62.50'))
+
+    def test_mermas_van_aparte_y_no_son_costo_de_venta(self):
+        # Mismo ejemplo con 2 u. de merma: disponible 200 u. × 21.25; S. final 148 u.;
+        # mermas 2 × 21.25 = 42.50; costo de venta solo lo vendido: 50 × 21.25 = 1 062.50.
+        self.crear_tipo_merma()
+        self.saldo_inicial('100', '2000')
+        self.documento_confirmado('VENTA', [self.linea('VENTA', '50', '30')], fecha='2026-01-10')
+        self.compra_confirmada('100', '22.50', fecha='2026-01-20')
+        self.merma('2', date(2026, 1, 25))
+
+        reporte = self.reporte()
+        fila = self.fila(reporte)
+        self.assertEqual(dec(fila['saldo_final']['cantidad']), D('148'))
+        self.assertEqual(dec(fila['saldo_final']['valor']), D('3145'))
+        self.assertEqual(dec(fila['mermas']['cantidad']), D('2'))
+        self.assertEqual(dec(fila['mermas']['costo_unitario']), D('21.25'))
+        self.assertEqual(dec(fila['mermas']['valor']), D('42.50'))
+        self.assertEqual(dec(fila['costo_venta']['cantidad']), D('50'))
+        self.assertEqual(dec(fila['costo_venta']['valor']), D('1062.50'))
+        self.assertEqual(dec(fila['diferencia']), D('0'))
+        self.assertNotIn('mermas_desmedros', fila['desglose'])
+        totales = reporte['totales']
+        self.assertEqual(dec(totales['mermas']['valor']), D('42.50'))
+        self.assertEqual(dec(totales['costo_venta']['valor']), D('1062.50'))
+        self.assertIn('Mermas', reporte['formula'])
+
+    def test_bonificacion_entra_a_costo_cero_y_baja_el_pu(self):
+        # + 10 u. de bonificación (costo 0): disponible 210 u. / 4 250 → P.U. 20.238095…
+        # S. final 160 u. → 3 238.10; costo de venta 4 250 − 3 238.10 = 1 011.90 (antes 1 062.50).
+        self.saldo_inicial('100', '2000')
+        self.documento_confirmado('VENTA', [self.linea('VENTA', '50', '30')], fecha='2026-01-10')
+        self.documento_confirmado('COMPRA', [self.linea('COMPRA', '100', '22.50'),
+                                             self.linea('COMPRA', '10', '22.50', es_bonificacion=True)],
+                                  fecha='2026-01-20')
+        fila = self.fila(self.reporte())
+        self.assertEqual(dec(fila['disponible']['cantidad']), D('210'))
+        self.assertEqual(dec(fila['disponible']['valor']), D('4250'))
+        self.assertEqual(dec(fila['saldo_final']['valor']), D('3238.10'))
+        self.assertEqual(dec(fila['costo_venta']['cantidad']), D('50'))
+        self.assertEqual(dec(fila['costo_venta']['valor']), D('1011.90'))
 
     def test_totales_de_la_empresa_suman_los_productos(self):
         self.saldo_inicial('3', '30')
@@ -138,22 +194,13 @@ class EscenarioIntegralTests(CostoVentasBase):
         for codigo, sunat, naturaleza, origen in (
             ('TRANSFERENCIA_SALIDA', '11', 'SALIDA', 'TRANSFERENCIA'),
             ('TRANSFERENCIA_ENTRADA', '21', 'ENTRADA', 'TRANSFERENCIA'),
-            ('MERMA', '13', 'SALIDA', 'NOTA_INTERNA'),
         ):
             TipoOperacion.objects.create(codigo_interno=codigo, codigo_sunat=sunat, descripcion=codigo,
                                          naturaleza=naturaleza, origen_requerido=origen, es_interna=True)
+        self.crear_tipo_merma()
         sucursal = Establecimiento.objects.create(empresa=self.empresa, codigo_sunat='0001', nombre='SUCURSAL')
         self.almacen_b = Almacen.objects.create(empresa=self.empresa, establecimiento=sucursal,
                                                 codigo='ALMB', nombre='SUCURSAL')
-
-    def merma(self, cantidad, fecha, periodo=None):
-        nota = NotaInterna.objects.create(
-            empresa=self.empresa, almacen=self.almacen, periodo=periodo or self.enero,
-            tipo_operacion=TipoOperacion.objects.get(codigo_interno='MERMA'),
-            fecha=fecha, motivo='Merma de prueba', creado_por=self.usuario,
-        )
-        NotaInternaDetalle.objects.create(nota_interna=nota, producto=self.producto, cantidad_base=D(cantidad))
-        confirmar_nota_interna(nota_id=nota.id, empresa_id=self.empresa.id, usuario=self.usuario)
 
     def escenario_enero(self):
         self.saldo_inicial('3', '2.00')                                       # CPP con decimales
@@ -185,19 +232,20 @@ class EscenarioIntegralTests(CostoVentasBase):
         sf, cv = dec(fila['saldo_final']['valor']), dec(fila['costo_venta']['valor'])
 
         self.assertEqual(si, D('2.00'))
-        self.assertEqual(cv, si + compras - sf)
+        mermas = dec(fila['mermas']['valor'])
+        self.assertEqual(cv, si + compras - sf - mermas)
         # 3 + 5 − 2 + 1 − 1 (merma) − 1 (venta) = 5 u.; la anulación y la transferencia no cambian el saldo.
         self.assertEqual(dec(fila['disponible']['cantidad']), D('8'))
         self.assertEqual(dec(fila['saldo_final']['cantidad']), D('5'))
-        self.assertEqual(dec(fila['costo_venta']['cantidad']), D('3'))   # 2 − 1 + 1 merma + 1 venta
+        self.assertEqual(dec(fila['mermas']['cantidad']), D('1'))
+        self.assertEqual(dec(fila['costo_venta']['cantidad']), D('2'))   # 2 − 1 devolución + 1 venta (sin merma)
         promedio = (si + compras) / D('8')
         self.assertEqual(sf, (D('5') * promedio).quantize(D('0.01')))
+        self.assertEqual(mermas, (D('1') * promedio).quantize(D('0.01')))
 
         kardex = consultar_kardex_valorizado(empresa_id=self.empresa.id, producto_id=self.producto.id,
                                              periodo_id=self.enero.id)['resumen']
-        self.assertEqual(dec(fila['kardex']['saldo_final']['valor']), D(str(kardex['saldo_final_valor'])))
         self.assertEqual(dec(fila['saldo_final']['cantidad']), D(str(kardex['saldo_final_cantidad'])))
-        self.assertEqual(dec(fila['diferencia_metodo']), cv - dec(fila['kardex']['costo_venta']['valor']))
 
         compras_detalle = fila['compras_detalle']
         self.assertEqual(dec(compras_detalle['compras']['valor']), D('5.50'))
@@ -207,7 +255,7 @@ class EscenarioIntegralTests(CostoVentasBase):
         desglose = fila['desglose']
         self.assertEqual(dec(desglose['transferencias']['valor']), D('0'))
         self.assertEqual(dec(desglose['transferencias']['cantidad']), D('0'))
-        self.assertGreater(dec(desglose['mermas_desmedros']['valor']), D('0'))
+        self.assertNotIn('mermas_desmedros', desglose)
         self.assertLess(dec(desglose['devoluciones_venta']['valor']), D('0'))
         self.assertEqual(dec(desglose['ventas']['cantidad']), D('3'))     # 2 + 1 anulada (−1) + 1
         self.assertEqual(sum(dec(v['valor']) for v in desglose.values()), cv)
@@ -222,7 +270,9 @@ class EscenarioIntegralTests(CostoVentasBase):
         rango = self.reporte(self.enero, hasta=self.febrero)
         total = self.fila(rango)
         # El saldo inicial de cada mes es el valor del Kardex al cierre del mes anterior.
-        self.assertEqual(febrero['saldo_inicial'], enero['kardex']['saldo_final'])
+        kardex_enero = consultar_kardex_valorizado(empresa_id=self.empresa.id, producto_id=self.producto.id,
+                                                   periodo_id=self.enero.id)['resumen']
+        self.assertEqual(dec(febrero['saldo_inicial']['valor']), D(str(kardex_enero['saldo_final_valor'])))
         self.assertEqual(dec(total['saldo_inicial']['valor']), dec(enero['saldo_inicial']['valor']))
         self.assertEqual(dec(total['compras']['valor']), dec(enero['compras']['valor']) + dec(febrero['compras']['valor']))
         self.assertEqual(dec(total['saldo_final']['cantidad']), dec(febrero['saldo_final']['cantidad']))
@@ -232,7 +282,8 @@ class EscenarioIntegralTests(CostoVentasBase):
         self.assertEqual(dec(total['disponible']['cantidad']), D('15'))   # 3 + 5 + 7
         self.assertEqual(dec(total['saldo_final']['valor']),
                          (dec(total['saldo_final']['cantidad']) * disp_valor / D('15')).quantize(D('0.01')))
-        self.assertEqual(dec(total['costo_venta']['valor']), disp_valor - dec(total['saldo_final']['valor']))
+        self.assertEqual(dec(total['costo_venta']['valor']),
+                         disp_valor - dec(total['saldo_final']['valor']) - dec(total['mermas']['valor']))
         self.assertEqual(rango['periodo_desde']['etiqueta'], '2026-01')
         self.assertEqual(rango['periodo_hasta']['etiqueta'], '2026-02')
         self.assertEqual(dec(rango['totales']['diferencia']), D('0'))
@@ -295,14 +346,27 @@ class CostoVentasApiTests(CostoVentasBase):
         self.assertEqual(D(str(resumen['+ Compras netas'])), D('1000'))
         self.assertEqual(D(str(resumen['= COSTO DE VENTA'])), D('530'))
         self.assertEqual(D(str(resumen['Diferencia (debe ser 0)'])), D('0'))
+        self.assertEqual(D(str(resumen['Diferencia por método'])), D('0'))
+        self.assertNotIn('− Mermas (al P.U. promedio)', resumen)      # sin mermas no aparece la línea
         producto = [f for f in filas if f[0] == self.producto.codigo_interno][0]
         self.assertEqual(D(str(producto[10])), D('10'))      # P.U. promedio del período
         self.assertEqual(D(str(producto[15])), D('53'))      # unidades vendidas
         self.assertEqual(D(str(producto[17])), D('530'))     # costo de venta
         total = [f for f in filas if f[0] == 'TOTAL EMPRESA'][0]
         self.assertEqual(D(str(total[17])), D('530'))
-        self.assertEqual(D(str(resumen['Diferencia por método'])), D('0'))
         self.assertFalse(any('no aplica' in str(f[0]) for f in filas if f[0]))
+
+    def test_excel_con_mermas_muestra_la_linea_aparte(self):
+        self.crear_tipo_merma()
+        self.merma('3', date(2026, 1, 25))
+        hoja = self._hoja_kardex(periodo_id=self.enero.id)
+        filas = list(hoja.iter_rows(values_only=True))
+        resumen = {f[0]: f[1] for f in filas if f[0]}
+        self.assertEqual(D(str(resumen['− Mermas (al P.U. promedio)'])), D('30'))     # 3 u. × 10
+        self.assertEqual(D(str(resumen['= COSTO DE VENTA'])), D('530'))               # solo lo vendido
+        producto = [f for f in filas if f[0] == self.producto.codigo_interno][0]
+        self.assertEqual(D(str(producto[17])), D('30'))      # mermas
+        self.assertEqual(D(str(producto[20])), D('530'))     # costo de venta
 
     def test_excel_kardex_filtro_almacen_avisa_que_es_por_empresa(self):
         hoja = self._hoja_kardex(periodo_id=self.enero.id, almacen_id=self.almacen.id)

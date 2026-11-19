@@ -15,6 +15,7 @@ import type { AxiosError } from 'axios'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { Label } from '../../components/ui/label'
+import { CLAVE_AVISO_LOGIN } from '../../utils/seguridad'
 
 const STORAGE_KEY_RECORDAR = 'fk_recordar_usuario'
 
@@ -28,7 +29,16 @@ export const LoginPage: React.FC = () => {
     return localStorage.getItem(STORAGE_KEY_RECORDAR) !== null
   })
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
-  const [infoMsg, setInfoMsg] = useState<React.ReactNode | null>(null)
+  // Aviso que deja el cierre por inactividad (se lee una vez y se borra).
+  const [infoMsg, setInfoMsg] = useState<React.ReactNode | null>(() => {
+    try {
+      const aviso = sessionStorage.getItem(CLAVE_AVISO_LOGIN)
+      sessionStorage.removeItem(CLAVE_AVISO_LOGIN)
+      return aviso
+    } catch {
+      return null
+    }
+  })
   const [isLoading, setIsLoading] = useState(false)
   const [capsLockActive, setCapsLockActive] = useState(false)
 

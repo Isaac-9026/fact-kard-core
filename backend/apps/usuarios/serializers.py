@@ -1,5 +1,19 @@
 from rest_framework import serializers
-from apps.usuarios.models import Usuario, UsuarioEmpresa
+from apps.usuarios.models import ROLES_EMPRESA, Usuario, UsuarioEmpresa
+
+
+def validar_password_segura(value, *, username=None, email=None):
+    """
+    Contraseña segura (mismas reglas para crear, resetear y cambiar):
+    mínimo 10 caracteres, no común, no solo números y no parecida al usuario o correo.
+    """
+    from django.contrib.auth.password_validation import validate_password
+    from django.core.exceptions import ValidationError as DjangoValidationError
+    try:
+        validate_password(value, user=Usuario(username=username or '', email=email or ''))  # sin guardar
+    except DjangoValidationError as exc:
+        raise serializers.ValidationError(list(exc.messages))
+    return value
 
 
 class LoginRequestSerializer(serializers.Serializer):
@@ -47,7 +61,7 @@ class UsuarioEmpresaItemSerializer(serializers.ModelSerializer):
 
 class AsignarUsuarioRequestSerializer(serializers.Serializer):
     usuario_id = serializers.IntegerField(required=True)
-    rol = serializers.ChoiceField(choices=['ADMIN', 'USUARIO'], default='USUARIO')
+    rol = serializers.ChoiceField(choices=ROLES_EMPRESA, default='USUARIO')
     activo = serializers.BooleanField(default=True)
 
     def validate_usuario_id(self, value):
@@ -109,7 +123,7 @@ class UsuarioEstudioListSerializer(serializers.ModelSerializer):
 
 class AsignacionEmpresaInputSerializer(serializers.Serializer):
     empresa_id = serializers.IntegerField(required=True)
-    rol = serializers.ChoiceField(choices=['ADMIN', 'USUARIO'], default='USUARIO')
+    rol = serializers.ChoiceField(choices=ROLES_EMPRESA, default='USUARIO')
     activo = serializers.BooleanField(default=True)
 
 
@@ -130,9 +144,8 @@ class UsuarioCreateSerializer(serializers.Serializer):
         return value
 
     def validate_password_inicial(self, value):
-        if len(value) < 8:
-            raise serializers.ValidationError("La contraseña inicial debe tener al menos 8 caracteres.")
-        return value
+        return validar_password_segura(value, username=self.initial_data.get('username'),
+                                       email=self.initial_data.get('email'))
 
 
 class UsuarioUpdateSerializer(serializers.Serializer):
@@ -149,22 +162,22 @@ class UsuarioUpdateSerializer(serializers.Serializer):
 
 
 class ResetPasswordAdminSerializer(serializers.Serializer):
-    password_nuevo = serializers.CharField(min_length=8, required=True, write_only=True)
+    password_nuevo = serializers.CharField(required=True, write_only=True)
 
     def validate_password_nuevo(self, value):
-        if len(value) < 8:
-            raise serializers.ValidationError("La nueva contraseña debe tener al menos 8 caracteres.")
-        return value
+        usuario = self.context.get('usuario')
+        return validar_password_segura(value, username=getattr(usuario, 'username', None),
+                                       email=getattr(usuario, 'email', None))
 
 
 class CambiarPasswordSerializer(serializers.Serializer):
     password_actual = serializers.CharField(required=True, write_only=True)
-    password_nuevo = serializers.CharField(min_length=8, required=True, write_only=True)
+    password_nuevo = serializers.CharField(required=True, write_only=True)
 
     def validate_password_nuevo(self, value):
-        if len(value) < 8:
-            raise serializers.ValidationError("La nueva contraseña debe tener al menos 8 caracteres.")
-        return value
+        usuario = self.context.get('usuario')
+        return validar_password_segura(value, username=getattr(usuario, 'username', None),
+                                       email=getattr(usuario, 'email', None))
 
     def validate(self, attrs):
         if attrs['password_actual'] == attrs['password_nuevo']:

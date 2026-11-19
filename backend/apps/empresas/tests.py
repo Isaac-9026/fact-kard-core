@@ -446,12 +446,22 @@ class PeriodosYConfigIgvApiTest(TestCase):
         )
         self.assertEqual(res_forbidden.status_code, 403)
 
-        # Admin reabre período 1
+        # Admin reabre período 1: reabrir es crítico y exige confirmar su contraseña.
         self.client.force_authenticate(user=self.admin_user)
+        self.admin_user.set_password('Clave-Admin-2026')
+        self.admin_user.save(update_fields=['password_hash'])
         motivo = 'Factura de compra recibida fuera de plazo'
-        res_ok = self.client.post(
+        sin_confirmar = self.client.post(
             reverse('periodo-reabrir', args=[p1.id]),
             {'motivo_reapertura': motivo},
+            format='json',
+            HTTP_X_EMPRESA_ID=str(self.empresa_a.id),
+        )
+        self.assertEqual(sin_confirmar.status_code, 403)
+        self.assertEqual(sin_confirmar.data['code'], 'confirmacion_password')
+        res_ok = self.client.post(
+            reverse('periodo-reabrir', args=[p1.id]),
+            {'motivo_reapertura': motivo, 'password_confirmacion': 'Clave-Admin-2026'},
             format='json',
             HTTP_X_EMPRESA_ID=str(self.empresa_a.id),
         )

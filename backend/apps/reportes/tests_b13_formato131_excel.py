@@ -146,7 +146,7 @@ class VersionesDeCierreTests(Formato131ExcelBase, TestCase):
     def test_exporta_el_cierre_vigente_v2_sin_mezclar_v1(self):
         self.cerrar_enero()
         v1 = CierrePeriodo.objects.get(periodo=self.enero, vigente=True)
-        reabrir = self.client.post(reverse('periodo-reabrir', args=[self.enero.id]), {'motivo_reapertura': 'QA bloque 13'}, format='json', **self.headers)
+        reabrir = self.client.post(reverse('periodo-reabrir', args=[self.enero.id]), {'motivo_reapertura': 'QA bloque 13', 'password_confirmacion': self.PASSWORD_PRUEBAS}, format='json', **self.headers)
         self.assertEqual(reabrir.status_code, 200, reabrir.data)
         self.compra_confirmada('10', '20', fecha='2026-01-20')
         self.cerrar_enero()

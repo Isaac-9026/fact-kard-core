@@ -53,7 +53,7 @@ export const ETIQUETAS_DESGLOSE: Record<string, string> = {
 export interface BloqueCostoMin { cantidad: string | null; costo_unitario: string | null; valor: string }
 
 export interface FilaFormula {
-  clave: 'saldo_inicial' | 'compras' | 'subtotal' | 'saldo_final' | 'costo_venta';
+  clave: 'saldo_inicial' | 'compras' | 'subtotal' | 'saldo_final' | 'mermas' | 'costo_venta';
   signo: '' | '+' | '−' | '=';
   etiqueta: string;
   cantidad: string | null;
@@ -61,7 +61,7 @@ export interface FilaFormula {
   valor: string;
 }
 
-const esCero = (valor?: string | null): boolean => {
+export const esCero = (valor?: string | null): boolean => {
   if (valor === null || valor === undefined || valor === '') return true;
   return /^-?0*(\.0*)?$/.test(valor.trim());
 };
@@ -74,7 +74,7 @@ const esCero = (valor?: string | null): boolean => {
  */
 export const filasFormula = (b: {
   saldo_inicial: BloqueCostoMin; compras: BloqueCostoMin; saldo_final: BloqueCostoMin; costo_venta: BloqueCostoMin;
-  disponible?: BloqueCostoMin;
+  disponible?: BloqueCostoMin; mermas?: BloqueCostoMin;
 }): FilaFormula[] => {
   const subtotal: BloqueCostoMin = b.disponible
     ?? { cantidad: null, costo_unitario: null, valor: sumarTexto(b.saldo_inicial.valor, b.compras.valor) };
@@ -86,6 +86,8 @@ export const filasFormula = (b: {
     fila('compras', '+', 'Compras', b.compras),
     fila('subtotal', '', 'Subtotal', subtotal),
     fila('saldo_final', '−', 'Saldo final', b.saldo_final),
+    // Las mermas no son costo de venta: solo si hubo, se restan en su propia línea.
+    ...(b.mermas && !esCero(b.mermas.valor) ? [fila('mermas', '−', 'Mermas', b.mermas)] : []),
     fila('costo_venta', '=', 'Costo de venta', b.costo_venta),
   ];
 };

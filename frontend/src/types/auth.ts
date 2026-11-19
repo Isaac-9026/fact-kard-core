@@ -11,7 +11,7 @@ export interface EmpresaAsociada {
   ruc: string;
   razon_social: string;
   nombre_comercial?: string | null;
-  rol: 'ADMIN' | 'USUARIO';
+  rol: 'ADMIN' | 'USUARIO' | 'CONSULTA';
   activo?: boolean;
   logo?: string | null;
   color_tema?: string | null;
@@ -22,7 +22,7 @@ export interface EmpresaActiva {
   ruc: string;
   razon_social: string;
   nombre_comercial?: string | null;
-  rol: 'ADMIN' | 'USUARIO';
+  rol: 'ADMIN' | 'USUARIO' | 'CONSULTA';
   logo?: string | null;
   color_tema?: string | null;
 }

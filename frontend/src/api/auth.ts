@@ -26,13 +26,13 @@ export interface UsuarioEmpresaItem {
   email: string;
   empresa_id: number;
   empresa_razon_social: string;
-  rol: 'ADMIN' | 'USUARIO';
+  rol: 'ADMIN' | 'USUARIO' | 'CONSULTA';
   activo: boolean;
 }
 
 export interface AsignarUsuarioPayload {
   usuario_id: number;
-  rol: 'ADMIN' | 'USUARIO';
+  rol: 'ADMIN' | 'USUARIO' | 'CONSULTA';
   activo?: boolean;
 }
 

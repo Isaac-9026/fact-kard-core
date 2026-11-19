@@ -91,7 +91,9 @@ class AuditoriaAccesoTests(TestCase):
     def test_rate_limit_acota_la_auditoria(self):
         codigos = [self.login('leo_b24', f'mala-{i}').status_code for i in range(15)]
         self.assertIn(429, codigos)  # el throttling corta antes de la vista
-        self.assertEqual(len(self.accesos('LOGIN_FALLIDO')), codigos.count(401))
+        # 401 = contraseña errada; 403 = cuenta bloqueada tras 5 intentos (ambos se auditan).
+        self.assertEqual(len(self.accesos('LOGIN_FALLIDO')), codigos.count(401) + codigos.count(403))
+        self.assertEqual(codigos.count(401), 5)
         self.assertLess(len(self.accesos('LOGIN_FALLIDO')), 15)
 
     def test_logout_auditado_sin_token(self):

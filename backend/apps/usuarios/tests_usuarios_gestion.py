@@ -115,7 +115,7 @@ class GestionUsuariosAPITest(TestCase):
         payload = {
             'username': 'nuevo_contador',
             'email': 'contador@estudio.pe',
-            'password_inicial': 'Contador2026!',
+            'password_inicial': 'Libros-Contables-26!',
             'asignaciones': [
                 {'empresa_id': self.empresa_1.id, 'rol': 'ADMIN', 'activo': True},
                 {'empresa_id': self.empresa_2.id, 'rol': 'USUARIO', 'activo': True},
@@ -128,7 +128,7 @@ class GestionUsuariosAPITest(TestCase):
 
         # Verificar en base de datos
         nuevo = Usuario.objects.get(username='nuevo_contador')
-        self.assertTrue(nuevo.check_password('Contador2026!'))
+        self.assertTrue(nuevo.check_password('Libros-Contables-26!'))
         self.assertTrue(nuevo.activo)
         self.assertEqual(UsuarioEmpresa.objects.filter(usuario=nuevo).count(), 2)
 

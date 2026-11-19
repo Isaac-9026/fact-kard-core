@@ -26,7 +26,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { formatearDecimal } from '../../utils/decimal'
 import { mensajesDeErrorApi } from '../../utils/errores'
 import {
-  ETIQUETAS_COMPRA, ETIQUETAS_DESGLOSE, conceptosConImporte, cuadra, filasFormula,
+  ETIQUETAS_COMPRA, ETIQUETAS_DESGLOSE, conceptosConImporte, cuadra, esCero, filasFormula,
   validarRangoPeriodos,
 } from '../../utils/costoVenta'
 
@@ -55,10 +55,11 @@ function HojaFormula({ titulo, bloques, conUnidades }: {
           {filasFormula(bloques).map((f) => {
             const esResultado = f.clave === 'costo_venta'
             const esSubtotal = f.clave === 'subtotal'
+            const esMerma = f.clave === 'mermas'
             return (
               <TableRow
                 key={f.clave}
-                className={esResultado ? 'bg-indigo-50 font-semibold' : esSubtotal ? 'text-slate-500' : ''}
+                className={esResultado ? 'bg-indigo-50 font-semibold' : esSubtotal ? 'text-slate-500' : esMerma ? 'text-amber-700' : ''}
               >
                 <TableCell className="font-mono text-center text-base">{f.signo}</TableCell>
                 <TableCell className={esSubtotal ? 'italic' : ''}>{f.etiqueta}</TableCell>
@@ -163,6 +164,7 @@ export function CostoVentaPage() {
     }
   }
 
+  const hayMermas = !!datos && !esCero(datos.totales.mermas.valor)
   const filaSeleccionada: FilaCostoVenta | undefined = datos?.productos.find((f) => f.producto.id === seleccionado)
   const rango = datos
     ? datos.periodo_desde.id === datos.periodo_hasta.id
@@ -255,6 +257,7 @@ export function CostoVentaPage() {
                     <TableHead numeric>Saldo inicial</TableHead>
                     <TableHead numeric>+ Compras</TableHead>
                     <TableHead numeric>− Saldo final</TableHead>
+                    {hayMermas && <TableHead numeric>− Mermas</TableHead>}
                     <TableHead numeric>P.U. promedio</TableHead>
                     <TableHead numeric>Unid. vendidas</TableHead>
                     <TableHead numeric>= Costo de venta</TableHead>
@@ -262,7 +265,7 @@ export function CostoVentaPage() {
                 </TableHeader>
                 <TableBody>
                   {datos.productos.length === 0 && (
-                    <TableRow><TableCell colSpan={9} className="py-8 text-center text-slate-500">Sin movimientos de inventario en el período.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={hayMermas ? 10 : 9} className="py-8 text-center text-slate-500">Sin movimientos de inventario en el período.</TableCell></TableRow>
                   )}
                   {datos.productos.map((f) => (
                     <TableRow
@@ -276,6 +279,7 @@ export function CostoVentaPage() {
                       <TableCell numeric>{monto(f.saldo_inicial.valor)}</TableCell>
                       <TableCell numeric>{monto(f.compras.valor)}</TableCell>
                       <TableCell numeric>{monto(f.saldo_final.valor)}</TableCell>
+                      {hayMermas && <TableCell numeric>{monto(f.mermas.valor)}</TableCell>}
                       <TableCell numeric>{monto(f.costo_promedio)}</TableCell>
                       <TableCell numeric>{cantidad(f.costo_venta.cantidad)}</TableCell>
                       <TableCell numeric className="font-semibold">{monto(f.costo_venta.valor)}</TableCell>
@@ -287,6 +291,7 @@ export function CostoVentaPage() {
                       <TableCell numeric>{monto(datos.totales.saldo_inicial.valor)}</TableCell>
                       <TableCell numeric>{monto(datos.totales.compras.valor)}</TableCell>
                       <TableCell numeric>{monto(datos.totales.saldo_final.valor)}</TableCell>
+                      {hayMermas && <TableCell numeric>{monto(datos.totales.mermas.valor)}</TableCell>}
                       <TableCell numeric />
                       <TableCell numeric />
                       <TableCell numeric>{monto(datos.totales.costo_venta.valor)}</TableCell>

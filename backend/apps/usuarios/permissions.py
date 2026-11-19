@@ -8,6 +8,17 @@ MENSAJE_EMPRESA_INACTIVA = ('La empresa está INACTIVA: solo se puede consultar 
                             'Un administrador global debe reactivarla para registrar o modificar operaciones.')
 
 
+MENSAJE_SOLO_CONSULTA = ('Su rol es de solo CONSULTA: puede ver y exportar la información, '
+                         'pero no registrar ni modificar operaciones.')
+
+
+class SoloConsulta(PermissionDenied):
+    """403 con `code` en el cuerpo para que el frontend lo reconozca."""
+
+    def __init__(self):
+        super().__init__({'detail': MENSAJE_SOLO_CONSULTA, 'code': 'solo_consulta'})
+
+
 class EmpresaInactiva(PermissionDenied):
     default_detail = MENSAJE_EMPRESA_INACTIVA
     default_code = 'empresa_inactiva'
@@ -89,6 +100,9 @@ class TieneEmpresaActiva(BasePermission):
         request.empresa_id = empresa_id
         request.rol_empresa = ue.rol
         exigir_empresa_operativa(request, empresa_id, view=view)
+        # Rol CONSULTA = solo lectura en todo el API (regla central, igual que la empresa INACTIVA).
+        if ue.rol == 'CONSULTA' and request.method not in METODOS_LECTURA:
+            raise SoloConsulta()
         return True
 
 
@@ -194,3 +208,32 @@ class EsAdminEstudio(BasePermission):
 
         raise PermissionDenied(self.message)
 
+
+
+class ConfirmacionPasswordRequerida(PermissionDenied):
+    """403 con `code` en el cuerpo: el frontend pide la contraseña y reintenta la acción."""
+
+    def __init__(self, mensaje='Para esta acción debe confirmar su contraseña.'):
+        super().__init__({'detail': mensaje, 'code': 'confirmacion_password'})
+
+
+class RequiereConfirmacionPassword(BasePermission):
+    """
+    Reautenticación para acciones críticas e irreversibles (anular comprobante, reabrir período,
+    recalcular Kardex): la petición debe traer `password_confirmacion` con la contraseña del usuario.
+    Si alguien usa una sesión abierta ajena, no puede ejecutarlas sin conocer la contraseña.
+    Solo aplica a escrituras; las lecturas pasan.
+    """
+
+    def has_permission(self, request, view):
+        if request.method in METODOS_LECTURA:
+            return True
+        usuario = getattr(request, 'user', None)
+        if not usuario or not getattr(usuario, 'is_authenticated', False):
+            raise NotAuthenticated("Se requiere autenticación para acceder a este recurso.")
+        password = request.data.get('password_confirmacion') if hasattr(request, 'data') else None
+        if not password:
+            raise ConfirmacionPasswordRequerida()
+        if not usuario.check_password(str(password)):
+            raise ConfirmacionPasswordRequerida('La contraseña de confirmación es incorrecta.')
+        return True

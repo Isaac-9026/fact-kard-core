@@ -8,7 +8,7 @@ from apps.inventario.models import Producto
 from apps.kardex.models import Incidencia, Movimiento, Recalculo, SaldoCppActual, StockAlmacen
 from apps.kardex.services import ejecutar_recalculo_producto
 from apps.usuarios.authentication import UsuarioTokenAuthentication
-from apps.usuarios.permissions import EsAdminEmpresa, TieneEmpresaActiva
+from apps.usuarios.permissions import EsAdminEmpresa, RequiereConfirmacionPassword, TieneEmpresaActiva
 
 
 class ValorizacionSerializer(serializers.Serializer):
@@ -103,6 +103,7 @@ class RecalculoListCreateView(BaseMixin, generics.ListCreateAPIView):
         return Recalculo.objects.filter(empresa_id=self.request.empresa_id).prefetch_related('detalles').order_by('-ejecutado_en', '-id')  # Bloque 7: orden estable al paginar
     def create(self, request, *args, **kwargs):
         EsAdminEmpresa().has_permission(request, self)
+        RequiereConfirmacionPassword().has_permission(request, self)
         producto = get_object_or_404(Producto.objects.filter(empresa_id=request.empresa_id), pk=request.data.get('producto'))
         recalculo = ejecutar_recalculo_producto(
             empresa_id=request.empresa_id, producto_id=producto.id,

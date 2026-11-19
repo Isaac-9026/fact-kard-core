@@ -15,7 +15,7 @@ import type { UsuarioEstudio } from '../api/usuarios.ts';
 const appCode = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
 const layoutCode = readFileSync(new URL('../layouts/MainLayout.tsx', import.meta.url), 'utf8');
 
-test('validarFormularioUsuario exige username, email valido y password >= 8 al crear', () => {
+test('validarFormularioUsuario exige username, email valido y password >= 10 al crear', () => {
   const sinUsername = validarFormularioUsuario({
     username: '',
     email: 'user@test.pe',
@@ -41,7 +41,7 @@ test('validarFormularioUsuario exige username, email valido y password >= 8 al c
     esEdicion: false,
   });
   assert.equal(passwordCorto.valido, false);
-  assert.match(passwordCorto.error || '', /al menos 8 caracteres/);
+  assert.match(passwordCorto.error || '', /al menos 10 caracteres/);
 
   const valido = validarFormularioUsuario({
     username: 'jperez',
@@ -115,7 +115,7 @@ test('validarCambioClave verifica coincidencia, longitud y diferencia respecto a
   assert.equal(correcto.valido, true);
 });
 
-test('validarReseteoClave exige al menos 8 caracteres', () => {
+test('validarReseteoClave exige al menos 10 caracteres', () => {
   assert.equal(validarReseteoClave('12345').valido, false);
   assert.equal(validarReseteoClave('ClaveTemporal2026').valido, true);
 });

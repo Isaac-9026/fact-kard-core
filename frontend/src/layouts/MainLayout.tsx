@@ -70,6 +70,9 @@ import {
   resolverUrlMedia,
   type TokensTemaSidebar,
 } from '../utils/identidadEmpresa'
+import { ConfirmarPasswordDialog } from '../components/seguridad/ConfirmarPasswordDialog'
+import { useCierrePorInactividad } from '../hooks/useCierrePorInactividad'
+import { ETIQUETA_ROL, esSoloConsulta, type RolEmpresa } from '../utils/seguridad'
 
 // El orden y las rutas del menú viven en src/navegacion.ts (probado con node --test).
 const ICONOS: Record<IconoNav, LucideIcon> = {
@@ -394,8 +397,8 @@ export const MainLayout: React.FC = () => {
     setClaveError(null)
     setClaveExito(null)
 
-    if (claveNueva.length < 8) {
-      setClaveError('La nueva contraseña debe tener al menos 8 caracteres.')
+    if (claveNueva.length < 10) {
+      setClaveError('La nueva contraseña debe tener al menos 10 caracteres.')
       return
     }
     if (claveNueva !== claveConfirmar) {
@@ -441,8 +444,10 @@ export const MainLayout: React.FC = () => {
   }
 
   const activeInfo = getActiveInfo()
-  const esAdmin = Boolean(usuario?.es_admin_global || empresaActiva?.rol === 'ADMIN')
   const esAdminGlobal = Boolean(usuario?.es_admin_global)
+  const soloConsulta = esSoloConsulta(empresaActiva?.rol, esAdminGlobal)
+  const etiquetaRol = esAdminGlobal ? 'Administrador' : ETIQUETA_ROL[(empresaActiva?.rol ?? 'USUARIO') as RolEmpresa]
+  useCierrePorInactividad(logout, Boolean(usuario))
 
   const themingTokens = React.useMemo(() => {
     return generarThemingSidebar(empresaActiva?.color_tema)
@@ -614,7 +619,7 @@ export const MainLayout: React.FC = () => {
                       themingTokens ? 'text-[var(--tenant-sidebar-text-muted)]' : 'text-slate-500'
                     }`}
                   >
-                    {esAdmin ? 'Administrador' : 'Operador'}
+                    {etiquetaRol}
                   </span>
                 </div>
               </div>
@@ -652,7 +657,7 @@ export const MainLayout: React.FC = () => {
                 style={{
                   backgroundColor: themingTokens ? themingTokens['--tenant-sidebar-accent'] : '#4F46E5',
                 }}
-                title={`${usuario?.username || 'Usuario'} (${esAdmin ? 'ADMIN' : 'USUARIO'})`}
+                title={`${usuario?.username || 'Usuario'} (${etiquetaRol})`}
               >
                 {usuario?.username?.charAt(0).toUpperCase() || 'U'}
               </div>
@@ -765,8 +770,14 @@ export const MainLayout: React.FC = () => {
 
         {/* 3. CONTENIDO DE LA PÁGINA */}
         <main className="min-w-0 flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto">
+          {soloConsulta && (
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-medium text-amber-800" role="status">
+              Modo solo consulta: puede ver y exportar la información, pero no registrar ni modificar operaciones.
+            </div>
+          )}
           <Outlet />
         </main>
+        <ConfirmarPasswordDialog />
       </div>
 
       {/* MODAL CAMBIAR CONTRASEÑA */}
@@ -817,7 +828,7 @@ export const MainLayout: React.FC = () => {
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Nueva contraseña <span className="text-rose-500">* (mínimo 8 caracteres)</span>
+              Nueva contraseña <span className="text-rose-500">* (mínimo 10 caracteres)</span>
             </label>
             <input
               type="password"

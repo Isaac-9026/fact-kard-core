@@ -31,7 +31,11 @@ ETIQUETAS_DESGLOSE = {
     'ajustes': 'Ajustes de inventario', 'transferencias': 'Transferencias entre almacenes', 'otros': 'Otros y redondeo',
 }
 GRUPOS = (('Saldo inicial', 'saldo_inicial'), ('+ Compras', 'compras'), ('Subtotal (P.U. promedio)', 'disponible'),
-          ('− Saldo final', 'saldo_final'), ('= Costo de venta', 'costo_venta'))
+          ('− Saldo final', 'saldo_final'), ('− Mermas', 'mermas'), ('= Costo de venta', 'costo_venta'))
+
+
+def _es_cero(valor):
+    return valor in (None, '') or Decimal(valor) == 0
 
 
 def _num(valor):
@@ -95,6 +99,8 @@ def escribir_hoja_costo_venta(hoja, reporte, notas=()):
         *[(f'      {ETIQUETAS_COMPRA[k]}', t['compras_detalle'][k], False) for k in CLAVES_COMPRA],
         ('Subtotal', t['disponible']['valor'], False),
         ('− Saldo final (al P.U. promedio)', t['saldo_final']['valor'], False),
+        # Las mermas no son costo de venta: solo si hubo, se restan en su propia línea.
+        *([('− Mermas (al P.U. promedio)', t['mermas']['valor'], False)] if not _es_cero(t['mermas']['valor']) else []),
         ('= COSTO DE VENTA', t['costo_venta']['valor'], True),
     ]
     for etiqueta, valor, total in resumen:
@@ -123,6 +129,7 @@ def escribir_hoja_costo_venta(hoja, reporte, notas=()):
         fila += 1
     fila += 2
 
+    grupos = [g for g in GRUPOS if g[1] != 'mermas' or not _es_cero(t['mermas']['valor'])]
     # ---- Detalle por producto ----
     titulo = _celda(hoja, fila, 1, 'DETALLE POR PRODUCTO', borde=False)
     titulo.font = Font(name=FUENTE, bold=True, size=12, color=AZUL)
@@ -131,7 +138,7 @@ def escribir_hoja_costo_venta(hoja, reporte, notas=()):
         hoja.merge_cells(start_row=fila, start_column=col, end_row=fila + 1, end_column=col)
         _celda(hoja, fila, col, texto, negrita=True, relleno=AZUL_CLARO)
     col = 4
-    for texto, _ in GRUPOS:
+    for texto, _ in grupos:
         hoja.merge_cells(start_row=fila, start_column=col, end_row=fila, end_column=col + 2)
         _celda(hoja, fila, col, texto, negrita=True, relleno=AZUL_CLARO).alignment = Alignment(horizontal='center')
         for i, sub in enumerate(('Unid.', 'P.U.', 'Total')):
@@ -149,7 +156,7 @@ def escribir_hoja_costo_venta(hoja, reporte, notas=()):
         _celda(hoja, fila, 2, p['producto']['descripcion'])
         _celda(hoja, fila, 3, p['producto']['unidad'])
         col = 4
-        for _, clave in GRUPOS:
+        for _, clave in grupos:
             bloque = p[clave]
             _celda(hoja, fila, col, _num(bloque['cantidad']), FMT_CANT)
             _celda(hoja, fila, col + 1, _num(bloque['costo_unitario']), FMT_CANT)
@@ -162,7 +169,7 @@ def escribir_hoja_costo_venta(hoja, reporte, notas=()):
     hoja.merge_cells(start_row=fila, start_column=1, end_row=fila, end_column=3)
     _celda(hoja, fila, 1, 'TOTAL EMPRESA', negrita=True, relleno=AZUL_CLARO)
     col = 4
-    for _, clave in GRUPOS:
+    for _, clave in grupos:
         _celda(hoja, fila, col, None, relleno=AZUL_CLARO)
         _celda(hoja, fila, col + 1, None, relleno=AZUL_CLARO)
         _celda(hoja, fila, col + 2, _num(t[clave]['valor']), FMT_MONTO, negrita=True, relleno=AZUL_CLARO)

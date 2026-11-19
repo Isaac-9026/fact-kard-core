@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  conceptosConImporte, cuadra, ETIQUETAS_DESGLOSE, filasFormula, paramsCostoVenta,
+  conceptosConImporte, cuadra, esCero, ETIQUETAS_DESGLOSE, filasFormula, paramsCostoVenta,
   sumarTexto, validarRangoPeriodos,
 } from './costoVenta.ts';
 
@@ -70,4 +70,23 @@ test('cuadra y conceptos con importe', () => {
   assert.ok(!cuadra('0.00000001'));
   const conceptos = conceptosConImporte({ ventas: '530.00000000', mermas_desmedros: '0.00000000', otros: '-1.5' }, ETIQUETAS_DESGLOSE);
   assert.deepEqual(conceptos.map((c) => c.clave), ['ventas', 'otros']);
+});
+
+test('mermas: la línea solo aparece si hubo y se resta aparte del costo de venta', () => {
+  const b = (cantidad: string, pu: string, valor: string) => ({ cantidad, costo_unitario: pu, valor });
+  const base = {
+    saldo_inicial: b('100.00000000', '20.00000000', '2000.00000000'),
+    compras: b('100.00000000', '22.50000000', '2250.00000000'),
+    disponible: b('200.00000000', '21.25000000', '4250.00000000'),
+    saldo_final: b('148.00000000', '21.25000000', '3145.00000000'),
+    costo_venta: b('50.00000000', '21.25000000', '1062.50000000'),
+  };
+  assert.ok(esCero('0.00000000'));
+  assert.ok(!filasFormula({ ...base, mermas: b('0.00000000', '', '0.00000000') }).some((f) => f.clave === 'mermas'));
+  const conMerma = filasFormula({ ...base, mermas: b('2.00000000', '21.25000000', '42.50000000') });
+  assert.deepEqual(conMerma.map((f) => [f.signo, f.etiqueta, f.valor]).slice(3), [
+    ['−', 'Saldo final', '3145.00000000'],
+    ['−', 'Mermas', '42.50000000'],
+    ['=', 'Costo de venta', '1062.50000000'],
+  ]);
 });

@@ -1,6 +1,6 @@
 import apiClient from './http';
 
-export type RolEmpresa = 'ADMIN' | 'USUARIO';
+export type RolEmpresa = 'ADMIN' | 'USUARIO' | 'CONSULTA';
 export interface Moneda { codigo: string; nombre: string }
 export interface Empresa { id: number; ruc: string; razon_social: string; nombre_comercial: string | null; direccion: string | null; moneda_base_codigo: string; estado: 'ACTIVA' | 'INACTIVA'; creado_en: string; rol: RolEmpresa; logo?: string | null; color_tema?: string | null }
 export interface CrearEmpresaPayload { ruc: string; razon_social: string; nombre_comercial?: string; direccion?: string; moneda_base_codigo: string }

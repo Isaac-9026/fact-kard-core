@@ -1,6 +1,8 @@
 import logging
+import math
 from datetime import timedelta
 
+from django.conf import settings
 from django.contrib.auth.hashers import make_password
 from django.db import transaction
 from django.middleware.csrf import get_token, rotate_token
@@ -118,6 +120,20 @@ def obtener_empresas_usuario(usuario: Usuario, request=None):
     ]
 
 
+def registrar_intento_fallido(usuario, ahora):
+    """Suma un intento fallido; al llegar al máximo bloquea la cuenta unos minutos (y reinicia el conteo)."""
+    maximo = getattr(settings, 'LOGIN_MAX_INTENTOS', 5)
+    minutos = getattr(settings, 'LOGIN_BLOQUEO_MINUTOS', 15)
+    intentos = usuario.intentos_fallidos + 1
+    if intentos >= maximo:
+        Usuario.objects.filter(pk=usuario.pk).update(
+            intentos_fallidos=0, bloqueado_hasta=ahora + timedelta(minutes=minutos),
+        )
+        logger_auth.warning('Cuenta bloqueada %s min por %s intentos fallidos: id=%s', minutos, maximo, usuario.id)
+    else:
+        Usuario.objects.filter(pk=usuario.pk).update(intentos_fallidos=intentos)
+
+
 class LoginView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
@@ -148,11 +164,27 @@ class LoginView(APIView):
             auditar_acceso(request, 'LOGIN_FALLIDO', username=username, motivo_fallo='CREDENCIALES')
             return Response({'detail': 'Credenciales de acceso inválidas.'}, status=status.HTTP_401_UNAUTHORIZED)
 
+        ahora = timezone.now()
+        if usuario.bloqueado_hasta and usuario.bloqueado_hasta > ahora:
+            minutos = max(1, math.ceil((usuario.bloqueado_hasta - ahora).total_seconds() / 60))
+            logger_auth.warning('Login rechazado: cuenta bloqueada id=%s ip=%s', usuario.id, ip_cliente(request))
+            auditar_acceso(request, 'LOGIN_FALLIDO', usuario=usuario, username=username, motivo_fallo='CUENTA_BLOQUEADA')
+            return Response(
+                {'detail': f'Cuenta bloqueada por intentos fallidos. Intente de nuevo en {minutos} min '
+                           'o pida al administrador que restablezca su contraseña.',
+                 'code': 'cuenta_bloqueada'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         if not usuario.check_password(password):
             logger_auth.warning('Login fallido: usuario=%s existe=si ip=%s', nombre_para_log(username), ip_cliente(request))
             # Mismo motivo que un usuario inexistente: la auditoría no distingue "existe / no existe".
             auditar_acceso(request, 'LOGIN_FALLIDO', username=username, motivo_fallo='CREDENCIALES')
+            registrar_intento_fallido(usuario, ahora)
             return Response({'detail': 'Credenciales de acceso inválidas.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+        if usuario.intentos_fallidos or usuario.bloqueado_hasta:
+            Usuario.objects.filter(pk=usuario.pk).update(intentos_fallidos=0, bloqueado_hasta=None)
 
         # Solo con la contraseña correcta se informa que la cuenta está inactiva.
         if not usuario.activo:
@@ -472,11 +504,14 @@ class UsuarioResetPasswordView(APIView):
         except Usuario.DoesNotExist:
             return Response({'detail': 'Usuario no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
 
-        serializer = ResetPasswordAdminSerializer(data=request.data)
+        serializer = ResetPasswordAdminSerializer(data=request.data, context={'usuario': usuario})
         serializer.is_valid(raise_exception=True)
 
         password_nuevo = serializer.validated_data['password_nuevo']
         usuario.set_password(password_nuevo)
+        # El reseteo también desbloquea la cuenta si estaba bloqueada por intentos fallidos.
+        usuario.intentos_fallidos = 0
+        usuario.bloqueado_hasta = None
         usuario.save()
 
         try:
@@ -504,7 +539,7 @@ class CambiarPasswordView(APIView):
         responses={200: OpenApiResponse(description="Contraseña cambiada exitosamente")}
     )
     def post(self, request):
-        serializer = CambiarPasswordSerializer(data=request.data)
+        serializer = CambiarPasswordSerializer(data=request.data, context={'usuario': request.user})
         serializer.is_valid(raise_exception=True)
 
         password_actual = serializer.validated_data['password_actual']

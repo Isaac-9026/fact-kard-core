@@ -5,7 +5,7 @@ export interface AsignacionUsuarioEmpresa {
   empresa_id: number;
   empresa_ruc: string;
   empresa_razon_social: string;
-  rol: 'ADMIN' | 'USUARIO';
+  rol: 'ADMIN' | 'USUARIO' | 'CONSULTA';
   activo: boolean;
 }
 
@@ -25,7 +25,7 @@ export interface UsuarioEstudio {
 
 export interface AsignacionEmpresaInput {
   empresa_id: number;
-  rol: 'ADMIN' | 'USUARIO';
+  rol: 'ADMIN' | 'USUARIO' | 'CONSULTA';
   activo: boolean;
 }
 

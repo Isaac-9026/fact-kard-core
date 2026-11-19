@@ -123,6 +123,7 @@ def construir_xml_ubl(*, tipo='01', serie='F001', numero='501', fecha='2026-01-1
 class Bloque2Fixture:
     """Mezclar con django.test.TestCase."""
 
+    PASSWORD_PRUEBAS = 'Prueba-Segura-2026'  # para confirmar acciones críticas (anular, reabrir, recalcular)
     RUC_PROVEEDOR = '20555000111'
 
     def crear_base(self):
@@ -176,6 +177,8 @@ class Bloque2Fixture:
             fecha_inicio=date(2026, 1, 1), fecha_fin=date(2026, 1, 31), estado='ABIERTO',
         )
         self.usuario = Usuario.objects.create(username='admin_b2', email='admin_b2@test.pe', password_hash='x')
+        self.usuario.set_password(self.PASSWORD_PRUEBAS)
+        self.usuario.save(update_fields=['password_hash'])
         UsuarioEmpresa.objects.create(usuario=self.usuario, empresa=self.empresa, rol='ADMIN')
         self.client = APIClient()
         self.client.force_authenticate(user=self.usuario)
@@ -256,7 +259,8 @@ class Bloque2Fixture:
 
     def anular(self, documento_id, esperado=200):
         resp = self.client.post(
-            reverse('documento-anular', args=[documento_id]), {'motivo': 'QA bloque 2'},
+            reverse('documento-anular', args=[documento_id]),
+            {'motivo': 'QA bloque 2', 'password_confirmacion': self.PASSWORD_PRUEBAS},
             format='json', **self.headers,
         )
         if esperado is not None:

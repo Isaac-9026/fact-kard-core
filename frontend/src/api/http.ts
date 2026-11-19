@@ -6,6 +6,9 @@ import {
 import {
   encabezadoAutorizacion, esSesionCookie, leerCookie, leerCredencial, requiereCsrf,
 } from '../utils/credencialSesion';
+import {
+  MAX_INTENTOS_CONFIRMACION, agregarPasswordAlCuerpo, esPedidoDeConfirmacion, mensajeDeConfirmacion,
+} from '../utils/seguridad';
 
 const BASE_API = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
@@ -23,7 +26,7 @@ export const apiClient = axios.create({
 });
 
 /** Credencial con la que salió cada petición (para decidir si un 401 cierra la sesión vigente). */
-type ConfigConSesion = InternalAxiosRequestConfig & { credencialSesion?: string | null };
+type ConfigConSesion = InternalAxiosRequestConfig & { credencialSesion?: string | null; intentosConfirmacion?: number };
 
 /** En modo cookie, Django exige el token CSRF (cookie `csrftoken`) en las escrituras. */
 export const asegurarCsrf = async (): Promise<string | null> => {
@@ -72,9 +75,32 @@ export const registrarManejadorSesionInvalida = (manejador: () => void) => {
 /** Se llama tras un login exitoso para volver a escuchar 401 de la nueva sesión. */
 export const reiniciarControlSesion = () => controlCierreSesion.reiniciar();
 
+// Acciones críticas: el backend pide confirmar la contraseña (403 code=confirmacion_password).
+// Una ventana la pide y la misma petición se reintenta con `password_confirmacion`.
+type PedirPassword = (mensaje: string) => Promise<string | null>;
+let pedirPassword: PedirPassword | null = null;
+
+export const registrarPedirPassword = (fn: PedirPassword) => {
+  pedirPassword = fn;
+  return () => {
+    if (pedirPassword === fn) pedirPassword = null;
+  };
+};
+
 apiClient.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    const configConfirmacion = error?.config as ConfigConSesion | undefined;
+    const intentos = configConfirmacion?.intentosConfirmacion ?? 0;
+    if (configConfirmacion && pedirPassword && intentos < MAX_INTENTOS_CONFIRMACION
+        && esPedidoDeConfirmacion(error?.response?.status, error?.response?.data)) {
+      const password = await pedirPassword(mensajeDeConfirmacion(error.response.data));
+      if (password) {
+        configConfirmacion.intentosConfirmacion = intentos + 1;
+        configConfirmacion.data = agregarPasswordAlCuerpo(configConfirmacion.data, password);
+        return apiClient.request(configConfirmacion);
+      }
+    }
     const config = error?.config as ConfigConSesion | undefined;
     const cerrar = debeCerrarSesionPor401({
       status: error?.response?.status,

@@ -5,7 +5,8 @@ PERÍODO (un solo costo unitario para todo el rango, como lo trabaja el dueño):
     Saldo inicial + Compras netas = Disponible (subtotal)
     P.U. promedio = valor disponible ÷ unidades disponibles
     Saldo final   = unidades finales × P.U. promedio
-    Costo de venta = Disponible − Saldo final  (= unidades que salieron × P.U. promedio)
+    Mermas        = unidades de merma y desmedro × P.U. promedio (no son costo de venta)
+    Costo de venta = Disponible − Saldo final − Mermas
 
 Reporte de SOLO LECTURA: no escribe en la base ni toca el motor del Kardex.
 
@@ -15,11 +16,11 @@ Reporte de SOLO LECTURA: no escribe en la base ni toca el motor del Kardex.
   compra (ajustes de valor). Una compra anulada (extorno) resta.
 - Saldo final: unidades del Kardex al último día del rango, valorizadas al P.U. promedio del período
   (redondeado a céntimos).
-- Desglose informativo: las unidades de cada tipo de salida (venta neta de devoluciones, mermas,
-  consumo, ajustes, transferencias) × P.U. promedio; el redondeo va a "otros", así su suma es
-  exactamente el costo de venta.
-- Comparación: el Kardex usa promedio móvil (cambia con cada compra), por eso su saldo final y su
-  costo de venta pueden diferir; se informan en `kardex` y `diferencia_metodo`.
+- Mermas y desmedros: se restan en su propia línea, valorizados al P.U. promedio del período.
+- Desglose informativo: unidades de cada tipo de salida (sin mermas) × P.U. promedio; el redondeo va a
+  "otros", así su suma es exactamente el costo de venta (`diferencia` = 0).
+- Referencia: el Kardex usa promedio móvil (cambia con cada compra); su saldo final y su costo de venta
+  (también sin mermas) se informan en `kardex` y `diferencia_metodo`.
 
 Las cantidades están en la unidad base de cada producto. Los importes, en soles (PEN).
 """
@@ -60,8 +61,9 @@ GRUPOS_DESGLOSE = {
     'TRANSFERENCIA_ENTRADA': 'transferencias',
 }
 CLAVES_COMPRA = ('compras', 'bonificaciones', 'devoluciones', 'notas_credito_debito')
-CLAVES_DESGLOSE = ('ventas', 'devoluciones_venta', 'mermas_desmedros', 'consumo_retiros', 'ajustes',
-                   'transferencias', 'otros')
+# Desglose interno del costo de venta (sin mermas: van en su propia línea).
+CLAVES_DESGLOSE = ('ventas', 'devoluciones_venta', 'consumo_retiros', 'ajustes', 'transferencias', 'otros')
+FORMULA = 'Saldo inicial + Compras − Saldo final − Mermas = Costo de venta'
 
 
 def q8(valor):
@@ -137,7 +139,7 @@ def _producto_vacio():
     return {
         'si_cant': ZERO, 'si_valor': ZERO, 'sf_cant': ZERO, 'sf_valor': ZERO,
         'compras': {clave: [ZERO, ZERO] for clave in CLAVES_COMPRA},
-        'desglose': {clave: [ZERO, ZERO] for clave in CLAVES_DESGLOSE},
+        'desglose': {clave: [ZERO, ZERO] for clave in (*CLAVES_DESGLOSE, 'mermas_desmedros')},
         'saldo_inicial_doc': [ZERO, ZERO],
         'con_movimiento': False,
     }
@@ -195,9 +197,8 @@ def generar_costo_ventas(*, empresa_id, periodo_id, periodo_hasta_id=None, produ
     }
 
     filas = []
-    totales = {'si': ZERO, 'compras': ZERO, 'disp': ZERO, 'sf': ZERO, 'cv': ZERO, 'sf_kardex': ZERO,
-               'cv_kardex': ZERO, 'compras_detalle': defaultdict(lambda: ZERO),
-               'desglose': defaultdict(lambda: ZERO)}
+    totales = {'si': ZERO, 'compras': ZERO, 'disp': ZERO, 'sf': ZERO, 'mermas': ZERO, 'cv': ZERO,
+               'sf_kardex': ZERO, 'cv_kardex': ZERO, 'compras_detalle': defaultdict(lambda: ZERO), 'desglose': defaultdict(lambda: ZERO)}
     for pid in sorted(ids, key=lambda i: (productos[i].codigo_interno, i)):
         p, producto = datos[pid], productos[pid]
         si_cant = q8(p['si_cant'] + p['saldo_inicial_doc'][0])
@@ -209,15 +210,21 @@ def generar_costo_ventas(*, empresa_id, periodo_id, periodo_hasta_id=None, produ
         sf_cant = q8(p['sf_cant'])
         sf_kardex = q8(p['sf_valor'])
 
-        # Promedio ponderado del período: un solo P.U. para el saldo final y el costo de venta.
+        # Promedio ponderado del período: un solo P.U. para el saldo final, las mermas y el costo de venta.
         pu = disp_valor / disp_cant if disp_cant > ZERO else None
         sf_valor = q2(sf_cant * pu) if pu is not None else sf_kardex
-        cv_cant = q8(disp_cant - sf_cant)
-        cv_valor = q8(disp_valor - sf_valor)
-        cv_kardex = q8(disp_valor - sf_kardex)
+        # Las mermas y desmedros no son costo de venta: van en su propia línea y se restan.
+        merma_cant = q8(p['desglose']['mermas_desmedros'][0])
+        merma_valor = q2(merma_cant * pu) if pu is not None else ZERO
+        cv_cant = q8(disp_cant - sf_cant - merma_cant)
+        cv_valor = q8(disp_valor - sf_valor - merma_valor)
+        # Referencia del Kardex (promedio móvil), también sin mermas.
+        merma_kardex = q8(p['desglose']['mermas_desmedros'][1])
+        cv_kardex = q8(disp_valor - sf_kardex - merma_kardex)
 
         desglose = {}
-        for clave, (cant, _valor_kardex) in p['desglose'].items():
+        for clave in CLAVES_DESGLOSE:
+            cant = p['desglose'][clave][0]
             desglose[clave] = [q8(cant), q2(cant * pu) if pu is not None else ZERO]
         redondeo = q8(cv_valor - sum((v[1] for v in desglose.values()), ZERO))
         desglose['otros'][1] = q8(desglose['otros'][1] + redondeo)
@@ -233,6 +240,7 @@ def generar_costo_ventas(*, empresa_id, periodo_id, periodo_hasta_id=None, produ
             'compras': _bloque(compras_cant, compras_valor),
             'disponible': _bloque(disp_cant, disp_valor, unitario=pu),
             'saldo_final': _bloque(sf_cant, sf_valor, unitario=pu if sf_cant != ZERO else None),
+            'mermas': _bloque(merma_cant, merma_valor, unitario=pu if merma_cant != ZERO else None),
             'costo_venta': _bloque(cv_cant, cv_valor, unitario=pu if cv_cant != ZERO else None),
             'costo_promedio': _texto(pu) if pu is not None else None,
             'compras_detalle': {k: _bloque(v[0], v[1]) for k, v in p['compras'].items()},
@@ -248,6 +256,7 @@ def generar_costo_ventas(*, empresa_id, periodo_id, periodo_hasta_id=None, produ
         totales['compras'] += compras_valor
         totales['disp'] += disp_valor
         totales['sf'] += sf_valor
+        totales['mermas'] += merma_valor
         totales['cv'] += cv_valor
         totales['sf_kardex'] += sf_kardex
         totales['cv_kardex'] += cv_kardex
@@ -265,7 +274,7 @@ def generar_costo_ventas(*, empresa_id, periodo_id, periodo_hasta_id=None, produ
         'fecha_inicio': inicio.isoformat(),
         'fecha_fin': fin.isoformat(),
         'moneda': 'PEN',
-        'formula': 'Saldo inicial + Compras − Saldo final = Costo de venta',
+        'formula': FORMULA,
         'metodo': METODO,
         'totales': {
             # Las cantidades no se suman entre productos con unidades distintas.
@@ -273,6 +282,7 @@ def generar_costo_ventas(*, empresa_id, periodo_id, periodo_hasta_id=None, produ
             'compras': _bloque(ZERO, totales['compras'], con_cantidad=False),
             'disponible': _bloque(ZERO, totales['disp'], con_cantidad=False),
             'saldo_final': _bloque(ZERO, totales['sf'], con_cantidad=False),
+            'mermas': _bloque(ZERO, totales['mermas'], con_cantidad=False),
             'costo_venta': _bloque(ZERO, totales['cv'], con_cantidad=False),
             'compras_detalle': {k: _texto(totales['compras_detalle'][k]) for k in CLAVES_COMPRA},
             'desglose': {k: _texto(totales['desglose'][k]) for k in CLAVES_DESGLOSE},

@@ -33,8 +33,8 @@ export const validarFormularioUsuario = (input: FormUsuarioInput): ValidacionRes
     return { valido: false, error: 'Ingrese un correo electrónico válido.' };
   }
 
-  if (!input.esEdicion && (!input.passwordInicial || input.passwordInicial.length < 8)) {
-    return { valido: false, error: 'La contraseña inicial debe tener al menos 8 caracteres.' };
+  if (!input.esEdicion && (!input.passwordInicial || input.passwordInicial.length < 10)) {
+    return { valido: false, error: 'La contraseña inicial debe tener al menos 10 caracteres.' };
   }
 
   // Candado de seguridad: Prohibido desactivar la propia cuenta en sesión
@@ -59,8 +59,8 @@ export const validarCambioClave = (input: CambioClaveInput): ValidacionResultado
     return { valido: false, error: 'Debe ingresar la contraseña actual.' };
   }
 
-  if (!input.claveNueva || input.claveNueva.length < 8) {
-    return { valido: false, error: 'La nueva contraseña debe tener al menos 8 caracteres.' };
+  if (!input.claveNueva || input.claveNueva.length < 10) {
+    return { valido: false, error: 'La nueva contraseña debe tener al menos 10 caracteres.' };
   }
 
   if (input.claveNueva !== input.claveConfirmar) {
@@ -78,8 +78,8 @@ export const validarCambioClave = (input: CambioClaveInput): ValidacionResultado
  * Valida el reseteo administrativo de contraseña.
  */
 export const validarReseteoClave = (passwordNuevo: string): ValidacionResultado => {
-  if (!passwordNuevo || passwordNuevo.length < 8) {
-    return { valido: false, error: 'La nueva contraseña debe tener al menos 8 caracteres.' };
+  if (!passwordNuevo || passwordNuevo.length < 10) {
+    return { valido: false, error: 'La nueva contraseña debe tener al menos 10 caracteres.' };
   }
   return { valido: true };
 };
@@ -116,7 +116,7 @@ export const filtrarUsuarios = (
  * Construye el array de asignaciones a enviar al backend a partir de la matriz de la interfaz.
  */
 export const construirPayloadAsignaciones = (
-  matriz: Record<number, { asignado: boolean; rol: 'ADMIN' | 'USUARIO' }>
+  matriz: Record<number, { asignado: boolean; rol: 'ADMIN' | 'USUARIO' | 'CONSULTA' }>
 ): AsignacionEmpresaInput[] => {
   return Object.entries(matriz).map(([empIdStr, val]) => ({
     empresa_id: Number(empIdStr),

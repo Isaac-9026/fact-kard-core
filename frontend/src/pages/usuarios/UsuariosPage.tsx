@@ -56,9 +56,9 @@ export const UsuariosPage: React.FC = () => {
   const [formEmail, setFormEmail] = useState<string>('');
   const [formPasswordInicial, setFormPasswordInicial] = useState<string>('');
   const [formActivo, setFormActivo] = useState<boolean>(true);
-  // Matriz de asignaciones: Record<empresa_id, { activo: boolean; rol: 'ADMIN' | 'USUARIO' }>
+  // Matriz de asignaciones: Record<empresa_id, { activo: boolean; rol: 'ADMIN' | 'USUARIO' | 'CONSULTA' }>
   const [matrizAsignaciones, setMatrizAsignaciones] = useState<
-    Record<number, { asignado: boolean; rol: 'ADMIN' | 'USUARIO' }>
+    Record<number, { asignado: boolean; rol: 'ADMIN' | 'USUARIO' | 'CONSULTA' }>
   >({});
   const [formError, setFormError] = useState<string | null>(null);
   const [formGuardando, setFormGuardando] = useState<boolean>(false);
@@ -118,7 +118,7 @@ export const UsuariosPage: React.FC = () => {
     setFormError(null);
 
     // Inicializar matriz de empresas desmarcadas
-    const inicial: Record<number, { asignado: boolean; rol: 'ADMIN' | 'USUARIO' }> = {};
+    const inicial: Record<number, { asignado: boolean; rol: 'ADMIN' | 'USUARIO' | 'CONSULTA' }> = {};
     empresas.forEach((emp) => {
       inicial[emp.id] = { asignado: false, rol: 'USUARIO' };
     });
@@ -135,7 +135,7 @@ export const UsuariosPage: React.FC = () => {
     setFormError(null);
 
     // Mapear asignaciones existentes
-    const inicial: Record<number, { asignado: boolean; rol: 'ADMIN' | 'USUARIO' }> = {};
+    const inicial: Record<number, { asignado: boolean; rol: 'ADMIN' | 'USUARIO' | 'CONSULTA' }> = {};
     empresas.forEach((emp) => {
       const asig = u.asignaciones.find((a) => a.empresa_id === emp.id);
       if (asig && asig.activo) {
@@ -160,8 +160,8 @@ export const UsuariosPage: React.FC = () => {
       setFormError('Ingrese un correo electrónico válido.');
       return;
     }
-    if (!usuarioEditando && formPasswordInicial.length < 8) {
-      setFormError('La contraseña inicial debe tener al menos 8 caracteres.');
+    if (!usuarioEditando && formPasswordInicial.length < 10) {
+      setFormError('La contraseña inicial debe tener al menos 10 caracteres.');
       return;
     }
 
@@ -252,8 +252,8 @@ export const UsuariosPage: React.FC = () => {
   const ejecutarResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!usuarioParaReset) return;
-    if (nuevoPasswordReset.length < 8) {
-      setResetError('La nueva contraseña debe tener al menos 8 caracteres.');
+    if (nuevoPasswordReset.length < 10) {
+      setResetError('La nueva contraseña debe tener al menos 10 caracteres.');
       return;
     }
 
@@ -589,7 +589,7 @@ export const UsuariosPage: React.FC = () => {
             {!usuarioEditando && (
               <div className="sm:col-span-2">
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Contraseña inicial <span className="text-rose-500">* (mínimo 8 caracteres)</span>
+                  Contraseña inicial <span className="text-rose-500">* (mínimo 10 caracteres)</span>
                 </label>
                 <input
                   type="password"
@@ -694,13 +694,14 @@ export const UsuariosPage: React.FC = () => {
                                   ...matrizAsignaciones,
                                   [emp.id]: {
                                     ...asig,
-                                    rol: e.target.value as 'ADMIN' | 'USUARIO',
+                                    rol: e.target.value as 'ADMIN' | 'USUARIO' | 'CONSULTA',
                                   },
                                 })
                               }
                               className="w-full px-2 py-1 text-xs bg-white border border-slate-300 rounded focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-slate-100 disabled:text-slate-400 cursor-pointer font-medium"
                             >
                               <option value="USUARIO">USUARIO (Operador)</option>
+                              <option value="CONSULTA">CONSULTA (Solo lectura)</option>
                               <option value="ADMIN">ADMIN (Administrador)</option>
                             </select>
                           </td>
@@ -756,7 +757,7 @@ export const UsuariosPage: React.FC = () => {
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Nueva contraseña temporal <span className="text-rose-500">* (mínimo 8 caracteres)</span>
+              Nueva contraseña temporal <span className="text-rose-500">* (mínimo 10 caracteres)</span>
             </label>
             <div className="relative">
               <Lock className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />

@@ -15,6 +15,8 @@ export interface FilaCostoVenta {
   /** Subtotal (S.I. + Compras) con el P.U. promedio del período. */
   disponible: BloqueCosto;
   saldo_final: BloqueCosto;
+  /** Mermas y desmedros al P.U. promedio: no son costo de venta, se restan aparte (solo si hubo). */
+  mermas: BloqueCosto;
   costo_venta: BloqueCosto;
   costo_promedio: string | null;
   compras_detalle: Record<ClaveCompra, BloqueCosto>;
@@ -41,6 +43,7 @@ export interface CostoVentaResponse {
     compras: BloqueCosto;
     disponible: BloqueCosto;
     saldo_final: BloqueCosto;
+    mermas: BloqueCosto;
     costo_venta: BloqueCosto;
     compras_detalle: Record<ClaveCompra, string>;
     desglose: Record<ClaveDesglose, string>;
