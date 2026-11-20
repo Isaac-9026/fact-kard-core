@@ -319,7 +319,7 @@ export const Formato131Page: React.FC = () => {
                 <FileCheck2 className="h-5 w-5 text-slate-500" />
               </div>
               <h3 className="text-xs font-semibold text-slate-900">Seleccione los filtros para consultar el reporte oficial</h3>
-              <p className="text-[11px] text-slate-500 max-w-md mx-auto mt-0.5">
+              <p className="text-xs text-slate-600 max-w-md mx-auto mt-0.5">
                 Emisión reglamentaria de kardex permanente valorizado bajo normativa SUNAT Res. 234-2006.
               </p>
             </div>
@@ -331,7 +331,7 @@ export const Formato131Page: React.FC = () => {
                 <Inbox className="h-5 w-5" />
               </div>
               <h3 className="text-xs font-semibold text-slate-900">Sin movimientos registrados</h3>
-              <p className="text-[11px] text-slate-500 max-w-md mx-auto mt-0.5">
+              <p className="text-xs text-slate-600 max-w-md mx-auto mt-0.5">
                 No existen operaciones para el período y filtros seleccionados.
               </p>
             </div>
@@ -359,21 +359,21 @@ export const Formato131Page: React.FC = () => {
                     {/* Metadatos Técnicos SUNAT (Sin repetir RUC, Razón Social ni Período ya filtrado) */}
                     <div className="flex items-center gap-2.5 text-xs text-slate-600 flex-wrap">
                       <div className="flex items-center gap-1">
-                        <span className="text-slate-400 font-medium">Establecimiento:</span>
+                        <span className="text-slate-600 font-medium">Establecimiento:</span>
                         <span className="font-medium text-slate-800">
                           <span className="font-mono font-bold text-slate-700">{r.cabecera.establecimiento.codigo_sunat}</span> · {r.cabecera.establecimiento.nombre}
                         </span>
                       </div>
                       <span className="text-slate-300">·</span>
                       <div className="flex items-center gap-1">
-                        <span className="text-slate-400 font-medium">Tipo:</span>
+                        <span className="text-slate-600 font-medium">Tipo:</span>
                         <span className="text-slate-700">
                           <span className="font-mono font-bold text-slate-800">{r.cabecera.tipo_existencia.codigo}</span> · {r.cabecera.tipo_existencia.descripcion}
                         </span>
                       </div>
                       <span className="text-slate-300">·</span>
                       <div className="flex items-center gap-1">
-                        <span className="text-slate-400 font-medium">Unidad:</span>
+                        <span className="text-slate-600 font-medium">Unidad:</span>
                         <span className="text-slate-700">
                           <span className="font-mono font-bold text-slate-800">{r.cabecera.unidad_medida.codigo}</span> · {r.cabecera.unidad_medida.descripcion}
                         </span>
@@ -391,8 +391,8 @@ export const Formato131Page: React.FC = () => {
                         </div>
                         <span className="text-slate-200">|</span>
                         <div className="flex items-center gap-1">
-                          <span className="font-mono text-[11px] text-slate-400">SHA-256:</span>
-                          <code className="font-mono text-[11px] font-semibold text-slate-700 bg-white px-1.5 py-0.5 rounded border border-slate-200/80">
+                          <span className="font-mono text-xs text-slate-600">SHA-256:</span>
+                          <code className="font-mono text-xs font-semibold text-slate-800 bg-white px-1.5 py-0.5 rounded border border-slate-200/80">
                             {reporte.fuente_cierre.hash.slice(0, 16)}…
                           </code>
                         </div>
@@ -410,9 +410,9 @@ export const Formato131Page: React.FC = () => {
               {/* TABLA OFICIAL DE MOVIMIENTOS SUNAT                           */}
               {/* ============================================================ */}
               <div className="overflow-x-auto bg-white overscroll-contain">
-                <table className="w-full text-xs text-left border-collapse">
+                <table className="w-full text-sm text-left border-collapse">
                   <thead>
-                    <tr className="bg-slate-100 text-[11px] font-bold text-slate-800 uppercase tracking-wider text-center border-b border-slate-300">
+                    <tr className="bg-slate-100 text-xs font-bold text-slate-800 uppercase tracking-wider text-center border-b border-slate-300">
                       <th rowSpan={2} className="py-2.5 px-3 border-r border-slate-200 w-24">Fecha</th>
                       <th colSpan={3} className="py-1.5 px-3 border-r border-slate-200 bg-slate-100/90 text-slate-700">
                         Documento de Traslado / Comprobante
@@ -428,7 +428,7 @@ export const Formato131Page: React.FC = () => {
                         Saldo Final
                       </th>
                     </tr>
-                    <tr className="bg-slate-50 text-[10px] font-semibold text-slate-600 border-b border-slate-300">
+                    <tr className="bg-slate-50 text-xs font-semibold text-slate-700 border-b border-slate-300">
                       {/* Documento */}
                       <th className="py-1.5 px-2 text-center">Tipo</th>
                       <th className="py-1.5 px-2 text-center">Serie</th>
@@ -450,7 +450,7 @@ export const Formato131Page: React.FC = () => {
                       <th className="py-1.5 px-2.5 text-right font-mono font-bold text-slate-900">Costo Total</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 font-mono tabular-nums text-[11px]">
+                  <tbody className="divide-y divide-slate-100 font-mono tabular-nums text-sm">
                     {(() => {
                       // Si ya existe un movimiento de Saldo Inicial en la lista (Op. 16 o serie SI),
                       // o si el arrastre previo es cero, no mostramos fila fantasma adicional.
@@ -748,7 +748,7 @@ export const Formato131Page: React.FC = () => {
                       {/* Gran métrica de eficiencia */}
                       <div className="p-4 rounded-xl bg-emerald-50/70 border border-emerald-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div>
-                          <span className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider block">
+                          <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider block">
                             Reducción de Tiempo Operativo
                           </span>
                           <p className="text-xs text-emerald-700/90 mt-0.5">
@@ -765,7 +765,7 @@ export const Formato131Page: React.FC = () => {
                       {/* Comparativa de tiempos */}
                       <div className="grid grid-cols-2 gap-3 text-xs">
                         <div className="p-3 rounded-lg border border-slate-200 bg-slate-50/50">
-                          <span className="text-[10px] uppercase font-bold text-slate-400 block mb-1">
+                          <span className="text-xs uppercase font-bold text-slate-600 block mb-1">
                             Tiempo Proceso Previo
                           </span>
                           <div className="flex items-center gap-1.5">
@@ -777,7 +777,7 @@ export const Formato131Page: React.FC = () => {
                         </div>
 
                         <div className="p-3 rounded-lg border border-emerald-200 bg-emerald-50/30">
-                          <span className="text-[10px] uppercase font-bold text-emerald-800 block mb-1">
+                          <span className="text-xs uppercase font-bold text-emerald-800 block mb-1">
                             Tiempo Motor FACT-KARD
                           </span>
                           <div className="flex items-center gap-1.5">
@@ -785,7 +785,7 @@ export const Formato131Page: React.FC = () => {
                             <span className="font-mono text-sm font-bold text-emerald-950 tabular-nums">
                               {form.tiempo_factkard_segundos || '—'} s
                             </span>
-                            <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-100/80 px-1 rounded">
+                            <span className="text-xs text-emerald-700 font-semibold bg-emerald-100/80 px-1 rounded">
                               Instantáneo
                             </span>
                           </div>
@@ -811,7 +811,7 @@ export const Formato131Page: React.FC = () => {
                               ? 'CUADRE CONTABLE PERFECTO (100% MATCH)'
                               : 'DISCREPANCIA DETECTADA — REQUIERE CONCILIACIÓN'}
                           </strong>
-                          <p className="text-[11px] opacity-90 mt-0.5">
+                          <p className="text-xs opacity-90 mt-0.5">
                             {resultado.cuadra_100
                               ? 'El motor FACT-KARD calculó exactamente los mismos valores requeridos sin desviación.'
                               : 'Existen diferencias numéricas entre la hoja manual y los movimientos del motor oficial.'}
@@ -853,9 +853,9 @@ export const Formato131Page: React.FC = () => {
               </div>
             </CardHeader>
             <div className="overflow-x-auto">
-              <table className="w-full text-xs text-left border-collapse">
+              <table className="w-full text-sm text-left border-collapse">
                 <thead>
-                  <tr className="bg-slate-100 text-[11px] font-bold text-slate-700 uppercase tracking-wider border-b border-slate-200">
+                  <tr className="bg-slate-100 text-xs font-bold text-slate-800 uppercase tracking-wider border-b border-slate-200">
                     <th className="py-2.5 px-4 w-48">Variable Contable</th>
                     <th className="py-2.5 px-4 text-right bg-slate-50 border-r border-slate-200">
                       Manual / Hoja Excel Previa
@@ -893,18 +893,18 @@ export const Formato131Page: React.FC = () => {
                     <td className="py-3 px-4 text-center">
                       {resultado ? (
                         isZeroDiff(resultado.diferencias.cantidad) ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-300">
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-300">
                             <Check className="h-3 w-3 text-emerald-600" />
                             0.000000 · Cuadre Exacto
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-300">
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-300">
                             <AlertCircle className="h-3 w-3 text-rose-600" />
                             Discrepancia {resultado.diferencias.cantidad}
                           </span>
                         )
                       ) : (
-                        <span className="text-slate-400 font-sans text-[11px]">Pendiente de comparar</span>
+                        <span className="text-slate-600 font-sans text-xs">Pendiente de comparar</span>
                       )}
                     </td>
                   </tr>
@@ -932,18 +932,18 @@ export const Formato131Page: React.FC = () => {
                     <td className="py-3 px-4 text-center">
                       {resultado ? (
                         isZeroDiff(resultado.diferencias.cpp) ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-300">
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-300">
                             <Check className="h-3 w-3 text-emerald-600" />
                             0.000000 · Cuadre Exacto
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-300">
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-300">
                             <AlertCircle className="h-3 w-3 text-rose-600" />
                             Discrepancia {resultado.diferencias.cpp}
                           </span>
                         )
                       ) : (
-                        <span className="text-slate-400 font-sans text-[11px]">Pendiente de comparar</span>
+                        <span className="text-slate-600 font-sans text-xs">Pendiente de comparar</span>
                       )}
                     </td>
                   </tr>
@@ -971,18 +971,18 @@ export const Formato131Page: React.FC = () => {
                     <td className="py-3 px-4 text-center">
                       {resultado ? (
                         isZeroDiff(resultado.diferencias.valor) ? (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-300">
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-300">
                             <Check className="h-3 w-3 text-emerald-600" />
                             0.000000 · Cuadre Exacto
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-50 text-rose-700 border border-rose-300">
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-300">
                             <AlertCircle className="h-3 w-3 text-rose-600" />
                             Discrepancia S/ {resultado.diferencias.valor}
                           </span>
                         )
                       ) : (
-                        <span className="text-slate-400 font-sans text-[11px]">Pendiente de comparar</span>
+                        <span className="text-slate-600 font-sans text-xs">Pendiente de comparar</span>
                       )}
                     </td>
                   </tr>

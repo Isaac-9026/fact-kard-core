@@ -1,13 +1,41 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  --font-sans: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+  --font-mono: Consolas, 'Segoe UI Mono', 'Courier New', monospace;
 }
 
 :root {
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  --font-sans: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+  --font-mono: Consolas, 'Segoe UI Mono', 'Courier New', monospace;
+}
+
+/* Escalado tipográfico adaptativo por resolución de pantalla:
+   - 13.5px en laptops compactas (1366x768 nativo a 100%): vista compacta, proporcionada y sin desbordes.
+   - 15px en laptops Full HD intermedias (>= 1440px).
+   - 16.5px en monitores grandes de laboratorio y proyectores (>= 1680px o zoom 75% simulado).
+   - 17px en pantallas ultra-anchas o proyector de auditorio nativo (>= 1920px).
+*/
+html {
+  font-size: 13.5px;
+}
+
+@media (min-width: 1440px) {
+  html {
+    font-size: 15px;
+  }
+}
+
+@media (min-width: 1680px) {
+  html {
+    font-size: 16.5px;
+  }
+}
+
+@media (min-width: 1920px) {
+  html {
+    font-size: 17px;
+  }
 }
 
 body {

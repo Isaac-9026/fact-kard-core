@@ -290,7 +290,7 @@ export const CierresPage: React.FC = () => {
                 <ShieldCheck className="h-3.5 w-3.5 text-slate-500" />
                 Checklist de Reglas de Control para Cierre Oficial
               </span>
-              <span className="text-[11px] text-slate-400">Verificación técnica de inmutabilidad</span>
+              <span className="text-xs text-slate-600 font-medium">Verificación técnica de inmutabilidad</span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
@@ -305,7 +305,7 @@ export const CierresPage: React.FC = () => {
                 )}
                 <div className="min-w-0">
                   <span className="font-semibold text-slate-800 block truncate">Período seleccionado</span>
-                  <span className="text-[11px] text-slate-500 block truncate font-mono">
+                  <span className="text-xs text-slate-600 block truncate font-mono">
                     {periodo ? etiqueta(periodo) : 'Pendiente de selección'}
                   </span>
                 </div>
@@ -324,7 +324,7 @@ export const CierresPage: React.FC = () => {
                 )}
                 <div className="min-w-0">
                   <span className="font-semibold text-slate-800 block truncate">Estado vigente ABIERTO</span>
-                  <span className="text-[11px] text-slate-500 block truncate">
+                  <span className="text-xs text-slate-600 block truncate">
                     {periodo ? `Estado: ${periodo.estado}` : 'Sin período'}
                   </span>
                 </div>
@@ -343,7 +343,7 @@ export const CierresPage: React.FC = () => {
                   <span className="font-semibold text-slate-800 block truncate">
                     Rol ADMIN Contable ({admin ? 'Autorizado' : 'Requerido'})
                   </span>
-                  <span className={`text-[11px] block truncate ${admin ? 'text-emerald-700' : 'text-rose-600'}`}>
+                  <span className={`text-xs block truncate ${admin ? 'text-emerald-700' : 'text-rose-600'}`}>
                     {admin ? 'Permisos completos' : 'Requiere privilegios'}
                   </span>
                 </div>
@@ -354,7 +354,7 @@ export const CierresPage: React.FC = () => {
                 <Check className="h-4 w-4 text-emerald-600 shrink-0" />
                 <div className="min-w-0">
                   <span className="font-semibold text-slate-800 block truncate">Snapshots SHA-256 Inmutables</span>
-                  <span className="text-[11px] text-slate-500 block truncate font-mono">Firma criptográfica</span>
+                  <span className="text-xs text-slate-600 block truncate font-mono">Firma criptográfica</span>
                 </div>
               </div>
             </div>
@@ -387,7 +387,7 @@ export const CierresPage: React.FC = () => {
             <div className="overflow-x-auto">
               <table className="w-full text-xs text-left border-collapse">
                 <thead>
-                  <tr className="bg-slate-100 text-[11px] font-semibold uppercase tracking-wider text-slate-600 border-b border-slate-200">
+                  <tr className="bg-slate-100 text-xs font-bold uppercase tracking-wider text-slate-700 border-b border-slate-200">
                     <th className="py-2.5 px-3">Período</th>
                     <th className="py-2.5 px-3 text-center">Versión</th>
                     <th className="py-2.5 px-3 text-center">Estado</th>
@@ -437,7 +437,7 @@ export const CierresPage: React.FC = () => {
                           S/ {dinero(c.snapshot_resumen.valor_total_inventario_pen)}
                         </td>
                         <td className="py-2.5 px-3">
-                          <div className="flex items-center gap-1.5 text-[11px] text-slate-600" title={c.hash_resultado}>
+                          <div className="flex items-center gap-1.5 text-xs text-slate-600" title={c.hash_resultado}>
                             <Fingerprint className="h-3.5 w-3.5 text-indigo-500 shrink-0" />
                             <code className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 font-mono text-slate-700">
                               {c.hash_resultado.slice(0, 16)}…
@@ -511,7 +511,7 @@ export const CierresPage: React.FC = () => {
                       Hash SHA-256 Completo:
                     </span>
                     <span className="text-slate-300">·</span>
-                    <span className="font-mono text-[11px] text-slate-400">Sello Digital Inmutable</span>
+                    <span className="font-mono text-xs text-slate-600 font-medium">Sello Digital Inmutable</span>
                   </div>
 
                   <Button
@@ -519,7 +519,7 @@ export const CierresPage: React.FC = () => {
                     variant="outline"
                     size="xs"
                     onClick={() => copiarHash(seleccion.hash_resultado)}
-                    className="h-6 text-[11px] font-mono gap-1 text-slate-600 hover:text-slate-900"
+                    className="h-6 text-xs font-mono gap-1 text-slate-600 hover:text-slate-900"
                     title="Copiar hash SHA-256 al portapapeles"
                   >
                     {copiado ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}
@@ -614,7 +614,7 @@ export const CierresPage: React.FC = () => {
             <div className="overflow-x-auto">
               <table className="w-full text-xs text-left border-collapse">
                 <thead>
-                  <tr className="bg-slate-100 text-[11px] font-semibold uppercase tracking-wider text-slate-600 border-b border-slate-200">
+                  <tr className="bg-slate-100 text-xs font-bold uppercase tracking-wider text-slate-700 border-b border-slate-200">
                     <th className="py-2.5 px-3">Producto</th>
                     <th className="py-2.5 px-3">Establecimiento</th>
                     <th className="py-2.5 px-3 text-right">Cantidad Final</th>
@@ -656,7 +656,7 @@ export const CierresPage: React.FC = () => {
                     <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
                       Comparador de Diferencias Entre las Dos Últimas Versiones de Cierre
                     </h3>
-                    <p className="text-[11px] text-slate-500">
+                    <p className="text-xs text-slate-600">
                       Variaciones exactas de stock físico, costo promedio y valor total tras la reapertura del período
                     </p>
                   </div>
@@ -664,7 +664,7 @@ export const CierresPage: React.FC = () => {
                 <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-2xs">
                   <table className="w-full text-xs text-left border-collapse">
                     <thead>
-                      <tr className="bg-slate-100 text-[10px] font-semibold uppercase tracking-wider text-slate-600 border-b border-slate-200">
+                      <tr className="bg-slate-100 text-xs font-bold uppercase tracking-wider text-slate-700 border-b border-slate-200">
                         <th className="py-2 px-3">Producto / Código</th>
                         <th className="py-2 px-3">Establecimiento</th>
                         <th className="py-2 px-2.5 text-right">Cant. Ant.</th>
@@ -809,7 +809,7 @@ export const CierresPage: React.FC = () => {
                   placeholder="Explique la justificación o corrección contable que requiere reabrir este período..."
                   className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 resize-y"
                 />
-                <span className="text-[11px] text-slate-400 text-right block">
+                <span className="text-xs text-slate-600 font-medium text-right block">
                   {reapertura.motivo.length} / 500 caracteres
                 </span>
               </div>

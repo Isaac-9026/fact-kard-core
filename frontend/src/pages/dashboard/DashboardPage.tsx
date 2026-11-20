@@ -202,7 +202,7 @@ export const DashboardPage: React.FC = () => {
               <CalendarRange className="h-4 w-4" />
             </div>
             <div className="min-w-0 flex-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-600 block">
                 Período Operativo
               </span>
               <div className="flex items-center gap-2 mt-0.5">
@@ -219,7 +219,7 @@ export const DashboardPage: React.FC = () => {
                   </Badge>
                 ) : null}
               </div>
-              <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+              <p className="text-xs text-slate-600 mt-0.5 truncate">
                 {datos.periodo ? 'Período contable en curso' : 'Sin período seleccionado'}
               </p>
             </div>
@@ -231,7 +231,7 @@ export const DashboardPage: React.FC = () => {
               <ShieldCheck className="h-4 w-4" />
             </div>
             <div className="min-w-0 flex-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-600 block">
                 Valuación & Régimen
               </span>
               <div className="flex items-center gap-1.5 mt-0.5">
@@ -241,7 +241,7 @@ export const DashboardPage: React.FC = () => {
                 <span className="text-slate-300">·</span>
                 <span className="text-xs text-slate-700 font-medium">IGV 18%</span>
               </div>
-              <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+              <p className="text-xs text-slate-600 mt-0.5 truncate">
                 Costo Promedio Ponderado
               </p>
             </div>
@@ -263,7 +263,7 @@ export const DashboardPage: React.FC = () => {
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-600 block">
                 Control Pre-Cierre
               </span>
               <div className="mt-0.5">
@@ -279,7 +279,7 @@ export const DashboardPage: React.FC = () => {
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+              <p className="text-xs text-slate-600 mt-0.5 truncate">
                 {bloqueanCierre.length > 0 ? 'Bloquean congelamiento' : 'Sin quiebres ni inconsistencias'}
               </p>
             </div>
@@ -292,7 +292,7 @@ export const DashboardPage: React.FC = () => {
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center justify-between gap-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block truncate">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-600 block truncate">
                   Último Cierre Oficial
                 </span>
                 <Badge variant="neutral" size="xs" className="font-mono text-[9px] px-1 py-0 gap-1">
@@ -312,7 +312,7 @@ export const DashboardPage: React.FC = () => {
                   <span className="text-xs text-slate-400">{SIN_DATO}</span>
                 )}
               </div>
-              <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+              <p className="text-xs text-slate-600 mt-0.5 truncate">
                 {datos.ultimoCierre?.detalle ?? 'Snapshot inmutable'}
               </p>
             </div>
@@ -375,7 +375,7 @@ export const DashboardPage: React.FC = () => {
                 Secuencia operativa para el registro, costeo Kardex, resolución de incidencias y cierre oficial
               </CardDescription>
             </div>
-            <span className="text-[11px] font-mono font-semibold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-md self-start sm:self-auto border border-slate-200/70">
+            <span className="text-xs font-mono font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-md self-start sm:self-auto border border-slate-200/70">
               Período: {v(etiqueta)}
             </span>
           </div>
@@ -386,13 +386,13 @@ export const DashboardPage: React.FC = () => {
             <div className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-2xs flex flex-col justify-between space-y-3 relative group hover:border-indigo-300 transition-colors">
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold font-mono uppercase tracking-wider text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200/60">
+                  <span className="text-xs font-bold font-mono uppercase tracking-wider text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200/60">
                     01 CAPTURA
                   </span>
                   <Receipt className="h-4 w-4 text-slate-400 group-hover:text-indigo-600 transition-colors" />
                 </div>
                 <h4 className="font-semibold text-xs text-slate-900 pt-0.5">Captura & Registro</h4>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
+                <p className="text-xs text-slate-600 leading-relaxed">
                   Registro de comprobantes, facturas, boletas, notas y extracción automatizada XML / OCR.
                 </p>
               </div>
@@ -401,7 +401,7 @@ export const DashboardPage: React.FC = () => {
                   size="xs"
                   variant="outline"
                   onClick={() => navigate('/documentos')}
-                  className="flex-1 text-[11px] h-7 font-medium hover:border-indigo-300 hover:text-indigo-700"
+                  className="flex-1 text-xs h-8 font-semibold hover:border-indigo-300 hover:text-indigo-700"
                 >
                   Comprobantes
                 </Button>
@@ -409,7 +409,7 @@ export const DashboardPage: React.FC = () => {
                   size="xs"
                   variant="outline"
                   onClick={() => navigate('/captura-homologacion')}
-                  className="flex-1 text-[11px] h-7 font-medium hover:border-indigo-300 hover:text-indigo-700"
+                  className="flex-1 text-xs h-8 font-semibold hover:border-indigo-300 hover:text-indigo-700"
                   title="Captura XML / OCR y homologación"
                 >
                   <ScanText className="h-3 w-3 mr-1" /> Captura
@@ -421,13 +421,13 @@ export const DashboardPage: React.FC = () => {
             <div className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-2xs flex flex-col justify-between space-y-3 relative group hover:border-indigo-300 transition-colors">
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold font-mono uppercase tracking-wider text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200/60">
+                  <span className="text-xs font-bold font-mono uppercase tracking-wider text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200/60">
                     02 KARDEX
                   </span>
                   <BookOpenCheck className="h-4 w-4 text-slate-400 group-hover:text-indigo-600 transition-colors" />
                 </div>
                 <h4 className="font-semibold text-xs text-slate-900 pt-0.5">Kardex Permanente</h4>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
+                <p className="text-xs text-slate-600 leading-relaxed">
                   Cálculo automático de CPP, saldo físico continuo y valorización cronológica en PEN.
                 </p>
               </div>
@@ -437,7 +437,7 @@ export const DashboardPage: React.FC = () => {
                   variant="outline"
                   onClick={() => navigate('/kardex')}
                   data-acceso="/kardex"
-                  className="flex-1 text-[11px] h-7 font-medium hover:border-indigo-300 hover:text-indigo-700"
+                  className="flex-1 text-xs h-8 font-semibold hover:border-indigo-300 hover:text-indigo-700"
                 >
                   Ver Kardex
                 </Button>
@@ -445,7 +445,7 @@ export const DashboardPage: React.FC = () => {
                   size="xs"
                   variant="outline"
                   onClick={() => navigate('/inventario')}
-                  className="flex-1 text-[11px] h-7 font-medium hover:border-indigo-300 hover:text-indigo-700"
+                  className="flex-1 text-xs h-8 font-semibold hover:border-indigo-300 hover:text-indigo-700"
                 >
                   Stock Actual
                 </Button>
@@ -465,7 +465,7 @@ export const DashboardPage: React.FC = () => {
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <span
-                    className={`text-[10px] font-bold font-mono uppercase tracking-wider px-2 py-0.5 rounded border ${
+                    className={`text-xs font-bold font-mono uppercase tracking-wider px-2 py-0.5 rounded border ${
                       bloqueanCierre.length > 0
                         ? 'text-rose-700 bg-rose-100/90 border-rose-200'
                         : (datos.incidenciasPendientes ?? 0) > 0
@@ -486,7 +486,7 @@ export const DashboardPage: React.FC = () => {
                   />
                 </div>
                 <h4 className="font-semibold text-xs text-slate-900 pt-0.5">Control de Incidencias</h4>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
+                <p className="text-xs text-slate-600 leading-relaxed">
                   Detección y recálculo de quiebres de stock negativo o inconsistencias cronológicas.
                 </p>
               </div>
@@ -496,10 +496,10 @@ export const DashboardPage: React.FC = () => {
                   variant={bloqueanCierre.length > 0 ? 'destructive' : 'outline'}
                   onClick={() => navigate('/incidencias')}
                   data-acceso="/incidencias"
-                  className="w-full text-[11px] h-7 font-medium"
+                  className="w-full text-xs h-7 font-medium"
                 >
                   Incidencias ({datos.incidenciasPendientes ?? 0})
-                  {bloqueanCierre.length > 0 && <span className="ml-1 text-[10px]">· {bloqueanCierre.length} bloquean</span>}
+                  {bloqueanCierre.length > 0 && <span className="ml-1 text-xs">· {bloqueanCierre.length} bloquean</span>}
                 </Button>
               </div>
             </div>
@@ -508,13 +508,13 @@ export const DashboardPage: React.FC = () => {
             <div className="p-3.5 rounded-xl border border-slate-200 bg-white shadow-2xs flex flex-col justify-between space-y-3 relative group hover:border-indigo-300 transition-colors">
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-bold font-mono uppercase tracking-wider text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200/60">
+                  <span className="text-xs font-bold font-mono uppercase tracking-wider text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200/60">
                     04 CIERRE & 13.1
                   </span>
                   <Lock className="h-4 w-4 text-slate-400 group-hover:text-indigo-600 transition-colors" />
                 </div>
                 <h4 className="font-semibold text-xs text-slate-900 pt-0.5">Cierre & Formato 13.1</h4>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
+                <p className="text-xs text-slate-600 leading-relaxed">
                   Congelamiento inmutable con snapshot criptográfico SHA-256 y libro Formato 13.1.
                 </p>
               </div>
@@ -523,7 +523,7 @@ export const DashboardPage: React.FC = () => {
                   size="xs"
                   variant="outline"
                   onClick={() => navigate('/cierres')}
-                  className="flex-1 text-[11px] h-7 font-medium hover:border-indigo-300 hover:text-indigo-700"
+                  className="flex-1 text-xs h-8 font-semibold hover:border-indigo-300 hover:text-indigo-700"
                 >
                   Cierres
                 </Button>
@@ -531,7 +531,7 @@ export const DashboardPage: React.FC = () => {
                   size="xs"
                   variant="outline"
                   onClick={() => navigate('/formato-13-1')}
-                  className="flex-1 text-[11px] h-7 font-medium hover:border-indigo-300 hover:text-indigo-700"
+                  className="flex-1 text-xs h-8 font-semibold hover:border-indigo-300 hover:text-indigo-700"
                 >
                   Formato 13.1
                 </Button>
@@ -570,7 +570,7 @@ export const DashboardPage: React.FC = () => {
                     Todas las entradas, salidas y valuaciones CPP cumplen estrictamente las reglas contables del motor Kardex. No existen quiebres de stock negativo ni alteraciones cronológicas que impidan el cierre oficial.
                   </p>
                   {(datos.incidenciasPendientes ?? 0) > 0 && (
-                    <p className="text-[11px] text-emerald-700 pt-1 font-medium">
+                    <p className="text-xs text-emerald-700 pt-1 font-medium">
                       Nota de auditoría: Hay {datos.incidenciasPendientes} incidencia(s) informativas de recálculo no bloqueantes registradas en el sistema.
                     </p>
                   )}
@@ -580,7 +580,7 @@ export const DashboardPage: React.FC = () => {
               <div className="space-y-2.5">
                 <div className="text-xs text-rose-800 bg-rose-50 border border-rose-200 rounded-lg p-2.5 font-medium flex items-center justify-between">
                   <span>Se detectaron {bloqueanCierre.length} incidencia(s) crítica(s) que impiden el cierre del período:</span>
-                  <span className="font-mono text-[10px] bg-rose-200 text-rose-900 px-2 py-0.5 rounded font-bold">
+                  <span className="font-mono text-xs bg-rose-200 text-rose-900 px-2 py-0.5 rounded font-bold">
                     ACCIÓN REQUERIDA
                   </span>
                 </div>
@@ -594,10 +594,10 @@ export const DashboardPage: React.FC = () => {
                         <Badge variant="destructive" size="xs">
                           {inc.tipo}
                         </Badge>
-                        <span className="font-mono tabular-nums text-[11px] text-slate-500">
+                        <span className="font-mono tabular-nums text-xs text-slate-500">
                           {new Date(inc.detectado_en).toLocaleDateString('es-PE')}
                         </span>
-                        <span className="font-mono text-[10px] text-slate-400">· ID #{inc.id}</span>
+                        <span className="font-mono text-xs text-slate-400">· ID #{inc.id}</span>
                       </div>
                       <p className="text-xs text-slate-800 font-medium leading-snug">{inc.descripcion}</p>
                     </div>
@@ -639,7 +639,7 @@ export const DashboardPage: React.FC = () => {
                 Condiciones normativas previas al Formato 13.1
               </CardDescription>
             </div>
-            <span className="font-mono text-[10px] bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded font-semibold">
+            <span className="font-mono text-xs bg-slate-100 text-slate-600 border border-slate-200 px-2 py-0.5 rounded font-semibold">
               PRE-FLIGHT
             </span>
           </CardHeader>
@@ -653,7 +653,7 @@ export const DashboardPage: React.FC = () => {
               )}
               <div className="min-w-0">
                 <h5 className="text-xs font-semibold text-slate-900">Empresa y Período Operativo</h5>
-                <p className="text-[11px] text-slate-500 leading-tight">
+                <p className="text-xs text-slate-500 leading-tight">
                   {empresaActiva && datos.periodo
                     ? `Período ${etiqueta} (${datos.periodo.estado}) asignado a ${empresaActiva.razon_social}`
                     : 'Falta seleccionar una empresa o período contable activo'}
@@ -670,7 +670,7 @@ export const DashboardPage: React.FC = () => {
               )}
               <div className="min-w-0">
                 <h5 className="text-xs font-semibold text-slate-900">Valuación CPP en Moneda Nacional</h5>
-                <p className="text-[11px] text-slate-500 leading-tight">
+                <p className="text-xs text-slate-500 leading-tight">
                   {datos.valorTotal !== null && !cargando
                     ? `Saldo valorizado en ${formatMoney(datos.valorTotal)} (PEN) con 6 decimales operativos`
                     : 'Sin saldo valorizado o cálculo en proceso'}
@@ -687,7 +687,7 @@ export const DashboardPage: React.FC = () => {
               )}
               <div className="min-w-0">
                 <h5 className="text-xs font-semibold text-slate-900">Consistencia & Stock Físico</h5>
-                <p className="text-[11px] text-slate-500 leading-tight">
+                <p className="text-xs text-slate-500 leading-tight">
                   {bloqueanCierre.length === 0
                     ? '0 incidencias críticas · Sin quiebres negativos ni alteraciones'
                     : `${bloqueanCierre.length} incidencia(s) crítica(s) bloquean el cierre oficial`}
@@ -703,7 +703,7 @@ export const DashboardPage: React.FC = () => {
               )}
               <div className="min-w-0">
                 <h5 className="text-xs font-semibold text-slate-900">Trazabilidad Formato 13.1 y hash SHA-256</h5>
-                <p className="text-[11px] text-slate-500 leading-tight">
+                <p className="text-xs text-slate-600 leading-tight">
                   {bloqueanCierre.length === 0 && datos.periodo
                     ? 'Libro Formato 13.1 listo para congelamiento y firma inmutable'
                     : 'Requiere subsanar advertencias para habilitar el cierre definitivo'}
@@ -713,7 +713,7 @@ export const DashboardPage: React.FC = () => {
 
             {/* Enlace directo a gestión de cierres */}
             <div className="pt-2 flex items-center justify-between border-t border-slate-100 mt-2">
-              <span className="text-[11px] text-slate-400">¿Listo para cerrar el período?</span>
+              <span className="text-xs text-slate-400">¿Listo para cerrar el período?</span>
               <Button
                 size="xs"
                 variant="outline"

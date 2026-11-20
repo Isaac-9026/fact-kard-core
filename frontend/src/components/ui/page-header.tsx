@@ -34,17 +34,17 @@ export function PageHeader({
     >
       <div className="flex items-start gap-2.5">
         {icon && (
-          <div className="h-8 w-8 rounded-lg bg-indigo-50 border border-indigo-100/80 flex items-center justify-center text-indigo-600 shrink-0 shadow-2xs mt-0.5">
+          <div className="h-7.5 w-7.5 rounded-lg bg-indigo-50 border border-indigo-100/80 flex items-center justify-center text-indigo-600 shrink-0 shadow-2xs mt-0.5">
             {renderIcon()}
           </div>
         )}
         <div>
           <div className="flex items-center gap-2 flex-wrap">
-            <h1 className="text-lg font-bold tracking-tight text-slate-900 font-sans">{title}</h1>
+            <h1 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900 font-sans">{title}</h1>
             {badge}
           </div>
           {description && (
-            <p className="text-xs text-slate-500 mt-0.5 max-w-3xl leading-relaxed">{description}</p>
+            <p className="text-xs sm:text-[13px] text-slate-500 mt-0.5 max-w-3xl">{description}</p>
           )}
         </div>
       </div>

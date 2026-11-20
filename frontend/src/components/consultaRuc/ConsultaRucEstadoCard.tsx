@@ -45,7 +45,7 @@ export function ConsultaRucEstadoCard() {
           </dl>
         )}
         {estado?.oficial && !estado.disponible && (
-          <p className="text-[11px] text-slate-500">
+          <p className="text-xs text-slate-500">
             Descargue el padrón reducido desde el portal de SUNAT e impórtelo en el servidor con{' '}
             <code className="break-all rounded bg-slate-100 px-1">importar_padron_ruc</code>.
           </p>

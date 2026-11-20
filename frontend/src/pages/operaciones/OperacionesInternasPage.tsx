@@ -773,7 +773,7 @@ export const OperacionesInternasPage = () => {
             <Activity className="h-4 w-4" />
           </div>
           <div>
-            <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wider block">Total Activas</span>
+            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider block">Total Activas</span>
             <span className="font-mono text-base font-bold text-slate-900 tabular-nums">{metricas.totalActivas}</span>
           </div>
         </div>
@@ -783,7 +783,7 @@ export const OperacionesInternasPage = () => {
             <FileWarning className="h-4 w-4" />
           </div>
           <div>
-            <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wider block">Mermas / Desmedros</span>
+            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider block">Mermas / Desmedros</span>
             <span className="font-mono text-base font-bold text-slate-900 tabular-nums">{metricas.mermasDesmedros}</span>
           </div>
         </div>
@@ -793,7 +793,7 @@ export const OperacionesInternasPage = () => {
             <Package className="h-4 w-4" />
           </div>
           <div>
-            <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wider block">Consumos / Retiros</span>
+            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider block">Consumos / Retiros</span>
             <span className="font-mono text-base font-bold text-slate-900 tabular-nums">{metricas.consumosRetiros}</span>
           </div>
         </div>
@@ -803,7 +803,7 @@ export const OperacionesInternasPage = () => {
             <Coins className="h-4 w-4" />
           </div>
           <div>
-            <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wider block">Ajustes Valorizados</span>
+            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider block">Ajustes Valorizados</span>
             <span className="font-mono text-base font-bold text-slate-900 tabular-nums">{metricas.ajustes}</span>
           </div>
         </div>
@@ -957,14 +957,14 @@ export const OperacionesInternasPage = () => {
                         <TableCell className="font-semibold text-slate-800 text-xs">{s.periodo_descripcion}</TableCell>
                         <TableCell>
                           <span className="font-mono text-xs font-bold text-slate-900">{s.almacen_codigo}</span>
-                          <span className="text-[10px] text-slate-400 block truncate max-w-xs">{s.almacen_nombre}</span>
+                          <span className="text-xs text-slate-600 block truncate max-w-xs font-medium">{s.almacen_nombre}</span>
                         </TableCell>
                         <TableCell>
                           <span className="font-mono text-xs font-bold text-slate-900">{s.producto_codigo}</span>
-                          <span className="text-[10px] text-slate-500 block truncate max-w-xs">{s.producto_descripcion}</span>
+                          <span className="text-xs text-slate-700 block truncate max-w-xs font-medium">{s.producto_descripcion}</span>
                         </TableCell>
                         <TableCell className="text-center">
-                          <Badge variant="outline" className="font-mono text-[10px]">
+                          <Badge variant="outline" className="font-mono text-xs font-semibold">
                             {s.unidad_base_codigo || '—'}
                           </Badge>
                         </TableCell>
@@ -1173,7 +1173,7 @@ export const OperacionesInternasPage = () => {
                           <TableCell className="text-slate-700 text-xs">{nota.periodo_descripcion}</TableCell>
                           <TableCell>
                             <span className="font-mono text-xs font-bold text-slate-900">{nota.almacen_codigo}</span>
-                            <span className="text-[10px] text-slate-400 block truncate max-w-xs">{nota.almacen_nombre}</span>
+                            <span className="text-xs text-slate-600 block truncate max-w-xs font-medium">{nota.almacen_nombre}</span>
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-col">
@@ -1184,11 +1184,11 @@ export const OperacionesInternasPage = () => {
                                     : 'info'
                                 }
                                 size="sm"
-                                className="font-mono text-[10px]"
+                                className="font-mono text-xs font-semibold"
                               >
                                 {nota.tipo_operacion_codigo}
                               </Badge>
-                              <span className="text-[10px] text-slate-400 truncate max-w-xs mt-0.5">
+                              <span className="text-xs text-slate-600 truncate max-w-xs mt-0.5">
                                 {nota.tipo_operacion_descripcion}
                               </span>
                             </div>
@@ -1290,7 +1290,7 @@ export const OperacionesInternasPage = () => {
                                   variant="ghost"
                                   onClick={() => setNotaParaExtorno(nota)}
                                   title="Anular con extorno en Kardex"
-                                  className="text-amber-700 hover:bg-amber-50 gap-1 text-[11px]"
+                                  className="text-amber-700 hover:bg-amber-50 gap-1 text-xs"
                                 >
                                   <RotateCcw className="h-3 w-3 text-amber-600" /> Extornar
                                 </Button>
@@ -1340,7 +1340,7 @@ export const OperacionesInternasPage = () => {
         >
           <form onSubmit={guardarSaldo} className="space-y-4">
             <div className="flex items-center gap-2 pb-1">
-              <Badge variant="info" className="text-[10px]">Apertura de Ejercicio</Badge>
+              <Badge variant="info" className="text-xs">Apertura de Ejercicio</Badge>
             </div>
 
             <div className="space-y-1.5">
@@ -1418,7 +1418,7 @@ export const OperacionesInternasPage = () => {
             <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-3.5 flex items-center justify-between shadow-2xs">
               <div>
                 <span className="text-xs text-indigo-950 font-semibold block">CPP Inicial Informativo:</span>
-                <span className="text-[10px] text-slate-500">Valor Total PEN / Cantidad (ROUND_HALF_UP a 6 decimales)</span>
+                <span className="text-xs text-slate-500">Valor Total PEN / Cantidad (ROUND_HALF_UP a 6 decimales)</span>
               </div>
               <strong className="font-mono text-lg text-indigo-700 tabular-nums">
                 S/ {cppInformativo}
@@ -1626,7 +1626,7 @@ export const OperacionesInternasPage = () => {
                   <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
                     Líneas de Detalle de Productos
                   </h4>
-                  <span className="text-[10px] text-slate-400">
+                  <span className="text-xs text-slate-400">
                     {notaForm.detalles.length} {notaForm.detalles.length === 1 ? 'línea' : 'líneas'} en borrador
                   </span>
                 </div>
@@ -1663,7 +1663,7 @@ export const OperacionesInternasPage = () => {
                           <div className="flex items-center justify-between">
                             <Label required>Producto</Label>
                             {linea.producto > 0 && (
-                              <span className="text-[11px] font-mono text-slate-500">
+                              <span className="text-xs font-mono text-slate-500">
                                 Stock disp: <strong className={excedeStock ? 'text-rose-600 font-bold' : 'text-slate-800'}>{formatearDecimal(stockDisp, { min: 2, max: 4 })}</strong> {productoObj?.unidad_base?.codigo || ''}
                               </span>
                             )}
@@ -1745,7 +1745,7 @@ export const OperacionesInternasPage = () => {
                       </div>
 
                       {excedeStock && linea.producto > 0 && Number(linea.cantidad_base || 0) > 0 && (
-                        <div className="flex items-center gap-1.5 text-[11px] text-amber-700 bg-amber-50 px-2.5 py-1 rounded-md border border-amber-200">
+                        <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 px-2.5 py-1 rounded-md border border-amber-200">
                           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
                           <span>Atención: La cantidad ingresada supera el stock actual disponible ({stockDisp}). Si la nota es de salida, el motor Kardex rechazará la confirmación por stock insuficiente.</span>
                         </div>
@@ -1778,20 +1778,20 @@ export const OperacionesInternasPage = () => {
             {/* Cabecera */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 text-xs">
               <div>
-                <span className="text-[10px] text-slate-400 font-semibold uppercase block">Fecha Operación</span>
+                <span className="text-xs text-slate-400 font-semibold uppercase block">Fecha Operación</span>
                 <span className="font-mono font-medium text-slate-900">{detalleNota.fecha}</span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 font-semibold uppercase block">Período Contable</span>
+                <span className="text-xs text-slate-400 font-semibold uppercase block">Período Contable</span>
                 <span className="font-medium text-slate-800">{detalleNota.periodo_descripcion}</span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 font-semibold uppercase block">Almacén</span>
+                <span className="text-xs text-slate-400 font-semibold uppercase block">Almacén</span>
                 <span className="font-mono font-bold text-slate-900">{detalleNota.almacen_codigo}</span>
-                <span className="text-[10px] text-slate-500 block truncate">{detalleNota.almacen_nombre}</span>
+                <span className="text-xs text-slate-500 block truncate">{detalleNota.almacen_nombre}</span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 font-semibold uppercase block">Estado</span>
+                <span className="text-xs text-slate-400 font-semibold uppercase block">Estado</span>
                 <Badge
                   variant={
                     detalleNota.estado === 'CONFIRMADO'
@@ -1816,11 +1816,11 @@ export const OperacionesInternasPage = () => {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div className="rounded-lg border border-slate-200 p-2.5 bg-white">
-                  <strong className="text-slate-900 text-[11px] block">Responsable / Operador:</strong>
+                  <strong className="text-slate-900 text-xs block">Responsable / Operador:</strong>
                   <span className="text-slate-600">{detalleNota.responsable || '—'}</span>
                 </div>
                 <div className="rounded-lg border border-slate-200 p-2.5 bg-white">
-                  <strong className="text-slate-900 text-[11px] block">Sustento Legal (SUNAT):</strong>
+                  <strong className="text-slate-900 text-xs block">Sustento Legal (SUNAT):</strong>
                   <span className="text-slate-600">{detalleNota.archivo_sustento || '—'}</span>
                 </div>
               </div>
@@ -1946,7 +1946,7 @@ export const OperacionesInternasPage = () => {
                       <TableCell className="font-mono font-bold text-slate-900 text-xs">{linea.producto_codigo}</TableCell>
                       <TableCell className="text-slate-700 text-xs">{linea.producto_descripcion}</TableCell>
                       <TableCell className="text-center">
-                        <Badge variant="outline" className="font-mono text-[10px]">{linea.unidad_base_codigo || 'NIU'}</Badge>
+                        <Badge variant="outline" className="font-mono text-xs font-semibold">{linea.unidad_base_codigo || 'NIU'}</Badge>
                       </TableCell>
                       <TableCell numeric className="font-mono font-bold text-slate-900 tabular-nums">
                         {formatearDecimal(linea.cantidad_base, { min: 2, max: 8 })}
@@ -1988,22 +1988,22 @@ export const OperacionesInternasPage = () => {
           <div className="space-y-4 text-xs">
             <div className="grid grid-cols-2 gap-3 p-3.5 rounded-xl border border-slate-200 bg-slate-50/70">
               <div>
-                <span className="text-[10px] text-slate-400 font-semibold uppercase block">Período Contable</span>
+                <span className="text-xs text-slate-400 font-semibold uppercase block">Período Contable</span>
                 <span className="font-medium text-slate-900">{detalleSaldo.periodo_descripcion}</span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 font-semibold uppercase block">Estado</span>
+                <span className="text-xs text-slate-400 font-semibold uppercase block">Estado</span>
                 <Badge variant={detalleSaldo.estado === 'CONFIRMADO' ? 'success' : 'warning'} dot>
                   {detalleSaldo.estado}
                 </Badge>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 font-semibold uppercase block">Almacén Físico</span>
+                <span className="text-xs text-slate-400 font-semibold uppercase block">Almacén Físico</span>
                 <span className="font-mono font-bold text-slate-900">{detalleSaldo.almacen_codigo}</span>
                 <span className="text-slate-500 block truncate">{detalleSaldo.almacen_nombre}</span>
               </div>
               <div>
-                <span className="text-[10px] text-slate-400 font-semibold uppercase block">Producto</span>
+                <span className="text-xs text-slate-400 font-semibold uppercase block">Producto</span>
                 <span className="font-mono font-bold text-slate-900">{detalleSaldo.producto_codigo}</span>
                 <span className="text-slate-500 block truncate">{detalleSaldo.producto_descripcion}</span>
               </div>
@@ -2011,20 +2011,20 @@ export const OperacionesInternasPage = () => {
 
             <div className="grid grid-cols-3 gap-3 p-3.5 rounded-xl border border-indigo-100 bg-indigo-50/40">
               <div>
-                <span className="text-[10px] text-indigo-900 font-semibold uppercase block">Cantidad Inicial</span>
+                <span className="text-xs text-indigo-900 font-semibold uppercase block">Cantidad Inicial</span>
                 <span className="font-mono text-base font-bold text-slate-900 tabular-nums">
                   {formatearDecimal(detalleSaldo.cantidad, { min: 4, max: 8 })}
                 </span>
-                <span className="text-[10px] text-slate-400 block">{detalleSaldo.unidad_base_codigo || 'NIU'}</span>
+                <span className="text-xs text-slate-400 block">{detalleSaldo.unidad_base_codigo || 'NIU'}</span>
               </div>
               <div>
-                <span className="text-[10px] text-indigo-900 font-semibold uppercase block">Valor Total PEN</span>
+                <span className="text-xs text-indigo-900 font-semibold uppercase block">Valor Total PEN</span>
                 <span className="font-mono text-base font-bold text-slate-900 tabular-nums">
                   S/ {formatearDecimal(detalleSaldo.valor_pen)}
                 </span>
               </div>
               <div>
-                <span className="text-[10px] text-indigo-900 font-semibold uppercase block">CPP Inicial</span>
+                <span className="text-xs text-indigo-900 font-semibold uppercase block">CPP Inicial</span>
                 <span className="font-mono text-base font-bold text-indigo-700 tabular-nums">
                   S/ {formatearDecimal(detalleSaldo.cpp_inicial, { min: 6, max: 6 })}
                 </span>
@@ -2075,7 +2075,7 @@ export const OperacionesInternasPage = () => {
               <div className="leading-relaxed">
                 <strong>Advertencia de Integridad Contable:</strong> Al anular una nota confirmada, los movimientos
                 originales permanecerán intactos y se insertará un contra-asiento con{' '}
-                <code className="font-mono text-[11px] bg-amber-100 px-1 py-0.5 rounded">es_extorno = True</code> en el Kardex.
+                <code className="font-mono text-xs bg-amber-100 px-1 py-0.5 rounded">es_extorno = True</code> en el Kardex.
                 El costo promedio ponderado (CPP) y el stock de los productos afectados serán recalculados cronológicamente.
               </div>
             </div>

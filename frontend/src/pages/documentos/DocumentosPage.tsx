@@ -1025,12 +1025,12 @@ export const DocumentosPage: React.FC<DocumentosPageProps> = ({ vista = 'COMPROB
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-20">Clase</TableHead>
-                <TableHead className="w-40">Comprobante</TableHead>
-                <TableHead className="w-24">Emisión</TableHead>
+                <TableHead className="w-20 whitespace-nowrap">Clase</TableHead>
+                <TableHead className="w-40 whitespace-nowrap">Comprobante</TableHead>
+                <TableHead className="w-32 whitespace-nowrap text-center">Emisión</TableHead>
                 <TableHead>Proveedor / Cliente</TableHead>
                 <TableHead className="w-28">Moneda / TC</TableHead>
-                <TableHead numeric className="w-28">Subtotal</TableHead>
+                <TableHead numeric className="w-24">Base</TableHead>
                 <TableHead numeric className="w-24">IGV</TableHead>
                 <TableHead numeric className="w-28">Total</TableHead>
                 <TableHead className="w-32">Revisión</TableHead>
@@ -1072,43 +1072,43 @@ export const DocumentosPage: React.FC<DocumentosPageProps> = ({ vista = 'COMPROB
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-1.5 flex-wrap font-mono tabular-nums">
+                        <div className="flex items-center gap-1.5 whitespace-nowrap font-mono tabular-nums">
                           <span className="font-bold text-slate-900">
                             {doc.tipo_comprobante_codigo || 'DOC'}: {numeroComprobante(doc)}
                           </span>
                           {doc.es_nota && <Badge variant="warning" size="sm">NOTA</Badge>}
                         </div>
                       </TableCell>
-                      <TableCell numeric className="text-slate-600">
+                      <TableCell className="text-center font-mono tabular-nums whitespace-nowrap text-slate-700">
                         {doc.fecha_emision}
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col items-start gap-0.5">
-                          <span className="font-semibold text-slate-900 text-xs truncate max-w-xs">
+                          <span className="font-semibold text-slate-900 text-sm truncate max-w-sm lg:max-w-md">
                             {contraparteDocumento(doc).nombre}
                           </span>
-                          <span className="font-mono text-[10px] text-slate-400" data-testid="contraparte-documento">
+                          <span className="font-mono text-xs text-slate-500" data-testid="contraparte-documento">
                             {contraparteDocumento(doc).etiquetaDocumento}: {contraparteDocumento(doc).documento}
                           </span>
                         </div>
                       </TableCell>
                       <TableCell>
-                        <div className="flex flex-col items-start gap-0.5">
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200/60">{doc.moneda_codigo}</span>
+                        <div className="flex flex-col items-start gap-0.5 whitespace-nowrap">
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200/60">{doc.moneda_codigo}</span>
                           {doc.moneda_codigo === 'USD' && (
-                            <span className="font-mono text-[10px] text-slate-500">
+                            <span className="font-mono text-xs text-slate-600">
                               TC: {formatearDecimal(doc.monto_tc, { min: 4, max: 4, vacio: '-' })}
                             </span>
                           )}
                         </div>
                       </TableCell>
-                      <TableCell numeric className="font-medium text-slate-800">
+                      <TableCell numeric className="font-medium text-slate-800 whitespace-nowrap">
                         {formatearDecimal(doc.subtotal)}
                       </TableCell>
-                      <TableCell numeric className="text-slate-600">
+                      <TableCell numeric className="text-slate-600 whitespace-nowrap">
                         {formatearDecimal(doc.igv)}
                       </TableCell>
-                      <TableCell numeric className="font-bold text-slate-950 text-sm">
+                      <TableCell numeric className="font-bold text-slate-950 text-sm whitespace-nowrap">
                         {formatearDecimal(doc.total)}
                       </TableCell>
                       <TableCell>
@@ -1451,7 +1451,7 @@ export const DocumentosPage: React.FC<DocumentosPageProps> = ({ vista = 'COMPROB
                   <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
                     2. Líneas de Detalle del Comprobante
                   </h4>
-                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
                     {lineas.length} {lineas.length === 1 ? 'línea' : 'líneas'}
                   </span>
                 </div>
@@ -1464,7 +1464,7 @@ export const DocumentosPage: React.FC<DocumentosPageProps> = ({ vista = 'COMPROB
                   sección (min-w-0 evita que estire el modal o la página). */}
               <div className="min-w-0 overflow-x-auto rounded-xl border border-slate-200/90 bg-white shadow-2xs">
                 <table className="w-full min-w-[1600px] text-xs text-left border-collapse">
-                  <thead className="bg-slate-50/90 border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                  <thead className="bg-slate-50/90 border-b border-slate-200 text-xs font-bold uppercase tracking-wide text-slate-700">
                     <tr>
                       <th className="px-3 py-2.5 w-10 text-center">#</th>
                       {esNota && <th className="px-3 py-2.5 min-w-[260px]">Línea de origen</th>}
@@ -1708,7 +1708,7 @@ export const DocumentosPage: React.FC<DocumentosPageProps> = ({ vista = 'COMPROB
           <div className="space-y-4">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs bg-slate-50 p-3 rounded-lg border border-slate-200">
               <div>
-                <span className="text-slate-400 block">
+                <span className="text-slate-600 font-medium block">
                   {contraparteDocumento(modalDetalleDocumento).rol} ({contraparteDocumento(modalDetalleDocumento).etiquetaDocumento}):
                 </span>
                 <strong className="font-mono text-slate-800" data-testid="detalle-contraparte-documento">
@@ -1716,15 +1716,15 @@ export const DocumentosPage: React.FC<DocumentosPageProps> = ({ vista = 'COMPROB
                 </strong>
               </div>
               <div>
-                <span className="text-slate-400 block">{contraparteDocumento(modalDetalleDocumento).rol} / Razón Social:</span>
+                <span className="text-slate-600 font-medium block">{contraparteDocumento(modalDetalleDocumento).rol} / Razón Social:</span>
                 <strong className="text-slate-800">{contraparteDocumento(modalDetalleDocumento).nombre}</strong>
               </div>
               <div>
-                <span className="text-slate-400 block">Fecha Emisión:</span>
+                <span className="text-slate-600 font-medium block">Fecha Emisión:</span>
                 <strong className="font-mono text-slate-800">{modalDetalleDocumento.fecha_emision}</strong>
               </div>
               <div>
-                <span className="text-slate-400 block">Moneda / Total:</span>
+                <span className="text-slate-600 font-medium block">Moneda / Total:</span>
                 <strong className="font-mono text-slate-900 text-sm">
                   {modalDetalleDocumento.moneda_codigo} {formatearDecimal(modalDetalleDocumento.total)}
                 </strong>
@@ -1760,7 +1760,7 @@ export const DocumentosPage: React.FC<DocumentosPageProps> = ({ vista = 'COMPROB
                       <TableCell numeric>
                         {formatearDecimal(det.igv)}
                         {det.afectacion_igv && det.afectacion_igv !== 'GRAVADO' && (
-                          <span className="ml-1 text-[10px] text-slate-500">{det.afectacion_igv}</span>
+                          <span className="ml-1 text-xs text-slate-600 font-medium">{det.afectacion_igv}</span>
                         )}
                         {det.afectacion_igv === 'GRATUITO' && (
                           <CodigoAfectacionLinea

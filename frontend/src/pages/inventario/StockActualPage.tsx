@@ -147,46 +147,46 @@ export const StockActualPage: React.FC = () => {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="p-3.5 rounded-xl border border-slate-200/90 bg-white shadow-2xs">
           <div className="flex items-center justify-between text-slate-500 mb-1">
-            <span className="text-[11px] font-bold uppercase tracking-wider">Valor Total Inventario</span>
+            <span className="text-xs font-bold uppercase tracking-wider">Valor Total Inventario</span>
             <Coins className="h-4 w-4 text-emerald-600 shrink-0" />
           </div>
           <div className="font-mono text-lg sm:text-xl font-black text-slate-950 tabular-nums">
             S/ {formatearDecimal(String(totalValor))}
           </div>
-          <span className="text-[11px] text-slate-400 mt-0.5 block">Valuación oficial CPP</span>
+          <span className="text-xs text-slate-600 mt-0.5 block font-medium">Valuación oficial CPP</span>
         </div>
 
         <div className="p-3.5 rounded-xl border border-slate-200/90 bg-white shadow-2xs">
           <div className="flex items-center justify-between text-slate-500 mb-1">
-            <span className="text-[11px] font-bold uppercase tracking-wider">Existencias Físicas</span>
+            <span className="text-xs font-bold uppercase tracking-wider">Existencias Físicas</span>
             <Boxes className="h-4 w-4 text-indigo-600 shrink-0" />
           </div>
           <div className="font-mono text-lg sm:text-xl font-bold text-slate-900 tabular-nums">
             {formatearDecimal(String(totalCantidad), { min: 2, max: 2 })}
           </div>
-          <span className="text-[11px] text-slate-400 mt-0.5 block">Unidades totales disponibles</span>
+          <span className="text-xs text-slate-600 mt-0.5 block font-medium">Unidades totales disponibles</span>
         </div>
 
         <div className="p-3.5 rounded-xl border border-slate-200/90 bg-white shadow-2xs">
           <div className="flex items-center justify-between text-slate-500 mb-1">
-            <span className="text-[11px] font-bold uppercase tracking-wider">Productos con Stock</span>
+            <span className="text-xs font-bold uppercase tracking-wider">Productos con Stock</span>
             <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
           </div>
           <div className="font-mono text-lg sm:text-xl font-bold text-slate-900 tabular-nums">
             {conStock}
           </div>
-          <span className="text-[11px] text-slate-400 mt-0.5 block">Ítems con existencia activa</span>
+          <span className="text-xs text-slate-600 mt-0.5 block font-medium">Ítems con existencia activa</span>
         </div>
 
         <div className="p-3.5 rounded-xl border border-slate-200/90 bg-white shadow-2xs">
           <div className="flex items-center justify-between text-slate-500 mb-1">
-            <span className="text-[11px] font-bold uppercase tracking-wider">Sin Existencia / Agotados</span>
+            <span className="text-xs font-bold uppercase tracking-wider">Sin Existencia / Agotados</span>
             <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
           </div>
           <div className="font-mono text-lg sm:text-xl font-bold text-amber-700 tabular-nums">
             {sinStock}
           </div>
-          <span className="text-[11px] text-slate-400 mt-0.5 block">Ítems con stock 0.00</span>
+          <span className="text-xs text-slate-600 mt-0.5 block font-medium">Ítems con stock 0.00</span>
         </div>
       </div>
 
@@ -258,9 +258,9 @@ export const StockActualPage: React.FC = () => {
         </CardHeader>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left border-collapse">
+            <table className="w-full text-sm text-left border-collapse">
               <thead>
-                <tr className="bg-slate-100 text-[11px] font-semibold uppercase tracking-wider text-slate-600 border-b border-slate-200">
+                <tr className="bg-slate-100 text-xs font-bold uppercase tracking-wider text-slate-700 border-b border-slate-200">
                   <th className="py-2.5 px-3 w-32">Código</th>
                   <th className="py-2.5 px-3">Descripción</th>
                   <th className="py-2.5 px-3 w-20 text-center">Unidad</th>
@@ -271,10 +271,10 @@ export const StockActualPage: React.FC = () => {
                   <th className="py-2.5 px-3">Stock por Almacén</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 font-mono tabular-nums text-xs">
+              <tbody className="divide-y divide-slate-100 font-mono tabular-nums text-sm">
                 {visibles.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="text-center py-12 text-slate-400 text-xs font-sans">
+                    <td colSpan={8} className="text-center py-12 text-slate-600 text-sm font-sans">
                       {cargando ? (
                         <div className="flex items-center justify-center gap-2">
                           <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
@@ -284,7 +284,7 @@ export const StockActualPage: React.FC = () => {
                         <div className="space-y-1">
                           <Inbox className="h-6 w-6 text-slate-300 mx-auto mb-1" />
                           <p className="font-semibold text-slate-700">No hay productos con stock para los filtros seleccionados.</p>
-                          <p className="text-[11px] text-slate-400">
+                          <p className="text-xs text-slate-600 font-medium">
                             Ajuste el término de búsqueda o active la opción de mostrar productos sin stock.
                           </p>
                         </div>

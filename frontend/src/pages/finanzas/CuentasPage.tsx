@@ -168,7 +168,7 @@ export function CuentasPage({ tipo }: Props) {
                     <TableCell className="font-mono whitespace-nowrap">{r.tipo_comprobante_codigo} {comprobanteTexto(r.serie, r.numero || r.numero_normalizado)}</TableCell>
                     <TableCell className="min-w-[180px]">
                       <span className="block font-semibold text-slate-800">{r.tercero_razon_social || (cobrar ? 'Clientes varios' : '—')}</span>
-                      <span className="font-mono text-[11px] text-slate-500">{r.tercero_numero_documento}</span>
+                      <span className="font-mono text-xs text-slate-500">{r.tercero_numero_documento}</span>
                     </TableCell>
                     <TableCell className="font-mono whitespace-nowrap">{r.fecha_emision}</TableCell>
                     <TableCell className="font-mono whitespace-nowrap">{r.fecha_vencimiento || '—'}</TableCell>
