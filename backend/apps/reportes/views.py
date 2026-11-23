@@ -12,6 +12,7 @@ from apps.empresas.models import Periodo
 from apps.reportes.formato131_excel import generar_excel_formato_131, nombre_archivo_formato_131
 from apps.reportes.formato131_service import generar_formato_131
 from apps.reportes.costo_ventas import generar_costo_ventas
+from apps.reportes.dashboard_graficos import generar_graficos_dashboard
 from apps.reportes.piloto_service import comparar_piloto, obtener_valores_factkard
 from apps.reportes.serializers import PilotoComparacionSerializer
 from config.api import entero_param, fecha_param, paginar_lista
@@ -197,3 +198,18 @@ class CostoVentasView(APIView):
 
     def get(self, request):
         return Response(generar_costo_ventas(**filtros_costo_ventas(request)))
+
+
+class DashboardGraficosView(APIView):
+    """GET /api/reportes/dashboard-graficos/?periodo_id=&meses=&producto_id= — datos de los gráficos del dashboard."""
+    authentication_classes = (UsuarioTokenAuthentication,)
+    permission_classes = (TieneEmpresaActiva,)
+
+    def get(self, request):
+        params = request.query_params
+        return Response(generar_graficos_dashboard(
+            empresa_id=request.empresa_id,
+            periodo_id=entero_param(params, 'periodo_id'),
+            meses=entero_param(params, 'meses') or 6,
+            producto_id=entero_param(params, 'producto_id'),
+        ))

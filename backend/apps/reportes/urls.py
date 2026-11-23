@@ -1,6 +1,6 @@
 from django.urls import path
 from apps.reportes.views import (
-    CostoVentasView, Formato131ExcelView, Formato131View, KardexExcelExportView,
+    CostoVentasView, DashboardGraficosView, Formato131ExcelView, Formato131View, KardexExcelExportView,
     KardexReportView, PilotoComparadorView, RegistroComercialView,
 )
 
@@ -14,5 +14,6 @@ urlpatterns = [
     path('registro-compras/', RegistroComercialView.as_view(clase='COMPRA'), name='registro-compras'),
     path('registro-compras/excel/', RegistroComercialView.as_view(clase='COMPRA', excel=True), name='registro-compras-excel'),
     path('costo-ventas/', CostoVentasView.as_view(), name='costo-ventas'),
+    path('dashboard-graficos/', DashboardGraficosView.as_view(), name='dashboard-graficos'),
     path('piloto-comparador/', PilotoComparadorView.as_view(), name='piloto-comparador'),
 ]

@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SIN_DATO, contarPendientes, etiquetaPeriodo, periodoActivo, resumenUltimoCierre, textoODato } from './dashboard.ts';
+import {
+  SIN_DATO, contarPendientes, etiquetaPeriodo, pasosCierre, periodoActivo, resumenUltimoCierre, textoODato,
+} from './dashboard.ts';
 
 const periodos = [
   { id: 12, anio: 2026, mes: 3, estado: 'ABIERTO' },
@@ -37,4 +39,16 @@ test('un dato faltante se muestra como —, nunca como 0', () => {
   assert.equal(textoODato(''), SIN_DATO);
   assert.equal(textoODato(0), '0');
   assert.equal(textoODato('12.5', (v) => `S/ ${v}`), 'S/ 12.5');
+});
+
+test('pasos del cierre del mes', () => {
+  const periodo = { id: 1, anio: 2026, mes: 11, estado: 'ABIERTO' };
+  const base = { empresa: 'MAIZ DEL ABRA', periodo, valorTotal: '2003', pendientes: 0, bloqueantes: 0 };
+  assert.deepEqual(pasosCierre(base).map((p) => p.listo), [true, true, true, false]);
+  const bloqueado = pasosCierre({ ...base, pendientes: 2, bloqueantes: 1 });
+  assert.equal(bloqueado[2].listo, false);
+  assert.equal(bloqueado[2].detalle, '1 incidencia bloquea el cierre');
+  assert.equal(pasosCierre({ ...base, periodo: { ...periodo, estado: 'CERRADO' } })[3].listo, true);
+  const vacio = pasosCierre({ empresa: null, periodo: null, valorTotal: null, pendientes: null, bloqueantes: 0 });
+  assert.deepEqual(vacio.map((p) => p.listo), [false, false, false, false]);
 });

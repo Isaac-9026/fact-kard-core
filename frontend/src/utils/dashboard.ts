@@ -52,3 +52,47 @@ export const textoODato = (valor: string | number | null | undefined, formato?: 
   if (valor === null || valor === undefined || valor === '') return SIN_DATO;
   return formato ? formato(valor) : String(valor);
 };
+
+export interface PasoCierre { clave: string; titulo: string; detalle: string; listo: boolean }
+
+/** Pasos para cerrar el mes, en orden. Solo presenta lo que ya informan las APIs. */
+export const pasosCierre = ({
+  empresa, periodo, valorTotal, pendientes, bloqueantes,
+}: {
+  empresa: string | null;
+  periodo: PeriodoDashboard | null;
+  valorTotal: string | null;
+  pendientes: number | null;
+  bloqueantes: number;
+}): PasoCierre[] => {
+  const etiqueta = etiquetaPeriodo(periodo);
+  const cerrado = periodo?.estado === 'CERRADO';
+  return [
+    {
+      clave: 'periodo',
+      titulo: 'Empresa y período',
+      detalle: empresa && periodo ? `${etiqueta} · ${periodo.estado}` : 'Falta elegir empresa o período',
+      listo: Boolean(empresa && periodo),
+    },
+    {
+      clave: 'kardex',
+      titulo: 'Kardex valorizado',
+      detalle: valorTotal !== null ? 'Saldos al costo promedio en PEN' : 'Sin saldo valorizado',
+      listo: valorTotal !== null,
+    },
+    {
+      clave: 'incidencias',
+      titulo: 'Sin bloqueos',
+      detalle: bloqueantes > 0
+        ? `${bloqueantes} ${bloqueantes === 1 ? 'incidencia bloquea' : 'incidencias bloquean'} el cierre`
+        : (pendientes ?? 0) > 0 ? `${pendientes} pendiente(s) que no bloquean` : 'Sin incidencias críticas',
+      listo: bloqueantes === 0 && pendientes !== null,
+    },
+    {
+      clave: 'cierre',
+      titulo: 'Cierre y Formato 13.1',
+      detalle: cerrado ? 'Período cerrado' : 'Pendiente de cerrar',
+      listo: cerrado,
+    },
+  ];
+};
