@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  agregarPasswordAlCuerpo, esPedidoDeConfirmacion, esSoloConsulta, mensajeDeConfirmacion, venciaPorInactividad,
+  agregarPasswordAlCuerpo, esPedidoDeConfirmacion, esSoloConsulta, mensajeDeConfirmacion, ultimaActividad,
+  venciaPorInactividad,
 } from './seguridad.ts';
 
 test('reconoce el pedido de confirmar contraseña', () => {
@@ -36,4 +37,10 @@ test('rol CONSULTA es solo lectura (salvo el admin global)', () => {
   assert.ok(esSoloConsulta('CONSULTA'));
   assert.ok(!esSoloConsulta('CONSULTA', true));
   assert.ok(!esSoloConsulta('USUARIO'));
+});
+
+test('la actividad de otra pestaña cuenta para la inactividad', () => {
+  assert.equal(ultimaActividad(1_000, 5_000), 5_000);
+  assert.equal(ultimaActividad(7_000, 0), 7_000);
+  assert.equal(ultimaActividad(0, NaN), 0);
 });

@@ -2,6 +2,7 @@ export const CODIGO_CONFIRMACION = 'confirmacion_password';
 export const MAX_INTENTOS_CONFIRMACION = 3;
 export const MINUTOS_INACTIVIDAD = 30;
 export const CLAVE_AVISO_LOGIN = 'aviso_login';
+export const CLAVE_ULTIMA_ACTIVIDAD = 'ultima_actividad';
 export const AVISO_INACTIVIDAD = `Su sesión se cerró tras ${MINUTOS_INACTIVIDAD} minutos sin actividad. Vuelva a ingresar.`;
 
 export type RolEmpresa = 'ADMIN' | 'USUARIO' | 'CONSULTA';
@@ -42,3 +43,6 @@ export const agregarPasswordAlCuerpo = (cuerpo: unknown, password: string): stri
 export const venciaPorInactividad = (
   ultimoUsoMs: number, ahoraMs: number, minutos: number = MINUTOS_INACTIVIDAD,
 ): boolean => ahoraMs - ultimoUsoMs >= minutos * 60 * 1000;
+
+/** La actividad en cualquier pestaña mantiene viva la sesión (la cookie es compartida). */
+export const ultimaActividad = (local: number, compartida: number): number => Math.max(local || 0, compartida || 0);

@@ -157,6 +157,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // FE-002: un 401 de la sesión vigente limpia la sesión; RutaProtegida redirige a /login.
   useEffect(() => registrarManejadorSesionInvalida(logout), [logout]);
 
+  // Si otra pestaña cerró la sesión (manual o por inactividad), esta también la cierra.
+  useEffect(() => {
+    const alCambiar = (e: StorageEvent) => {
+      if (e.key !== null && e.key !== 'token' && e.key !== 'sesion_cookie') return
+      if (!leerCredencial(localStorage)) logout()
+    }
+    window.addEventListener('storage', alCambiar)
+    return () => window.removeEventListener('storage', alCambiar)
+  }, [logout])
+
   const registrarEmpresaDisponible = (empresa: EmpresaAsociada) => {
     setEmpresasDisponibles((actuales) => {
       const existe = actuales.some((disponible) => disponible.id === empresa.id);
