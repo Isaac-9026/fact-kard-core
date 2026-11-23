@@ -14,7 +14,7 @@
    - 13.5px en laptops compactas (1366x768 nativo a 100%): vista compacta, proporcionada y sin desbordes.
    - 15px en laptops Full HD intermedias (>= 1440px).
    - 16.5px en monitores grandes de laboratorio y proyectores (>= 1680px o zoom 75% simulado).
-   - 17px en pantallas ultra-anchas o proyector de auditorio nativo (>= 1920px).
+   - 17px en pantallas ultra-anchas o monitores Full HD 1080p nativos (>= 1920px o zoom 70%).
 */
 html {
   font-size: 13.5px;

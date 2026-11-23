@@ -1025,17 +1025,17 @@ export const DocumentosPage: React.FC<DocumentosPageProps> = ({ vista = 'COMPROB
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-20 whitespace-nowrap">Clase</TableHead>
-                <TableHead className="w-40 whitespace-nowrap">Comprobante</TableHead>
-                <TableHead className="w-32 whitespace-nowrap text-center">Emisión</TableHead>
-                <TableHead>Proveedor / Cliente</TableHead>
-                <TableHead className="w-28">Moneda / TC</TableHead>
-                <TableHead numeric className="w-24">Base</TableHead>
-                <TableHead numeric className="w-24">IGV</TableHead>
-                <TableHead numeric className="w-28">Total</TableHead>
-                <TableHead className="w-32">Revisión</TableHead>
-                <TableHead className="w-28">Estado</TableHead>
-                <TableHead className="w-36 text-center">Acciones</TableHead>
+                                <TableHead className="w-18 whitespace-nowrap text-center">Clase</TableHead>
+                <TableHead className="w-36 whitespace-nowrap">Comprobante</TableHead>
+                <TableHead className="w-26 whitespace-nowrap text-center">Emisión</TableHead>
+                <TableHead className="min-w-[160px] max-w-[240px] xl:max-w-[320px]">Proveedor / Cliente</TableHead>
+                <TableHead className="w-24 whitespace-nowrap">Moneda / TC</TableHead>
+                <TableHead numeric className="w-24 whitespace-nowrap">Base</TableHead>
+                <TableHead numeric className="w-20 whitespace-nowrap">IGV</TableHead>
+                <TableHead numeric className="w-24 whitespace-nowrap">Total</TableHead>
+                <TableHead className="w-26 whitespace-nowrap text-center">Revisión</TableHead>
+                <TableHead className="w-24 whitespace-nowrap text-center">Estado</TableHead>
+                <TableHead className="w-26 text-center whitespace-nowrap">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1066,7 +1066,7 @@ export const DocumentosPage: React.FC<DocumentosPageProps> = ({ vista = 'COMPROB
 
                   return (
                     <TableRow key={doc.id}>
-                      <TableCell>
+                      <TableCell className="text-center">
                         <Badge variant={esCompra ? 'info' : 'success'} size="sm">
                           {doc.clase}
                         </Badge>
@@ -1084,7 +1084,7 @@ export const DocumentosPage: React.FC<DocumentosPageProps> = ({ vista = 'COMPROB
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col items-start gap-0.5">
-                          <span className="font-semibold text-slate-900 text-sm truncate max-w-sm lg:max-w-md">
+                          <span className="font-semibold text-slate-900 text-sm truncate max-w-[160px] sm:max-w-[220px] xl:max-w-[300px]">
                             {contraparteDocumento(doc).nombre}
                           </span>
                           <span className="font-mono text-xs text-slate-500" data-testid="contraparte-documento">
@@ -1111,12 +1111,12 @@ export const DocumentosPage: React.FC<DocumentosPageProps> = ({ vista = 'COMPROB
                       <TableCell numeric className="font-bold text-slate-950 text-sm whitespace-nowrap">
                         {formatearDecimal(doc.total)}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="text-center whitespace-nowrap">
                         <Badge variant={revVariant} size="sm" dot>
                           {doc.estado_revision}
                         </Badge>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="text-center whitespace-nowrap">
                         <Badge variant={docVariant} size="sm">
                           {doc.estado}
                         </Badge>

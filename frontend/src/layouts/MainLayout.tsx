@@ -769,8 +769,7 @@ export const MainLayout: React.FC = () => {
         </header>
 
         {/* 3. CONTENIDO DE LA PÁGINA */}
-        {/* 3. CONTENIDO DE LA PÁGINA */}
-        <main className="min-w-0 flex-1 p-3.5 sm:p-5 lg:p-6 max-w-[1380px] w-full mx-auto">
+        <main className="min-w-0 flex-1 p-3.5 sm:p-5 lg:p-6 w-full max-w-[1380px] xl:max-w-[1500px] 2xl:max-w-[1700px] mx-auto">
           {soloConsulta && (
             <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-900" role="status">
               Modo solo consulta: puede ver y exportar la información, pero no registrar ni modificar operaciones.
