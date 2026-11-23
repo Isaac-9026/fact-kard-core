@@ -72,6 +72,7 @@ export const EmpresasPage: React.FC = () => {
   const {
     empresaActiva,
     empresasDisponibles,
+    empresaTransicion,
     registrarEmpresaDisponible,
     refrescarEmpresasDisponibles,
     seleccionarEmpresa,
@@ -483,7 +484,7 @@ export const EmpresasPage: React.FC = () => {
                               type="button"
                               size="sm"
                               variant={esActiva ? 'secondary' : 'outline'}
-                              disabled={esActiva}
+                              disabled={esActiva || Boolean(empresaTransicion)}
                               onClick={() => seleccionarEmpresa(e.id)}
                             >
                               {esActiva ? (

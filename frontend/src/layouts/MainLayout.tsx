@@ -70,6 +70,7 @@ import {
   resolverUrlMedia,
   type TokensTemaSidebar,
 } from '../utils/identidadEmpresa'
+import { TransicionCambioEmpresa } from '../components/TransicionCambioEmpresa'
 import { ConfirmarPasswordDialog } from '../components/seguridad/ConfirmarPasswordDialog'
 import { useCierrePorInactividad } from '../hooks/useCierrePorInactividad'
 import { ETIQUETA_ROL, esSoloConsulta, type RolEmpresa } from '../utils/seguridad'
@@ -348,7 +349,16 @@ const NavSectionGroup: React.FC<NavSectionGroupProps> = ({
 }
 
 export const MainLayout: React.FC = () => {
-  const { usuario, empresaActiva, empresasDisponibles, seleccionarEmpresa, logout } = useAuth()
+  const {
+    usuario,
+    empresaActiva,
+    empresasDisponibles,
+    empresaTransicion,
+    confirmarCambioEmpresa,
+    terminarTransicionEmpresa,
+    seleccionarEmpresa,
+    logout,
+  } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [collapsed, setCollapsed] = useState(false)
@@ -359,6 +369,17 @@ export const MainLayout: React.FC = () => {
 
   // Estado de Pantalla Completa (Full Screen API) sincronizado con eventos del navegador (F11 / Esc)
   const [esPantallaCompleta, setEsPantallaCompleta] = useState(false)
+
+  // Transición animada sutil al cambiar de empresa
+  const estaCambiando = Boolean(empresaTransicion)
+
+  const handleCambiarEmpresa = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const nuevoId = Number(e.target.value)
+    if (!nuevoId || nuevoId === empresaActiva?.id || estaCambiando) return
+
+    e.currentTarget.blur()
+    seleccionarEmpresa(nuevoId)
+  }
 
   React.useEffect(() => {
     const handleFullscreenChange = () => {
@@ -460,7 +481,16 @@ export const MainLayout: React.FC = () => {
   const logoError = logoUrl !== null && logoFallido === logoUrl
 
   return (
-    <div className="flex min-h-screen bg-slate-50/60 font-sans text-slate-900 antialiased">
+    <>
+      {/* Región viva persistente para lectores de pantalla (WCAG) */}
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {empresaTransicion ? `Cambiando a empresa ${empresaTransicion.razon_social}` : ''}
+      </div>
+
+      <div
+        inert={estaCambiando}
+        className="flex min-h-screen bg-slate-50/60 font-sans text-slate-900 antialiased"
+      >
       {/* 1. SIDEBAR IZQUIERDO (shadcn sidebar con theming dinámico periférico) */}
       <Sidebar
         id="menu-principal"
@@ -738,9 +768,10 @@ export const MainLayout: React.FC = () => {
                 <Building2 className="h-3.5 w-3.5 text-indigo-600 shrink-0" strokeWidth={1.75} />
                 <select
                   aria-label="Seleccionar empresa activa"
-                  value={empresaActiva?.id || ''}
-                  onChange={(e) => seleccionarEmpresa(Number(e.target.value))}
-                  className="bg-transparent text-xs font-semibold text-slate-800 focus:outline-none cursor-pointer max-w-[180px] sm:max-w-[260px] md:max-w-[340px] lg:max-w-[420px] truncate"
+                  value={empresaTransicion?.id ?? empresaActiva?.id ?? ''}
+                  disabled={estaCambiando}
+                  onChange={handleCambiarEmpresa}
+                  className="bg-transparent text-xs font-semibold text-slate-800 focus:outline-none cursor-pointer max-w-[180px] sm:max-w-[260px] md:max-w-[340px] lg:max-w-[420px] truncate disabled:opacity-75 disabled:cursor-wait"
                 >
                   {empresasDisponibles.map((emp) => (
                     <option key={emp.id} value={emp.id}>
@@ -769,7 +800,10 @@ export const MainLayout: React.FC = () => {
         </header>
 
         {/* 3. CONTENIDO DE LA PÁGINA */}
-        <main className="min-w-0 flex-1 p-3.5 sm:p-5 lg:p-6 w-full max-w-[1380px] xl:max-w-[1500px] 2xl:max-w-[1700px] mx-auto">
+        <main
+          key={empresaActiva?.id}
+          className="min-w-0 flex-1 p-3.5 sm:p-5 lg:p-6 w-full max-w-[1380px] xl:max-w-[1500px] 2xl:max-w-[1700px] mx-auto"
+        >
           {soloConsulta && (
             <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-900" role="status">
               Modo solo consulta: puede ver y exportar la información, pero no registrar ni modificar operaciones.
@@ -873,6 +907,15 @@ export const MainLayout: React.FC = () => {
           </div>
         </form>
       </Modal>
-    </div>
+
+      </div>
+
+      {/* Transición visual sutil al cambiar de empresa (fuera del contenedor inert) */}
+      <TransicionCambioEmpresa
+        empresa={empresaTransicion}
+        onCubierto={confirmarCambioEmpresa}
+        onTerminar={terminarTransicionEmpresa}
+      />
+    </>
   )
 }

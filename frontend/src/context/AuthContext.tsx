@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import React, { startTransition, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { getMeApi, logoutApi } from '../api/auth';
 import { registrarManejadorSesionInvalida, reiniciarControlSesion } from '../api/http';
-import type { Usuario, EmpresaAsociada, EmpresaActiva } from '../types/auth';
+import type { Usuario, EmpresaAsociada, EmpresaActiva, OpcionesSeleccionarEmpresa, AuthContextType } from '../types/auth';
 import { reconciliarEstadoEmpresas } from './authState';
 import { AuthContext } from './useAuth';
 import { borrarCredencial, guardarCredencial, leerCredencial } from '../utils/credencialSesion';
@@ -48,6 +48,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return null;
     }
   });
+
+  // Estado de transición animada al cambiar de empresa accesible por cualquier vista
+  const [empresaTransicion, setEmpresaTransicion] = useState<EmpresaAsociada | null>(null);
+  const empresaTransicionRef = useRef<EmpresaAsociada | null>(null);
 
   const persistirEstadoEmpresas = useCallback((empresas: EmpresaAsociada[]) => {
     setEmpresasDisponibles(empresas);
@@ -101,7 +105,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       .finally(() => setVerificandoSesion(false));
   }, [refrescarEmpresasDisponibles, token]);
 
-  const login = (newToken: string | null, newUsuario: Usuario, empresas: EmpresaAsociada[]) => {
+  const login = useCallback((newToken: string | null, newUsuario: Usuario, empresas: EmpresaAsociada[]) => {
     reiniciarControlSesion();
     setVerificandoSesion(false);
     // Sin token en la respuesta → sesión por cookie HttpOnly (no se guarda ningún token).
@@ -134,7 +138,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       localStorage.removeItem('empresa_id');
       localStorage.removeItem('empresa_activa');
     }
-  };
+  }, []);
 
   const logout = useCallback(() => {
     const credencial = leerCredencial(localStorage);
@@ -144,6 +148,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setUsuario(null);
     setEmpresaActiva(null);
     setEmpresasDisponibles([]);
+    empresaTransicionRef.current = null;
+    setEmpresaTransicion(null);
 
     sessionStorage.removeItem('empresa_id');
     sessionStorage.removeItem('empresa_activa');
@@ -167,7 +173,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return () => window.removeEventListener('storage', alCambiar)
   }, [logout])
 
-  const registrarEmpresaDisponible = (empresa: EmpresaAsociada) => {
+  const registrarEmpresaDisponible = useCallback((empresa: EmpresaAsociada) => {
     setEmpresasDisponibles((actuales) => {
       const existe = actuales.some((disponible) => disponible.id === empresa.id);
       const actualizadas = existe
@@ -177,11 +183,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       localStorage.setItem('empresas_disponibles', JSON.stringify(actualizadas));
       return actualizadas;
     });
-  };
+  }, []);
 
-  const seleccionarEmpresa = (empresaId: number) => {
+  const seleccionarEmpresa = useCallback((empresaId: number, opciones?: OpcionesSeleccionarEmpresa) => {
+    if (!empresaId || empresaId === empresaActiva?.id || Boolean(empresaTransicionRef.current)) return;
     const encontrada = empresasDisponibles.find((e) => e.id === empresaId);
-    if (encontrada) {
+    if (!encontrada) return;
+
+    // Modo silencioso: cambio inmediato sin overlay animado (ideal para onboarding o vistas fuera de MainLayout)
+    if (opciones?.silencioso) {
       const basicActiva: EmpresaActiva = {
         id: encontrada.id,
         ruc: encontrada.ruc,
@@ -191,13 +201,64 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         logo: encontrada.logo ?? null,
         color_tema: encontrada.color_tema ?? null,
       };
-      setEmpresaActiva(basicActiva);
-      sessionStorage.setItem('empresa_id', String(empresaId));
+      sessionStorage.setItem('empresa_id', String(encontrada.id));
       sessionStorage.setItem('empresa_activa', JSON.stringify(basicActiva));
-      localStorage.setItem('empresa_id', String(empresaId));
+      localStorage.setItem('empresa_id', String(encontrada.id));
       localStorage.setItem('empresa_activa', JSON.stringify(basicActiva));
+      startTransition(() => {
+        setEmpresaActiva(basicActiva);
+      });
+      return;
     }
-  };
+
+    empresaTransicionRef.current = encontrada;
+    setEmpresaTransicion(encontrada);
+  }, [empresasDisponibles, empresaActiva?.id]);
+
+  const confirmarCambioEmpresa = useCallback(() => {
+    const target = empresaTransicionRef.current;
+    if (!target) return;
+    const basicActiva: EmpresaActiva = {
+      id: target.id,
+      ruc: target.ruc,
+      razon_social: target.razon_social,
+      nombre_comercial: target.nombre_comercial,
+      rol: target.rol,
+      logo: target.logo ?? null,
+      color_tema: target.color_tema ?? null,
+    };
+
+    // 1. Persistencia síncrona en storage ANTES de startTransition:
+    // Garantiza que cuando los componentes se remonten y sus efectos o interceptores
+    // de Axios se ejecuten, el header X-Empresa-Id ya tenga el nuevo ID.
+    sessionStorage.setItem('empresa_id', String(target.id));
+    sessionStorage.setItem('empresa_activa', JSON.stringify(basicActiva));
+    localStorage.setItem('empresa_id', String(target.id));
+    localStorage.setItem('empresa_activa', JSON.stringify(basicActiva));
+
+    // 2. Transición reactiva de React 19 para remontar el subárbol
+    startTransition(() => {
+      setEmpresaActiva(basicActiva);
+    });
+  }, []);
+
+  const terminarTransicionEmpresa = useCallback(() => {
+    empresaTransicionRef.current = null;
+    setEmpresaTransicion(null);
+  }, []);
+
+  // Salvaguarda: si por algún motivo la animación no llama a terminarTransicionEmpresa
+  // (por ejemplo si se desmonta el layout a mitad de transición), se confirma y desbloquea tras 2s.
+  useEffect(() => {
+    if (!empresaTransicion) return;
+    const timer = setTimeout(() => {
+      if (empresaTransicionRef.current) {
+        confirmarCambioEmpresa();
+        terminarTransicionEmpresa();
+      }
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [empresaTransicion, confirmarCambioEmpresa, terminarTransicionEmpresa]);
 
   const actualizarIdentidadEmpresa = useCallback((empresaId: number, datos: { logo?: string | null; color_tema?: string | null }) => {
     setEmpresasDisponibles((actuales) => {
@@ -217,23 +278,41 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
   }, []);
 
+  const contextValue = useMemo<AuthContextType>(() => ({
+    usuario,
+    empresaActiva,
+    empresasDisponibles,
+    token,
+    isAuthenticated: !!token,
+    verificandoSesion,
+    empresaTransicion,
+    confirmarCambioEmpresa,
+    terminarTransicionEmpresa,
+    login,
+    logout,
+    registrarEmpresaDisponible,
+    refrescarEmpresasDisponibles,
+    seleccionarEmpresa,
+    actualizarIdentidadEmpresa,
+  }), [
+    usuario,
+    empresaActiva,
+    empresasDisponibles,
+    token,
+    verificandoSesion,
+    empresaTransicion,
+    confirmarCambioEmpresa,
+    terminarTransicionEmpresa,
+    login,
+    logout,
+    registrarEmpresaDisponible,
+    refrescarEmpresasDisponibles,
+    seleccionarEmpresa,
+    actualizarIdentidadEmpresa,
+  ]);
+
   return (
-    <AuthContext.Provider
-      value={{
-        usuario,
-        empresaActiva,
-        empresasDisponibles,
-        token,
-        isAuthenticated: !!token,
-        verificandoSesion,
-        login,
-        logout,
-        registrarEmpresaDisponible,
-        refrescarEmpresasDisponibles,
-        seleccionarEmpresa,
-        actualizarIdentidadEmpresa,
-      }}
-    >
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   );

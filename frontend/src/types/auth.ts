@@ -27,6 +27,10 @@ export interface EmpresaActiva {
   color_tema?: string | null;
 }
 
+export interface OpcionesSeleccionarEmpresa {
+  silencioso?: boolean;
+}
+
 export interface AuthContextType {
   usuario: Usuario | null;
   empresaActiva: EmpresaActiva | null;
@@ -34,11 +38,14 @@ export interface AuthContextType {
   token: string | null;
   isAuthenticated: boolean;
   verificandoSesion: boolean;
+  empresaTransicion: EmpresaAsociada | null;
+  confirmarCambioEmpresa: () => void;
+  terminarTransicionEmpresa: () => void;
   /** token null/ausente = sesión por cookie HttpOnly. */
   login: (token: string | null, usuario: Usuario, empresas: EmpresaAsociada[]) => void;
   logout: () => void;
   registrarEmpresaDisponible: (empresa: EmpresaAsociada) => void;
   refrescarEmpresasDisponibles: () => Promise<EmpresaAsociada[]>;
-  seleccionarEmpresa: (empresaId: number) => void;
+  seleccionarEmpresa: (empresaId: number, opciones?: OpcionesSeleccionarEmpresa) => void;
   actualizarIdentidadEmpresa?: (empresaId: number, datos: { logo?: string | null; color_tema?: string | null }) => void;
 }
