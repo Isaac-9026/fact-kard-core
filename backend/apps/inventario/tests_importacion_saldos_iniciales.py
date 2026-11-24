@@ -133,8 +133,13 @@ class ImportacionSaldosInicialesExcelTest(TestCase):
         )
 
         wb = load_workbook(io.BytesIO(resp.content))
-        self.assertIn('Saldos_Iniciales', wb.sheetnames)
-        self.assertIn('Catalogo_Productos_Activos', wb.sheetnames)
+        self.assertEqual(wb.sheetnames, ['Saldo_inicial', 'Catalogo_Productos_Activos'])
+        ws = wb['Saldo_inicial']
+        self.assertEqual([c.value for c in ws[1]], ['Código', 'FECHA', 'Tipo de Operación', 'SALDO FINAL', None, None])
+        self.assertEqual([c.value for c in ws[2]][3:], ['Cantidad', 'Costo Unitario', 'Costo Total'])
+        self.assertEqual(sorted(str(r) for r in ws.merged_cells.ranges), ['A1:A2', 'B1:B2', 'C1:C2', 'D1:F1'])
+        filas = [r for r in ws.iter_rows(min_row=3, values_only=True)]
+        self.assertEqual([(f[0], f[2]) for f in filas], [('SKU-ACEITE', 'Saldo Anterior'), ('SKU-ARROZ', 'Saldo Anterior')])
 
         ws_cat = wb['Catalogo_Productos_Activos']
         codigos = [row[0] for row in ws_cat.iter_rows(values_only=True) if row and row[0]]
@@ -178,7 +183,18 @@ class ImportacionSaldosInicialesExcelTest(TestCase):
         # Verificar que en previsualizar NO se insertó nada en la BD
         self.assertEqual(SaldoInicial.objects.filter(empresa=self.empresa).count(), 0)
 
-        # 2. Modo CONFIRMAR con auto_confirmar=True
+        # 2. Con una fila con error no se graba nada (todo o nada)
+        rechazo = self.client.post(
+            url,
+            {'archivo': self._crear_excel_bytes(filas), 'periodo': self.periodo.id, 'almacen': self.almacen.id,
+             'modo': 'CONFIRMAR', 'auto_confirmar': 'true'},
+            format='multipart', **self.headers(),
+        )
+        self.assertEqual(rechazo.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(SaldoInicial.objects.filter(empresa=self.empresa).count(), 0)
+
+        # 3. Corregido el archivo, CONFIRMAR con auto_confirmar=True
+        filas = filas[:2]
         archivo_conf = self._crear_excel_bytes(filas)
         resp_conf = self.client.post(
             url,
@@ -197,7 +213,7 @@ class ImportacionSaldosInicialesExcelTest(TestCase):
         self.assertEqual(data_conf['modo'], 'CONFIRMAR')
         self.assertEqual(data_conf['resumen']['creados'], 2)
         self.assertEqual(data_conf['resumen']['confirmados_kardex'], 2)
-        self.assertEqual(data_conf['resumen']['omitidos_por_error'], 1)
+        self.assertEqual(data_conf['resumen']['omitidos_por_error'], 0)
 
         # Verificar que los 2 saldos quedaron en estado CONFIRMADO
         saldos = SaldoInicial.objects.filter(empresa=self.empresa)
@@ -264,13 +280,121 @@ class ImportacionSaldosInicialesExcelTest(TestCase):
             format='multipart',
             **self.headers(),
         )
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        data = resp.data
-        self.assertEqual(data['resumen']['creados'], 1)  # Solo Aceite
-        self.assertEqual(data['resumen']['omitidos_por_error'], 1)  # Arroz rechazado
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)  # nada se graba
+        self.assertFalse(SaldoInicial.objects.filter(empresa=self.empresa, producto=self.prod_aceite).exists())
 
         # Comprobar que el saldo confirmado del arroz no fue alterado
         si_arroz = SaldoInicial.objects.get(empresa=self.empresa, producto=self.prod_arroz)
         self.assertEqual(si_arroz.cantidad, Decimal('80.00000000'))
         self.assertEqual(si_arroz.valor_pen, Decimal('1600.00000000'))
         self.assertEqual(si_arroz.estado, 'CONFIRMADO')
+
+
+class ImportacionSaldosFormatoClienteTest(ImportacionSaldosInicialesExcelTest):
+    """Formato del resumen de saldos del cliente: Código | FECHA | Tipo de Operación | SALDO FINAL (3 columnas)."""
+
+    # Reutiliza el setUp de la clase base sin repetir sus pruebas.
+    test_plantilla_saldos_iniciales_excel_incluye_catalogo_empresa = None
+    test_importar_saldos_iniciales_previsualizar_y_confirmar_con_kardex = None
+    test_importar_saldos_iniciales_rechaza_producto_ya_confirmado = None
+
+    def setUp(self):
+        super().setUp()
+        self.prod_cero = Producto.objects.create(
+            empresa=self.empresa, codigo_interno='011014', descripcion='PRODUCTO SIN SALDO',
+            tipo_existencia_codigo=self.tipo_01, estado='ACTIVO',
+        )
+        self.prod_grande = Producto.objects.create(
+            empresa=self.empresa, codigo_interno='021006', descripcion='PRODUCTO A GRANEL',
+            tipo_existencia_codigo=self.tipo_01, estado='ACTIVO',
+        )
+        for p in (self.prod_cero, self.prod_grande):
+            ProductoUnidad.objects.create(producto=p, unidad_codigo=self.und_kgm, factor_a_base=Decimal('1'), es_base=True)
+
+    def excel_cliente(self, filas):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = 'Hoja2'
+        ws.append(['Código', 'FECHA', 'Tipo de Operación', 'SALDO FINAL', None, None])
+        ws.append([None, None, None, 'Cantidad', 'Costo Unitario', 'Costo Total'])
+        for rango in ('A1:A2', 'B1:B2', 'C1:C2', 'D1:F1'):
+            ws.merge_cells(rango)
+        for f in filas:
+            ws.append(f)
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        buf.name = 'saldos_cliente.xlsx'
+        return buf
+
+    def subir(self, archivo, modo='PREVISUALIZAR'):
+        return self.client.post(
+            reverse('saldo-inicial-importar-excel'),
+            {'archivo': archivo, 'periodo': self.periodo.id, 'almacen': self.almacen.id, 'modo': modo, 'auto_confirmar': 'true'},
+            format='multipart', **self.headers(),
+        )
+
+    def filas_reales(self):
+        # Casos tomados del resumen real del cliente.
+        return [
+            ['SKU-ARROZ', date(2022, 12, 30), 'Saldo Anterior', 63.376, 34.77655, 2203.99904708],
+            ['011014', date(2022, 7, 22), 'Saldo Anterior', 0, 0, 2.25e-06],          # saldo cero con residuo
+            ['032120', date(2022, 12, 1), 'Saldo Anterior', 0, 0, -2e-07],            # cero, código que no existe
+            ['021006', date(2022, 12, 31), 'Saldo Anterior', 93023.395, 2.50285, 232823.986786],  # redondeo del costo
+        ]
+
+    def test_previsualiza_el_formato_del_cliente(self):
+        r = self.subir(self.excel_cliente(self.filas_reales()))
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        res = r.data['resumen']
+        self.assertEqual((res['total_filas'], res['nuevos'], res['omitidos'], res['con_error']), (4, 2, 2, 0))
+        filas = {f['codigo_interno']: f for f in r.data['filas']}
+        self.assertEqual(filas['SKU-ARROZ']['numero_fila'], 3)
+        self.assertEqual(filas['SKU-ARROZ']['valor_pen'], '2203.99904708')
+        self.assertEqual(filas['SKU-ARROZ']['cpp_inicial'], '34.776557')
+        self.assertEqual(filas['021006']['estado_fila'], 'NUEVO')
+        self.assertEqual(filas['021006']['valor_pen'], '232823.98678600')
+        self.assertEqual(filas['011014']['estado_fila'], 'OMITIDO')
+        self.assertEqual(filas['032120']['estado_fila'], 'OMITIDO')
+        self.assertEqual(res['valor_total_pen'], '235027.99')
+
+    def test_confirma_y_omite_los_saldos_cero(self):
+        r = self.subir(self.excel_cliente(self.filas_reales()), modo='CONFIRMAR')
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        self.assertEqual((r.data['resumen']['creados'], r.data['resumen']['omitidos']), (2, 2))
+        self.assertEqual(
+            set(SaldoInicial.objects.filter(empresa=self.empresa).values_list('producto__codigo_interno', 'estado')),
+            {('SKU-ARROZ', 'CONFIRMADO'), ('021006', 'CONFIRMADO')},
+        )
+        cpp = SaldoCppActual.objects.get(empresa=self.empresa, producto=self.prod_grande)
+        self.assertEqual(cpp.valor_total_pen, Decimal('232823.98678600'))
+
+    def test_errores_reales_se_detectan(self):
+        filas = [
+            ['SKU-ARROZ', None, 'Saldo Anterior', 10, 5, 80],            # 10 × 5 = 50, no 80
+            ['011014', None, 'Saldo Anterior', 0, 0, 25.5],              # cantidad 0 con valor
+            ['SKU-ACEITE', None, 'Saldo Anterior', -3, 2, -6],
+            ['NO-EXISTE', None, 'Saldo Anterior', 4, 1, 4],
+        ]
+        r = self.subir(self.excel_cliente(filas))
+        estados = {f['codigo_interno']: f['estado_fila'] for f in r.data['filas']}
+        self.assertEqual(set(estados.values()), {'ERROR'})
+        self.assertEqual(r.data['resumen']['con_error'], 4)
+        self.assertEqual(self.subir(self.excel_cliente(filas), modo='CONFIRMAR').status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(SaldoInicial.objects.filter(empresa=self.empresa).exists())
+
+    def test_la_plantilla_descargada_se_vuelve_a_importar(self):
+        resp = self.client.get(reverse('saldo-inicial-plantilla-excel'), **self.headers())
+        wb = load_workbook(io.BytesIO(resp.content))
+        ws = wb['Saldo_inicial']
+        for fila in ws.iter_rows(min_row=3):
+            if fila[0].value == 'SKU-ARROZ':
+                fila[3].value, fila[4].value, fila[5].value = 100, 18.5, 1850
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        buf.name = 'plantilla.xlsx'
+        r = self.subir(buf)
+        self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
+        res = r.data['resumen']
+        self.assertEqual((res['nuevos'], res['omitidos'], res['con_error']), (1, 3, 0))

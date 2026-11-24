@@ -209,7 +209,7 @@ export const OperacionesInternasPage = () => {
   const [procesandoImportacion, setProcesandoImportacion] = useState(false)
   const [errorImportacion, setErrorImportacion] = useState<string | null>(null)
   const [resultadoImportacion, setResultadoImportacion] = useState<ResultadoImportacionSaldosIniciales | null>(null)
-  const [filtroEstadoDiagnostico, setFiltroEstadoDiagnostico] = useState<'TODOS' | 'NUEVO' | 'ACTUALIZAR' | 'ERROR'>('TODOS')
+  const [filtroEstadoDiagnostico, setFiltroEstadoDiagnostico] = useState<'TODOS' | 'NUEVO' | 'ACTUALIZAR' | 'ERROR' | 'OMITIDO'>('TODOS')
 
   const requestRef = useRef(0)
 
@@ -2260,7 +2260,7 @@ export const OperacionesInternasPage = () => {
             {resultadoImportacion && (
               <div className="space-y-3 pt-2 border-t border-slate-200">
                 {/* KPIs de Diagnóstico */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
                   <div className="rounded-lg border border-slate-200 bg-white p-3 text-center">
                     <span className="text-xs text-slate-500 block">Total Filas</span>
                     <span className="text-lg font-bold text-slate-900">{resultadoImportacion.resumen.total_filas}</span>
@@ -2283,13 +2283,17 @@ export const OperacionesInternasPage = () => {
                     </span>
                     <span className="text-lg font-bold text-rose-700">{resultadoImportacion.resumen.con_error ?? 0}</span>
                   </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-center" title="Productos con cantidad 0: no se registran">
+                    <span className="text-xs text-slate-600 font-medium block">Omitidos (saldo 0)</span>
+                    <span className="text-lg font-bold text-slate-700">{resultadoImportacion.resumen.omitidos ?? 0}</span>
+                  </div>
                 </div>
 
                 {/* Filtro y Header de Tabla */}
                 <div className="flex items-center justify-between text-xs pt-1">
                   <span className="font-semibold text-slate-700">Detalle de pre-validación fila por fila:</span>
                   <div className="flex items-center gap-1">
-                    {(['TODOS', 'NUEVO', 'ACTUALIZAR', 'ERROR'] as const).map((filtro) => (
+                    {(['TODOS', 'NUEVO', 'ACTUALIZAR', 'ERROR', 'OMITIDO'] as const).map((filtro) => (
                       <button
                         key={filtro}
                         type="button"
@@ -2348,6 +2352,9 @@ export const OperacionesInternasPage = () => {
                               {f.estado_fila === 'ERROR' && (
                                 <Badge variant="destructive" size="xs">ERROR</Badge>
                               )}
+                              {f.estado_fila === 'OMITIDO' && (
+                                <Badge variant="neutral" size="xs">OMITIDO</Badge>
+                              )}
                             </TableCell>
                             <TableCell className="text-xs">
                               {f.observacion ? (
@@ -2385,12 +2392,13 @@ export const OperacionesInternasPage = () => {
                 {(resultadoImportacion.resumen.con_error ?? 0) > 0 ? (
                   <p className="text-xs text-rose-700 font-medium flex items-center gap-1.5">
                     <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
-                    El archivo contiene {resultadoImportacion.resumen.con_error} fila(s) con error. Corrija los códigos o importes en el Excel antes de procesar la importación definitiva.
+                    El archivo contiene {resultadoImportacion.resumen.con_error} fila(s) con error. No se importará nada hasta corregirlas en el Excel y volver a previsualizar.
                   </p>
                 ) : (
                   <p className="text-xs text-emerald-700 font-medium flex items-center gap-1.5">
                     <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
-                    Validación exitosa. Listo para procesar {(resultadoImportacion.resumen.nuevos ?? 0) + (resultadoImportacion.resumen.actualizables ?? 0)} saldo(s) inicial(es).
+                    Validación exitosa. Listo para procesar {(resultadoImportacion.resumen.nuevos ?? 0) + (resultadoImportacion.resumen.actualizables ?? 0)} saldo(s) inicial(es)
+                    {resultadoImportacion.resumen.valor_total_pen ? ` por S/ ${formatearDecimal(resultadoImportacion.resumen.valor_total_pen, { min: 2, max: 2 })}` : ''}.
                   </p>
                 )}
               </div>

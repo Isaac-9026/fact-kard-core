@@ -210,7 +210,7 @@ export interface FilaDiagnosticoSaldoInicial {
   cantidad: string;
   cpp_inicial: string;
   valor_pen: string;
-  estado_fila: 'NUEVO' | 'ACTUALIZAR' | 'ERROR';
+  estado_fila: 'NUEVO' | 'ACTUALIZAR' | 'ERROR' | 'OMITIDO';
   observacion: string;
   producto_id?: number | null;
   saldo_existente_id?: number | null;
@@ -222,6 +222,8 @@ export interface ResumenImportacionSaldoInicial {
   nuevos?: number;
   actualizables?: number;
   con_error?: number;
+  omitidos?: number;
+  valor_total_pen?: string;
   creados?: number;
   actualizados?: number;
   confirmados_kardex?: number;
