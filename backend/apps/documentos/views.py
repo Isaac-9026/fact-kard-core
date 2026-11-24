@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Q, Count
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiParameter
@@ -36,6 +37,7 @@ from apps.documentos.captura_services import (
     corregir_campo_captura,
     generar_borrador_desde_captura,
 )
+from apps.documentos.importacion_kardex_excel import MAX_ARCHIVOS, previsualizar_importacion_kardex
 from apps.usuarios.permissions import EsAdminEmpresa, RequiereConfirmacionPassword, TieneEmpresaActiva
 
 
@@ -303,6 +305,35 @@ class DocumentoCapturaSubirLoteXmlView(APIView):
 
         st = status.HTTP_201_CREATED if resumen['nuevos'] > 0 else status.HTTP_200_OK
         return Response(resumen, status=st)
+
+
+class ImportacionKardexPrevisualizarView(APIView):
+    """
+    POST /api/documentos/importacion/entradas-salidas/previsualizar/ (multipart, campo "archivos").
+    Diagnóstico del Excel Entradas y salidas sin grabar nada. Solo administradores.
+    """
+    permission_classes = [TieneEmpresaActiva, EsAdminEmpresa]
+    parser_classes = [MultiPartParser, FormParser]
+    MAX_BYTES = 10 * 1024 * 1024
+
+    def post(self, request):
+        archivos = request.FILES.getlist('archivos') or request.FILES.getlist('archivo')
+        if not archivos:
+            raise ValidationError({'archivos': 'Adjunte al menos un archivo Excel (.xlsx).'})
+        if len(archivos) > MAX_ARCHIVOS:
+            raise ValidationError({'archivos': f'Máximo {MAX_ARCHIVOS} archivos por importación.'})
+        for archivo in archivos:
+            if not archivo.name.lower().endswith('.xlsx'):
+                raise ValidationError({'archivos': f'"{archivo.name}" no es un Excel .xlsx.'})
+            if archivo.size > self.MAX_BYTES:
+                raise ValidationError({'archivos': f'"{archivo.name}" supera los 10 MB.'})
+        try:
+            resultado = previsualizar_importacion_kardex(
+                empresa_id=request.empresa_id, archivos=[(a.name, a) for a in archivos],
+            )
+        except DjangoValidationError as exc:
+            raise ValidationError(exc.message_dict if hasattr(exc, 'error_dict') else {'archivos': exc.messages})
+        return Response(resultado)
 
 
 class DocumentoCapturaListView(generics.ListAPIView):
