@@ -23,6 +23,7 @@ from apps.empresas.serializers import (
     ReabrirPeriodoSerializer,
     CierrePeriodoSerializer,
 )
+from apps.empresas.apertura_anio import abrir_anio, crear_periodo_mensual, vista_previa_anio
 from apps.empresas.services import cerrar_periodo, reabrir_periodo
 from apps.inventario.sustentos_pdf import (
     abrir_sustento_pdf,
@@ -343,25 +344,38 @@ class PeriodoListCreateView(APIView):
             context={'empresa_id': request.empresa_id}
         )
         serializer.is_valid(raise_exception=True)
+        datos = serializer.validated_data
         with transaction.atomic():
-            periodo = serializer.save()
-            registrar_auditoria(
-                empresa_id=request.empresa_id,
-                usuario_id=request.user.id,
-                accion='CREAR',
-                entidad='periodo',
-                registro_id=periodo.id,
-                valor_nuevo={
-                    'anio': periodo.anio,
-                    'mes': periodo.mes,
-                    'orden': periodo.orden,
-                    'fecha_inicio': periodo.fecha_inicio.isoformat(),
-                    'fecha_fin': periodo.fecha_fin.isoformat(),
-                    'estado': periodo.estado,
-                },
-                motivo=f'Creación de período {periodo.anio}-{periodo.mes:02d}'
+            periodo = crear_periodo_mensual(
+                empresa_id=request.empresa_id, usuario_id=request.user.id, anio=datos['anio'], mes=datos['mes'],
+                fecha_inicio=datos['fecha_inicio'], fecha_fin=datos['fecha_fin'],
             )
         return Response(PeriodoSerializer(periodo).data, status=status.HTTP_201_CREATED)
+
+
+def _exigir_admin_periodos(request):
+    if getattr(request, 'rol_empresa', None) != 'ADMIN' and not getattr(request.user, 'es_admin_global', False):
+        raise PermissionDenied("Se requieren privilegios de Administrador para crear períodos contables.")
+
+
+class PeriodoAbrirAnioView(APIView):
+    """
+    GET  /api/empresas/periodos/abrir-anio/?anio=2023  → los 12 meses: cuáles existen y cobertura de IGV.
+    POST /api/empresas/periodos/abrir-anio/ {anio, meses: [1..12]} → crea solo los que faltan.
+    """
+    permission_classes = [TieneEmpresaActiva]
+
+    def get(self, request):
+        _exigir_admin_periodos(request)
+        return Response(vista_previa_anio(empresa_id=request.empresa_id, anio=request.query_params.get('anio')))
+
+    def post(self, request):
+        _exigir_admin_periodos(request)
+        resultado = abrir_anio(
+            empresa_id=request.empresa_id, usuario=request.user,
+            anio=request.data.get('anio'), meses=request.data.get('meses'),
+        )
+        return Response(resultado, status=status.HTTP_201_CREATED if resultado['total_creados'] else status.HTTP_200_OK)
 
 
 class PeriodoReabrirView(APIView):

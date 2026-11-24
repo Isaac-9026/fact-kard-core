@@ -12,6 +12,7 @@ import {
   AlertCircle,
   Calendar,
   Layers,
+  CalendarPlus,
 } from 'lucide-react'
 import { useAuth } from '../../context/useAuth'
 import {
@@ -32,6 +33,8 @@ import { Input } from '../../components/ui/input'
 import { Select } from '../../components/ui/select'
 import { Label } from '../../components/ui/label'
 import { Modal } from '../../components/ui/modal'
+import { AbrirAnioModal } from './AbrirAnioModal'
+import { textoResultado } from '../../utils/abrirAnio'
 
 /** Primer y último día del mes (AAAA-MM-DD); null si año o mes no son válidos. */
 const rangoDelMes = (year: number, month: number) => {
@@ -57,6 +60,9 @@ export const PeriodosPage: React.FC = () => {
   const [fechaInicio, setFechaInicio] = useState(() => rangoDelMes(anio, mes)?.inicio ?? '')
   const [fechaFin, setFechaFin] = useState(() => rangoDelMes(anio, mes)?.fin ?? '')
   const [guardandoPeriodo, setGuardandoPeriodo] = useState(false)
+
+  // Modal: Abrir año
+  const [modalAnioOpen, setModalAnioOpen] = useState(false)
 
   // Modal: Configurar IGV
   const [modalIgvOpen, setModalIgvOpen] = useState(false)
@@ -250,6 +256,11 @@ export const PeriodosPage: React.FC = () => {
             <Button variant="outline" size="sm" onClick={cargarPeriodos} isLoading={loading}>
               <RotateCcw className="h-4 w-4 mr-1.5" /> Actualizar
             </Button>
+            {esAdmin && (
+              <Button variant="outline" size="sm" onClick={() => setModalAnioOpen(true)} data-testid="abrir-anio">
+                <CalendarPlus className="h-4 w-4 mr-1.5" /> Abrir año
+              </Button>
+            )}
             <Button variant="primary" size="sm" onClick={() => setModalCrearOpen(true)}>
               <Plus className="h-4 w-4 mr-1.5" /> Nuevo Período
             </Button>
@@ -432,6 +443,18 @@ export const PeriodosPage: React.FC = () => {
           </Table>
         </CardContent>
       </Card>
+
+      {modalAnioOpen && (
+        <AbrirAnioModal
+          onClose={() => setModalAnioOpen(false)}
+          onAbierto={(r) => {
+            setModalAnioOpen(false)
+            setSuccessMsg(textoResultado(r) + (r.advertencia_igv ? ` ${r.advertencia_igv}` : ''))
+            setTimeout(() => setSuccessMsg(null), r.advertencia_igv ? 12000 : 6000)
+            cargarPeriodos()
+          }}
+        />
+      )}
 
       {/* Modal: Crear Período */}
       {modalCrearOpen && (

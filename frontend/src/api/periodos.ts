@@ -82,3 +82,45 @@ export const configurarIgvPeriodo = async (
   const { data } = await apiClient.post<ConfigIgvInfo>(`/empresas/periodos/${periodoId}/igv/`, payload);
   return data;
 };
+
+/** Configuración → Períodos e IGV → «Abrir año». */
+export interface CoberturaIgvMes { cubierto: boolean; dias_sin_cobertura: number; sin_cobertura_hasta: string | null }
+
+export interface MesAnio {
+  mes: number;
+  nombre: string;
+  etiqueta: string;
+  fecha_inicio: string;
+  fecha_fin: string;
+  existe: boolean;
+  periodo_id: number | null;
+  estado: EstadoPeriodo | null;
+  igv: CoberturaIgvMes;
+}
+
+export interface VistaPreviaAnio {
+  anio: number;
+  meses: MesAnio[];
+  faltantes: number[];
+  primera_vigencia_igv: string | null;
+  advertencia_igv: string | null;
+}
+
+export interface ResultadoAbrirAnio {
+  anio: number;
+  creados: { id: number; mes: number; etiqueta: string }[];
+  existentes: number[];
+  total_creados: number;
+  total_existentes: number;
+  advertencia_igv: string | null;
+}
+
+export const obtenerVistaPreviaAnio = async (anio: number): Promise<VistaPreviaAnio> => {
+  const { data } = await apiClient.get<VistaPreviaAnio>('/empresas/periodos/abrir-anio/', { params: { anio } });
+  return data;
+};
+
+export const abrirAnio = async (anio: number, meses: number[]): Promise<ResultadoAbrirAnio> => {
+  const { data } = await apiClient.post<ResultadoAbrirAnio>('/empresas/periodos/abrir-anio/', { anio, meses });
+  return data;
+};
