@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import type { ComprobanteImportado, PrevisualizacionImportacion } from '../api/importacion.ts';
 import {
   aplicarProveedorATodas, archivosXlsx, asignarProveedor, contarPorFiltro, fechaCorta, filtrarComprobantes,
-  motivoNoConfirmable, rucValido, sinProveedor,
+  montoConSigno, motivoNoConfirmable, nombreArchivoDiferencias, rucValido, signoMonto, sinProveedor,
 } from './importacionExcel.ts';
 
 const comp = (serie: string, extra: Partial<ComprobanteImportado> = {}): ComprobanteImportado => ({
@@ -69,4 +69,23 @@ test('RUC, fechas y archivos', () => {
   const archivos = [new File(['x'], 'a.xlsx'), new File(['x'], 'b.csv'), new File(['x'], 'C.XLSX')];
   assert.deepEqual(archivosXlsx(archivos).rechazados, ['b.csv']);
   assert.equal(archivosXlsx(archivos).validos.length, 2);
+});
+
+test('diferencias: signo de montos en texto, sin pasar por número', () => {
+  assert.equal(signoMonto('-4.00'), -1);
+  assert.equal(signoMonto('2.50'), 1);
+  assert.equal(signoMonto('0.00'), 0);
+  assert.equal(signoMonto('-0.00'), 0);
+  assert.equal(signoMonto(null), 0);
+  assert.equal(montoConSigno('2.50'), '+2.50');
+  assert.equal(montoConSigno('-4.00'), '-4.00');
+  assert.equal(montoConSigno('0.00'), '0.00');
+  assert.equal(montoConSigno(null), '—');
+  assert.equal(montoConSigno('12345678901234567890.12'), '+12345678901234567890.12');
+});
+
+test('diferencias: nombre del Excel según filtros', () => {
+  assert.equal(nombreArchivoDiferencias(46, {}), 'diferencias_lote_46.xlsx');
+  assert.equal(nombreArchivoDiferencias(46, { producto: 3, nivel: 'ROJO' }, '011004'), 'diferencias_lote_46_011004_rojo.xlsx');
+  assert.equal(nombreArchivoDiferencias(46, { producto: 3 }, '../x y'), 'diferencias_lote_46_xy.xlsx');
 });

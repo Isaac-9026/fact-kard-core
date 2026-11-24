@@ -427,6 +427,35 @@ class ImportacionLoteAnularView(APIView):
         ))
 
 
+class ImportacionLoteDiferenciasView(APIView):
+    """GET /api/documentos/importacion/lotes/<id>/diferencias/?producto=&nivel= — costo Excel vs costo del Kardex."""
+    permission_classes = [TieneEmpresaActiva, EsAdminEmpresa]
+
+    def get(self, request, pk):
+        from apps.documentos.importacion_kardex_diferencias import diferencias_lote_json
+        return Response(diferencias_lote_json(
+            request.empresa_id, pk, request.query_params.get('producto'), request.query_params.get('nivel') or None,
+        ))
+
+
+class ImportacionLoteDiferenciasExcelView(APIView):
+    """GET /api/documentos/importacion/lotes/<id>/diferencias/excel/ — el mismo cuadro en .xlsx."""
+    permission_classes = [TieneEmpresaActiva, EsAdminEmpresa]
+
+    def get(self, request, pk):
+        from django.http import HttpResponse
+        from apps.documentos.importacion_kardex_diferencias import exportar_diferencias_excel
+        archivo = exportar_diferencias_excel(
+            request.empresa_id, pk, request.query_params.get('producto'), request.query_params.get('nivel') or None,
+        )
+        respuesta = HttpResponse(
+            archivo.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        respuesta['Content-Disposition'] = f'attachment; filename="diferencias_lote_{pk}.xlsx"'
+        return respuesta
+
+
 class DocumentoCapturaListView(generics.ListAPIView):
     """Lista las capturas realizadas por la empresa activa."""
     permission_classes = [TieneEmpresaActiva]

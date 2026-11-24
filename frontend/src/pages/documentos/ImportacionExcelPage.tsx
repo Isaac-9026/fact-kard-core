@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  AlertCircle, ArrowLeft, CheckCircle2, Download, FileSpreadsheet, History, Loader2, Lock, Upload, XCircle,
+  AlertCircle, ArrowLeft, CheckCircle2, Download, FileSpreadsheet, History, Loader2, Lock, Scale, Upload, XCircle,
 } from 'lucide-react';
 import { useAuth } from '../../context/useAuth';
 import { getAlmacenes, getTerceros, type Almacen, type Tercero } from '../../api/inventario';
@@ -15,6 +15,7 @@ import { Button } from '../../components/ui/button';
 import { Badge } from '../../components/ui/badge';
 import { Modal } from '../../components/ui/modal';
 import { Tabs, TabsList, TabsTrigger } from '../../components/ui/tabs';
+import { DiferenciasLote } from './DiferenciasLote';
 import { descargarBlob } from '../../utils/descargaArchivo';
 import { diferirCarga } from '../../utils/efectos';
 import { mensajesDeErrorApi } from '../../utils/errores';
@@ -329,6 +330,7 @@ const LotesImportados: React.FC<{ recarga: number }> = ({ recarga }) => {
   const [lotes, setLotes] = useState<LoteImportacion[]>([]);
   const [cargando, setCargando] = useState(true);
   const [anulando, setAnulando] = useState<LoteImportacion | null>(null);
+  const [viendo, setViendo] = useState<number | null>(null);
   const [motivo, setMotivo] = useState('');
   const [procesando, setProcesando] = useState(false);
   const [errores, setErrores] = useState<string[]>([]);
@@ -404,9 +406,14 @@ const LotesImportados: React.FC<{ recarga: number }> = ({ recarga }) => {
                   <td className="px-3 py-2">{l.creado_por ?? '—'}</td>
                   <td className="px-3 py-2 text-right">
                     {l.estado === 'CONFIRMADO' && (
-                      <Button size="xs" variant="outline" className="text-rose-700" onClick={() => { setAnulando(l); setMotivo(''); setErrores([]); setExito(''); }}>
-                        <XCircle className="mr-1 h-3.5 w-3.5" /> Anular lote
-                      </Button>
+                      <div className="flex justify-end gap-1.5">
+                        <Button size="xs" variant={viendo === l.id ? 'primary' : 'outline'} onClick={() => setViendo(viendo === l.id ? null : l.id)}>
+                          <Scale className="mr-1 h-3.5 w-3.5" /> Diferencias
+                        </Button>
+                        <Button size="xs" variant="outline" className="text-rose-700" onClick={() => { setAnulando(l); setMotivo(''); setErrores([]); setExito(''); }}>
+                          <XCircle className="mr-1 h-3.5 w-3.5" /> Anular lote
+                        </Button>
+                      </div>
                     )}
                   </td>
                 </tr>
@@ -418,6 +425,10 @@ const LotesImportados: React.FC<{ recarga: number }> = ({ recarga }) => {
           </table>
         </CardContent>
       </Card>
+
+      {viendo !== null && lotes.some((l) => l.id === viendo && l.estado === 'CONFIRMADO') && (
+        <DiferenciasLote key={viendo} loteId={viendo} onCerrar={() => setViendo(null)} />
+      )}
 
       <Modal
         isOpen={Boolean(anulando)} onClose={() => { if (!procesando) setAnulando(null); }}

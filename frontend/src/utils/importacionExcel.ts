@@ -3,7 +3,9 @@
  * para compras sin RUC y cuándo se puede confirmar). Sin aritmética de montos: los importes
  * los calcula el backend.
  */
-import type { ComprobanteImportado, EstadoComprobanteImportado, PrevisualizacionImportacion } from '../api/importacion.ts';
+import type {
+  ComprobanteImportado, EstadoComprobanteImportado, FiltrosDiferencias, NivelDiferencia, PrevisualizacionImportacion,
+} from '../api/importacion.ts';
 
 export type FiltroImportacion = 'TODOS' | EstadoComprobanteImportado | 'OBSERVADOS' | 'SIN_PROVEEDOR';
 
@@ -104,3 +106,30 @@ export const archivosXlsx = (archivos: File[]): { validos: File[]; rechazados: s
   validos: archivos.filter((a) => a.name.toLowerCase().endsWith('.xlsx')),
   rechazados: archivos.filter((a) => !a.name.toLowerCase().endsWith('.xlsx')).map((a) => a.name),
 });
+
+// ── Paso 4: diferencias costo Excel vs Kardex ──
+export const ETIQUETA_NIVEL: Record<NivelDiferencia, string> = {
+  VERDE: 'OK',
+  AMBAR: 'Error A · menor',
+  ROJO: 'Error B · crítica',
+};
+
+export const VARIANTE_NIVEL = { VERDE: 'success', AMBAR: 'warning', ROJO: 'destructive' } as const;
+
+/** Signo de un monto que llega como texto del backend (sin convertirlo a número). */
+export const signoMonto = (valor: string | null): -1 | 0 | 1 => {
+  if (!valor) return 0;
+  const limpio = valor.trim();
+  if (/^-?0*(\.0*)?$/.test(limpio)) return 0;
+  return limpio.startsWith('-') ? -1 : 1;
+};
+
+/** Texto de un monto con signo explícito: "+2.50", "-4.00", "0.00"; "—" si no hay dato. */
+export const montoConSigno = (valor: string | null): string => {
+  if (valor === null || valor === undefined || valor === '') return '—';
+  return signoMonto(valor) === 1 && !valor.startsWith('+') ? `+${valor}` : valor;
+};
+
+export const nombreArchivoDiferencias = (loteId: number, filtros: FiltrosDiferencias, codigoProducto?: string): string =>
+  ['diferencias_lote', String(loteId), filtros.producto && codigoProducto ? codigoProducto : '', filtros.nivel ? filtros.nivel.toLowerCase() : '']
+    .filter(Boolean).join('_').replace(/[^A-Za-z0-9_-]/g, '') + '.xlsx';

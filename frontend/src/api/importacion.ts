@@ -124,3 +124,52 @@ export interface ResultadoAnulacionLote { lote: number; estado: 'ANULADO'; compr
 
 export const anularLoteImportacion = async (id: number, motivo: string): Promise<ResultadoAnulacionLote> =>
   (await apiClient.post<ResultadoAnulacionLote>(`${BASE}/lotes/${id}/anular/`, { motivo }, { timeout: 180_000 })).data;
+
+export type NivelDiferencia = 'VERDE' | 'AMBAR' | 'ROJO';
+
+export interface FiltrosDiferencias { producto?: number | null; nivel?: NivelDiferencia | null }
+
+export interface LineaDiferencia {
+  detalle_id: number;
+  documento_id: number;
+  fecha: string;
+  comprobante: string;
+  operacion: string;
+  producto_id: number;
+  producto_codigo: string;
+  producto: string;
+  cantidad: string;
+  costo_unitario_excel: string | null;
+  costo_unitario_sistema: string | null;
+  diferencia_unitaria: string | null;
+  porcentaje: string | null;
+  costo_total_excel: string | null;
+  costo_total_sistema: string | null;
+  diferencia_total: string | null;
+  nivel: NivelDiferencia;
+  motivo: string;
+}
+
+export interface DiferenciasLote {
+  lote: { id: number; estado: string };
+  umbrales: { tolerancia: string; ambar_pct: string };
+  productos: { id: number; codigo: string; descripcion: string }[];
+  resumen: {
+    lineas: number; verde: number; ambar: number; rojo: number;
+    valor_excel: string; valor_sistema: string; diferencia_neta: string; diferencia_absoluta: string;
+  };
+  lineas: LineaDiferencia[];
+}
+
+const paramsDiferencias = (f: FiltrosDiferencias) => ({
+  ...(f.producto ? { producto: String(f.producto) } : {}),
+  ...(f.nivel ? { nivel: f.nivel } : {}),
+});
+
+export const obtenerDiferenciasLote = async (id: number, filtros: FiltrosDiferencias): Promise<DiferenciasLote> =>
+  (await apiClient.get<DiferenciasLote>(`${BASE}/lotes/${id}/diferencias/`, { params: paramsDiferencias(filtros), timeout: 120_000 })).data;
+
+export const descargarDiferenciasLote = async (id: number, filtros: FiltrosDiferencias): Promise<Blob> =>
+  (await apiClient.get(`${BASE}/lotes/${id}/diferencias/excel/`, {
+    params: paramsDiferencias(filtros), responseType: 'blob', timeout: 120_000,
+  })).data;
