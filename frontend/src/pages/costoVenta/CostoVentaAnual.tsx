@@ -20,11 +20,11 @@ import { aniosDePeriodos, esCero } from '../../utils/costoVenta'
 
 const monto = (valor?: string | null) => formatearDecimal(valor)
 
-const COLUMNAS: { clave: 'saldo_inicial' | 'compras' | 'saldo_final' | 'mermas'; titulo: string }[] = [
+const COLUMNAS: { clave: 'saldo_inicial' | 'compras' | 'saldo_final' | 'no_atribuibles'; titulo: string }[] = [
   { clave: 'saldo_inicial', titulo: 'Saldo inicial' },
   { clave: 'compras', titulo: '+ Compras' },
-  { clave: 'saldo_final', titulo: '− Saldo final' },
-  { clave: 'mermas', titulo: '− Mermas' },
+  { clave: 'saldo_final', titulo: '− Saldo final (Kardex)' },
+  { clave: 'no_atribuibles', titulo: '− Salidas que no son ventas' },
 ]
 
 export function CostoVentaAnual({ periodos, productos }: { periodos: Periodo[]; productos: Producto[] }) {
@@ -50,7 +50,7 @@ export function CostoVentaAnual({ periodos, productos }: { periodos: Periodo[]; 
     }
   }
 
-  const hayMermas = !!datos && !esCero(datos.total.mermas)
+  const hayNoVentas = !!datos && !esCero(datos.total.no_atribuibles)
   const nombreProducto = datos?.producto_id
     ? productos.find((p) => p.id === datos.producto_id)?.codigo_interno ?? `#${datos.producto_id}`
     : 'todos los productos'
@@ -90,7 +90,8 @@ export function CostoVentaAnual({ periodos, productos }: { periodos: Periodo[]; 
             <CardDescription>
               {datos.empresa.razon_social} · RUC {datos.empresa.ruc} · importes en soles
               <span className="mt-1 block text-[11px] text-slate-500" data-testid="metodo-costo-venta">
-                <b>Método: Suma de costos mensuales.</b> {datos.metodo.replace(/^Suma de costos mensuales:\s*/, '')}
+                <b>Método: suma mensual del costo según Kardex.</b> Cada mes = saldo inicial + compras − saldo final según el Kardex,
+                menos las salidas que no son ventas. Las columnas amarillas comparan con el promedio ponderado de cada mes.
               </span>
             </CardDescription>
           </CardHeader>
@@ -99,42 +100,42 @@ export function CostoVentaAnual({ periodos, productos }: { periodos: Periodo[]; 
               <TableHeader>
                 <TableRow>
                   <TableHead>Mes</TableHead>
-                  {COLUMNAS.filter((c) => c.clave !== 'mermas' || hayMermas).map((c) => (
+                  {COLUMNAS.filter((c) => c.clave !== 'no_atribuibles' || hayNoVentas).map((c) => (
                     <TableHead key={c.clave} numeric>{c.titulo}</TableHead>
                   ))}
-                  <TableHead numeric>Costo de venta del mes</TableHead>
-                  <TableHead numeric>Según Kardex</TableHead>
-                  <TableHead numeric>Diferencia por método</TableHead>
+                  <TableHead numeric>Costo de venta (Kardex)</TableHead>
+                  <TableHead numeric className="bg-amber-50">Comparación: promedio mensual</TableHead>
+                  <TableHead numeric className="bg-amber-50">Diferencia (promedio − Kardex)</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {datos.meses.map((m) => (
                   <TableRow key={m.periodo.id}>
-                    <TableCell className="font-mono">{m.periodo.etiqueta}</TableCell>
-                    {COLUMNAS.filter((c) => c.clave !== 'mermas' || hayMermas).map((c) => (
+                    <TableCell className="whitespace-nowrap font-mono">{m.periodo.etiqueta}</TableCell>
+                    {COLUMNAS.filter((c) => c.clave !== 'no_atribuibles' || hayNoVentas).map((c) => (
                       <TableCell key={c.clave} numeric>{monto(m[c.clave])}</TableCell>
                     ))}
                     <TableCell numeric className="font-semibold">{monto(m.costo_venta)}</TableCell>
-                    <TableCell numeric className="text-slate-600">{monto(m.costo_venta_kardex)}</TableCell>
-                    <TableCell numeric className={esCero(m.diferencia_metodo) ? 'text-slate-400' : 'text-amber-700'}>
+                    <TableCell numeric className="bg-amber-50/40 text-slate-600">{monto(m.costo_venta_promedio)}</TableCell>
+                    <TableCell numeric className={`bg-amber-50/40 ${esCero(m.diferencia_metodo) ? 'text-slate-400' : 'text-amber-700'}`}>
                       {monto(m.diferencia_metodo)}
                     </TableCell>
                   </TableRow>
                 ))}
                 <TableRow className="bg-indigo-50 font-semibold" data-testid="total-anual">
-                  <TableCell>Total {datos.anio}</TableCell>
-                  {COLUMNAS.filter((c) => c.clave !== 'mermas' || hayMermas).map((c) => (
+                  <TableCell className="whitespace-nowrap">Total {datos.anio}</TableCell>
+                  {COLUMNAS.filter((c) => c.clave !== 'no_atribuibles' || hayNoVentas).map((c) => (
                     <TableCell key={c.clave} numeric>{monto(datos.total[c.clave])}</TableCell>
                   ))}
                   <TableCell numeric className="text-base">{monto(datos.total.costo_venta)}</TableCell>
-                  <TableCell numeric>{monto(datos.total.costo_venta_kardex)}</TableCell>
+                  <TableCell numeric>{monto(datos.total.costo_venta_promedio)}</TableCell>
                   <TableCell numeric className="text-amber-700">{monto(datos.total.diferencia_metodo)}</TableCell>
                 </TableRow>
               </TableBody>
             </Table>
             <p className="px-4 py-3 text-xs text-slate-500">
-              En la fila Total, el saldo inicial es el de enero y el saldo final el del último mes; compras, mermas y costos son la suma de los meses.
-              «Según Kardex» es el costo con el promedio móvil, que cambia con cada compra.
+              En la fila Total, el saldo inicial es el de enero y el saldo final el del último mes; compras, salidas y costos son la suma de los meses.
+              El costo según Kardex cuadra con el inventario valorizado; el promedio mensual es solo una comparación.
             </p>
           </CardContent>
         </Card>

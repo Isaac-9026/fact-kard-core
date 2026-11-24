@@ -28,7 +28,7 @@ import { CostoVentaAnual } from './CostoVentaAnual'
 import { formatearDecimal } from '../../utils/decimal'
 import { mensajesDeErrorApi } from '../../utils/errores'
 import {
-  ETIQUETAS_COMPRA, ETIQUETAS_DESGLOSE, conceptosConImporte, cuadra, esCero, filasFormula,
+  ETIQUETAS_COMPRA, ETIQUETAS_CONCILIACION, ETIQUETAS_DESGLOSE, conceptosConImporte, cuadra, esCero, filasFormula,
   validarRangoPeriodos,
 } from '../../utils/costoVenta'
 
@@ -57,11 +57,11 @@ function HojaFormula({ titulo, bloques, conUnidades }: {
           {filasFormula(bloques).map((f) => {
             const esResultado = f.clave === 'costo_venta'
             const esSubtotal = f.clave === 'subtotal'
-            const esMerma = f.clave === 'mermas'
+            const esConciliacion = f.clave === 'no_atribuibles' || f.clave === 'salidas'
             return (
               <TableRow
                 key={f.clave}
-                className={esResultado ? 'bg-indigo-50 font-semibold' : esSubtotal ? 'text-slate-500' : esMerma ? 'text-amber-700' : ''}
+                className={esResultado ? 'bg-indigo-50 font-semibold' : esSubtotal ? 'text-slate-500' : esConciliacion ? 'text-amber-700' : ''}
               >
                 <TableCell className="font-mono text-center text-base">{f.signo}</TableCell>
                 <TableCell className={esSubtotal ? 'italic' : ''}>{f.etiqueta}</TableCell>
@@ -77,23 +77,38 @@ function HojaFormula({ titulo, bloques, conUnidades }: {
   )
 }
 
-function Desglose({ conceptos, diferencia, kardex, diferenciaMetodo }: {
-  conceptos: { clave: string; etiqueta: string; valor: string }[]
+function Desglose({ ventas, conciliacion, diferencia, comparacion, diferenciaMetodo, metodoComparacion }: {
+  ventas: { clave: string; etiqueta: string; valor: string }[]
+  conciliacion: { clave: string; etiqueta: string; valor: string }[]
   diferencia: string
-  kardex: { costo_venta: { valor: string } }
+  comparacion: { costo_venta: { valor: string } }
   diferenciaMetodo: string
+  metodoComparacion: string
 }) {
   const ok = cuadra(diferencia)
   return (
-    <div className="space-y-2" data-testid="desglose">
+    <div className="space-y-3" data-testid="desglose">
+      {conciliacion.length > 0 && (
+        <div className="space-y-1.5" data-testid="conciliacion">
+          <div className="text-sm font-semibold text-slate-700">Salidas que no son ventas (se restan)</div>
+          <ul className="divide-y divide-slate-100 rounded-md border border-amber-200 bg-amber-50/40 text-sm">
+            {conciliacion.map((c) => (
+              <li key={c.clave} className="flex justify-between px-3 py-1.5">
+                <span>{c.etiqueta}</span>
+                <span className="font-mono tabular-nums">{monto(c.valor)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-        <Info className="h-4 w-4 text-slate-400" /> ¿De dónde sale el costo de venta?
+        <Info className="h-4 w-4 text-slate-400" /> Comprobación: salidas por ventas según el Kardex
       </div>
-      {conceptos.length === 0 ? (
-        <p className="text-xs text-slate-500">No hubo salidas de inventario en el período.</p>
+      {ventas.length === 0 ? (
+        <p className="text-xs text-slate-500">No hubo ventas en el período.</p>
       ) : (
         <ul className="divide-y divide-slate-100 rounded-md border border-slate-200 text-sm">
-          {conceptos.map((c) => (
+          {ventas.map((c) => (
             <li key={c.clave} className="flex justify-between px-3 py-1.5">
               <span>{c.etiqueta}</span>
               <span className="font-mono tabular-nums">{monto(c.valor)}</span>
@@ -103,18 +118,18 @@ function Desglose({ conceptos, diferencia, kardex, diferenciaMetodo }: {
       )}
       <div className="flex items-center gap-2 text-xs">
         {ok ? (
-          <Badge size="sm" variant="success"><CheckCircle2 className="mr-1 h-3 w-3" /> Cuadra con la fórmula</Badge>
+          <Badge size="sm" variant="success"><CheckCircle2 className="mr-1 h-3 w-3" /> Cuadra con el inventario valorizado</Badge>
         ) : (
           <Badge size="sm" variant="destructive"><AlertTriangle className="mr-1 h-3 w-3" /> Diferencia {monto(diferencia)}</Badge>
         )}
       </div>
-      {!cuadra(diferenciaMetodo) && (
-        <p className="text-xs text-slate-500" data-testid="referencia-kardex">
-          Referencia: según el Kardex (promedio móvil, cambia con cada compra) el costo de venta es{' '}
-          <span className="font-mono">{monto(kardex.costo_venta.valor)}</span>; diferencia por método{' '}
-          <span className="font-mono">{monto(diferenciaMetodo)}</span>.
+      <div className="rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-slate-700" data-testid="comparacion">
+        <p className="font-semibold">Comparación: {metodoComparacion.split(':')[0]}</p>
+        <p className="mt-0.5">
+          Costo de venta con promedio <span className="font-mono">{monto(comparacion.costo_venta.valor)}</span> ·
+          diferencia (promedio − Kardex) <span className="font-mono">{monto(diferenciaMetodo)}</span>
         </p>
-      )}
+      </div>
     </div>
   )
 }
@@ -167,7 +182,7 @@ export function CostoVentaPage() {
     }
   }
 
-  const hayMermas = !!datos && !esCero(datos.totales.mermas.valor)
+  const hayNoVentas = !!datos && !esCero(datos.totales.no_atribuibles.valor)
   const filaSeleccionada: FilaCostoVenta | undefined = datos?.productos.find((f) => f.producto.id === seleccionado)
   const rango = datos
     ? datos.periodo_desde.id === datos.periodo_hasta.id
@@ -179,7 +194,7 @@ export function CostoVentaPage() {
     <div className="space-y-6">
       <PageHeader
         title="Costo de Venta"
-        description="Saldo inicial + Compras − Saldo final = Costo de venta. «Por período» usa un solo P.U. para todo el rango; «Por año» suma el costo de cada mes, igual que la hoja “Costo de Venta” del Excel (Kardex Valorizado → Exportar Excel)."
+        description="Saldo inicial + Compras − Saldo final, ambos según el Kardex, menos las salidas que no son ventas = Costo de venta. Cuadra con el inventario valorizado; el promedio ponderado se muestra solo como comparación. Igual que la hoja “Costo de Venta” del Excel (Kardex Valorizado → Exportar Excel)."
         icon={<Calculator className="h-5 w-5" />}
       />
 
@@ -207,7 +222,7 @@ export function CostoVentaPage() {
               {periodosOrdenados.map((p) => <option key={p.id} value={p.id}>{etiquetaPeriodo(p)}</option>)}
             </Select>
             {hasta !== '' && hasta !== desde && (
-              <p className="text-[11px] text-slate-500">Método: Promedio único del rango.</p>
+              <p className="text-[11px] text-slate-500">Comparación: promedio único del rango.</p>
             )}
           </div>
           <div className="space-y-1">
@@ -249,10 +264,12 @@ export function CostoVentaPage() {
                 )}
               </div>
               <Desglose
-                conceptos={conceptosConImporte(datos.totales.desglose, ETIQUETAS_DESGLOSE)}
+                ventas={conceptosConImporte(datos.totales.desglose, ETIQUETAS_DESGLOSE)}
+                conciliacion={conceptosConImporte(datos.totales.conciliacion, ETIQUETAS_CONCILIACION)}
                 diferencia={datos.totales.diferencia}
-                kardex={datos.totales.kardex}
+                comparacion={datos.totales.comparacion}
                 diferenciaMetodo={datos.totales.diferencia_metodo}
+                metodoComparacion={datos.metodo_comparacion}
               />
             </CardContent>
           </Card>
@@ -271,16 +288,17 @@ export function CostoVentaPage() {
                     <TableHead>Unid.</TableHead>
                     <TableHead numeric>Saldo inicial</TableHead>
                     <TableHead numeric>+ Compras</TableHead>
-                    <TableHead numeric>− Saldo final</TableHead>
-                    {hayMermas && <TableHead numeric>− Mermas</TableHead>}
-                    <TableHead numeric>P.U. promedio</TableHead>
+                    <TableHead numeric>− Saldo final (Kardex)</TableHead>
+                    {hayNoVentas && <TableHead numeric>− Salidas que no son ventas</TableHead>}
                     <TableHead numeric>Unid. vendidas</TableHead>
                     <TableHead numeric>= Costo de venta</TableHead>
+                    <TableHead numeric className="bg-amber-50">Comparación: promedio</TableHead>
+                    <TableHead numeric className="bg-amber-50">Diferencia</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {datos.productos.length === 0 && (
-                    <TableRow><TableCell colSpan={hayMermas ? 10 : 9} className="py-8 text-center text-slate-500">Sin movimientos de inventario en el período.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={hayNoVentas ? 11 : 10} className="py-8 text-center text-slate-500">Sin movimientos de inventario en el período.</TableCell></TableRow>
                   )}
                   {datos.productos.map((f) => (
                     <TableRow
@@ -294,10 +312,11 @@ export function CostoVentaPage() {
                       <TableCell numeric>{monto(f.saldo_inicial.valor)}</TableCell>
                       <TableCell numeric>{monto(f.compras.valor)}</TableCell>
                       <TableCell numeric>{monto(f.saldo_final.valor)}</TableCell>
-                      {hayMermas && <TableCell numeric>{monto(f.mermas.valor)}</TableCell>}
-                      <TableCell numeric>{monto(f.costo_promedio)}</TableCell>
+                      {hayNoVentas && <TableCell numeric>{monto(f.no_atribuibles.valor)}</TableCell>}
                       <TableCell numeric>{cantidad(f.costo_venta.cantidad)}</TableCell>
                       <TableCell numeric className="font-semibold">{monto(f.costo_venta.valor)}</TableCell>
+                      <TableCell numeric className="bg-amber-50/40 text-slate-600">{monto(f.comparacion.costo_venta.valor)}</TableCell>
+                      <TableCell numeric className="bg-amber-50/40 text-slate-600">{monto(f.diferencia_metodo)}</TableCell>
                     </TableRow>
                   ))}
                   {datos.productos.length > 1 && (
@@ -306,10 +325,11 @@ export function CostoVentaPage() {
                       <TableCell numeric>{monto(datos.totales.saldo_inicial.valor)}</TableCell>
                       <TableCell numeric>{monto(datos.totales.compras.valor)}</TableCell>
                       <TableCell numeric>{monto(datos.totales.saldo_final.valor)}</TableCell>
-                      {hayMermas && <TableCell numeric>{monto(datos.totales.mermas.valor)}</TableCell>}
-                      <TableCell numeric />
+                      {hayNoVentas && <TableCell numeric>{monto(datos.totales.no_atribuibles.valor)}</TableCell>}
                       <TableCell numeric />
                       <TableCell numeric>{monto(datos.totales.costo_venta.valor)}</TableCell>
+                      <TableCell numeric className="bg-amber-50/40">{monto(datos.totales.comparacion.costo_venta.valor)}</TableCell>
+                      <TableCell numeric className="bg-amber-50/40">{monto(datos.totales.diferencia_metodo)}</TableCell>
                     </TableRow>
                   )}
                 </TableBody>
@@ -321,15 +341,17 @@ export function CostoVentaPage() {
             <Card data-testid="detalle-producto">
               <CardHeader>
                 <CardTitle>{filaSeleccionada.producto.codigo} — {filaSeleccionada.producto.descripcion}</CardTitle>
-                <CardDescription>Costo de venta {rango} · unidad {filaSeleccionada.producto.unidad ?? '—'} · P.U. = promedio ponderado del período</CardDescription>
+                <CardDescription>Costo de venta {rango} · unidad {filaSeleccionada.producto.unidad ?? '—'} · saldos según el Kardex (promedio móvil)</CardDescription>
               </CardHeader>
               <CardContent className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                 <HojaFormula titulo="Concepto" bloques={filaSeleccionada} conUnidades />
                 <Desglose
-                  conceptos={conceptosConImporte(filaSeleccionada.desglose, ETIQUETAS_DESGLOSE)}
+                  ventas={conceptosConImporte(filaSeleccionada.desglose, ETIQUETAS_DESGLOSE)}
+                  conciliacion={conceptosConImporte(filaSeleccionada.conciliacion, ETIQUETAS_CONCILIACION)}
                   diferencia={filaSeleccionada.diferencia}
-                  kardex={filaSeleccionada.kardex}
+                  comparacion={filaSeleccionada.comparacion}
                   diferenciaMetodo={filaSeleccionada.diferencia_metodo}
+                  metodoComparacion={filaSeleccionada.comparacion.metodo}
                 />
               </CardContent>
             </Card>

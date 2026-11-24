@@ -7,25 +7,34 @@ import {
 export interface BloqueCosto { cantidad: string | null; costo_unitario: string | null; valor: string }
 
 export type ClaveCompra = 'compras' | 'bonificaciones' | 'devoluciones' | 'notas_credito_debito';
-export type ClaveDesglose =
-  | 'ventas' | 'devoluciones_venta' | 'mermas_desmedros' | 'consumo_retiros' | 'ajustes' | 'transferencias' | 'otros';
+/** Salidas atribuibles a ventas. */
+export type ClaveDesglose = 'ventas' | 'devoluciones_venta';
+/** Salidas del inventario que no son ventas (se concilian aparte). */
+export type ClaveConciliacion = 'mermas_desmedros' | 'consumo_retiros' | 'ajustes' | 'transferencias' | 'otros';
+
+/** Comparación con el promedio ponderado (del mes o único del rango). */
+export interface ComparacionCosto { saldo_final: BloqueCosto; mermas: BloqueCosto; costo_venta: BloqueCosto }
 
 export interface FilaCostoVenta {
   producto: { id: number; codigo: string; descripcion: string; unidad: string | null; tipo_existencia: string | null };
   saldo_inicial: BloqueCosto;
   compras: BloqueCosto;
-  /** Subtotal (S.I. + Compras) con el P.U. promedio del período. */
   disponible: BloqueCosto;
+  /** Saldo final valorizado según el Kardex (promedio móvil). */
   saldo_final: BloqueCosto;
-  /** Mermas y desmedros al P.U. promedio: no son costo de venta, se restan aparte (solo si hubo). */
+  /** Saldo inicial + Compras − Saldo final. */
+  salidas: BloqueCosto;
+  conciliacion: Record<ClaveConciliacion, BloqueCosto>;
+  no_atribuibles: BloqueCosto;
   mermas: BloqueCosto;
+  /** Resultado principal: salidas − salidas que no son ventas (según el Kardex). */
   costo_venta: BloqueCosto;
   costo_promedio: string | null;
   compras_detalle: Record<ClaveCompra, BloqueCosto>;
   desglose: Record<ClaveDesglose, BloqueCosto>;
   diferencia: string;
-  /** Referencia: lo que da el Kardex (promedio móvil). */
-  kardex: { saldo_final: BloqueCosto; costo_venta: BloqueCosto };
+  comparacion: ComparacionCosto & { metodo: string; costo_unitario: string | null };
+  /** Comparación − Kardex. */
   diferencia_metodo: string;
 }
 
@@ -40,17 +49,21 @@ export interface CostoVentaResponse {
   moneda: 'PEN';
   formula: string;
   metodo: string;
+  metodo_comparacion: string;
   totales: {
     saldo_inicial: BloqueCosto;
     compras: BloqueCosto;
     disponible: BloqueCosto;
     saldo_final: BloqueCosto;
+    salidas: BloqueCosto;
+    conciliacion: Record<ClaveConciliacion, string>;
+    no_atribuibles: BloqueCosto;
     mermas: BloqueCosto;
     costo_venta: BloqueCosto;
     compras_detalle: Record<ClaveCompra, string>;
     desglose: Record<ClaveDesglose, string>;
     diferencia: string;
-    kardex: { saldo_final: BloqueCosto; costo_venta: BloqueCosto };
+    comparacion: ComparacionCosto;
     diferencia_metodo: string;
   };
   productos: FilaCostoVenta[];
@@ -66,11 +79,13 @@ export interface MesCostoVenta {
   periodo: PeriodoCostoVenta;
   saldo_inicial: string;
   compras: string;
-  disponible: string;
   saldo_final: string;
-  mermas: string;
+  no_atribuibles: string;
+  /** Costo de venta según el Kardex (resultado principal). */
   costo_venta: string;
-  costo_venta_kardex: string;
+  /** Comparación: promedio ponderado del mes. */
+  costo_venta_promedio: string;
+  /** Promedio − Kardex. */
   diferencia_metodo: string;
 }
 
@@ -81,8 +96,9 @@ export interface CostoVentaAnualResponse {
   moneda: 'PEN';
   formula: string;
   metodo: string;
+  metodo_comparacion: string;
   meses: MesCostoVenta[];
-  total: Omit<MesCostoVenta, 'periodo' | 'disponible'> & { disponible?: string };
+  total: Omit<MesCostoVenta, 'periodo'>;
 }
 
 export const URL_COSTO_VENTA_ANUAL = '/reportes/costo-ventas/anual/';

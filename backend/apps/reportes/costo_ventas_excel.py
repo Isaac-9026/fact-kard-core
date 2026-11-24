@@ -4,7 +4,7 @@ from decimal import Decimal
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from apps.reportes.costo_ventas import CLAVES_COMPRA, CLAVES_DESGLOSE, resumen_mensual
+from apps.reportes.costo_ventas import CLAVES_COMPRA, CLAVES_CONCILIACION, CLAVES_VENTA, resumen_mensual
 
 TITULO_HOJA = 'Costo de Venta'
 FUENTE = 'Segoe UI'
@@ -23,10 +23,13 @@ ETIQUETAS_COMPRA = {
 ETIQUETAS_DESGLOSE = {
     'ventas': 'Mercadería vendida', 'devoluciones_venta': 'Devoluciones de clientes',
     'mermas_desmedros': 'Mermas y desmedros', 'consumo_retiros': 'Consumo interno y retiros',
-    'ajustes': 'Ajustes de inventario', 'transferencias': 'Transferencias entre almacenes', 'otros': 'Otros y redondeo',
+    'ajustes': 'Ajustes de inventario', 'transferencias': 'Transferencias entre almacenes', 'otros': 'Otros',
 }
-GRUPOS = (('Saldo inicial', 'saldo_inicial'), ('+ Compras', 'compras'), ('Subtotal (P.U. promedio)', 'disponible'),
-          ('− Saldo final', 'saldo_final'), ('− Mermas', 'mermas'), ('= Costo de venta', 'costo_venta'))
+GRUPOS = (('Saldo inicial', 'saldo_inicial'), ('+ Compras', 'compras'), ('Subtotal', 'disponible'),
+          ('− Saldo final (Kardex)', 'saldo_final'), ('= Salidas del inventario', 'salidas'),
+          ('− Salidas que no son ventas', 'no_atribuibles'), ('= Costo de venta', 'costo_venta'))
+NOTA_METODO = ('Resultado principal según el Kardex (promedio móvil): cuadra con el inventario valorizado. '
+               'El promedio ponderado se muestra solo como comparación, con su diferencia (promedio − Kardex).')
 
 
 def _es_cero(valor):
@@ -65,36 +68,34 @@ def escribir_hoja_por_mes(hoja, reportes, *, razon_social, ruc, notas=()):
     hoja['A2'] = f'{razon_social} — RUC {ruc}'
     hoja['A3'] = 'Importes en soles (PEN), calculados con precisión completa y mostrados en céntimos.'
     fila = 4
-    metodo = ('Método: promedio ponderado del mes. Cada mes parte del saldo valorizado del Kardex (promedio móvil) '
-              'y valoriza su saldo final al P.U. promedio del mes; por eso ese saldo final puede no ser igual al '
-              'saldo inicial del mes siguiente. Las últimas columnas muestran el costo de venta según el Kardex.')
+    metodo = ('Costo de venta = Saldo inicial + Compras − Saldo final según el Kardex − Salidas que no son ventas. '
+              'Cada mes parte de su saldo inicial según el Kardex y el total del año es la suma de los meses. '
+              'Las columnas amarillas comparan con el promedio ponderado de cada mes (diferencia = promedio − Kardex).')
     for nota in (metodo, *notas, 'Para ver el detalle por producto, elija un período en el Kardex Valorizado.'):
         fila = _nota(hoja, fila, nota)
     fila += 1
     columnas = (('Período', None), ('Saldo inicial', 'saldo_inicial'), ('+ Compras', 'compras'),
-                ('Subtotal', 'disponible'), ('− Saldo final', 'saldo_final'), ('− Mermas', 'mermas'),
-                ('= Costo de venta', 'costo_venta'), ('Costo de venta según Kardex', 'kardex'),
-                ('Diferencia por método', 'diferencia_metodo'))
+                ('− Saldo final (Kardex)', 'saldo_final'), ('− Salidas que no son ventas', 'no_atribuibles'),
+                ('= Costo de venta (Kardex)', 'costo_venta'), ('Comparación: promedio mensual', 'costo_venta_promedio'),
+                ('Diferencia (promedio − Kardex)', 'diferencia_metodo'))
     for col, (texto, _) in enumerate(columnas, start=1):
-        _celda(hoja, fila, col, texto, negrita=True, relleno=AMARILLO if col > 7 else AZUL_CLARO)
+        _celda(hoja, fila, col, texto, negrita=True, relleno=AMARILLO if col > 6 else AZUL_CLARO)
     fila += 1
     meses, total = resumen_mensual(reportes)
-    sumas = {'compras': total['compras'], 'mermas': total['mermas'], 'costo_venta': total['costo_venta'],
-             'kardex': total['costo_venta_kardex'], 'diferencia_metodo': total['diferencia_metodo']}
     for mes in meses:
-        valores = {**mes, 'kardex': mes['costo_venta_kardex']}
         _celda(hoja, fila, 1, mes['periodo']['etiqueta'])
         for col, (_, clave) in enumerate(columnas[1:], start=2):
-            _celda(hoja, fila, col, valores[clave], FMT_MONTO, negrita=clave == 'costo_venta')
+            _celda(hoja, fila, col, mes[clave], FMT_MONTO, negrita=clave == 'costo_venta')
         fila += 1
     _celda(hoja, fila, 1, 'TOTAL', negrita=True, relleno=AZUL_CLARO)
     for col, (_, clave) in enumerate(columnas[1:], start=2):
-        _celda(hoja, fila, col, sumas.get(clave), FMT_MONTO, negrita=True, relleno=AMARILLO if col > 7 else AZUL_CLARO)
+        valor = total.get(clave) if clave not in ('saldo_inicial', 'saldo_final') else None
+        _celda(hoja, fila, col, valor, FMT_MONTO, negrita=True, relleno=AMARILLO if col > 6 else AZUL_CLARO)
     if not reportes:
         _nota(hoja, fila + 2, 'No hay movimientos de inventario registrados.')
     hoja.column_dimensions['A'].width = 14
     for col in range(2, len(columnas) + 1):
-        hoja.column_dimensions[get_column_letter(col)].width = 17 if col <= 7 else 20
+        hoja.column_dimensions[get_column_letter(col)].width = 18 if col <= 6 else 22
 
 
 def escribir_hoja_costo_venta(hoja, reporte, notas=()):
@@ -110,18 +111,22 @@ def escribir_hoja_costo_venta(hoja, reporte, notas=()):
         fila = _nota(hoja, fila, nota)
     fila += 1
 
+    fila = _nota(hoja, fila, NOTA_METODO) + 1
+
     # ---- Resumen de la empresa ----
     t = reporte['totales']
     _celda(hoja, fila, 1, 'RESUMEN EMPRESA', negrita=True, relleno=AZUL_CLARO)
     _celda(hoja, fila, 2, 'Importe (S/)', negrita=True, relleno=AZUL_CLARO)
     fila += 1
     resumen = [
-        ('Saldo inicial', t['saldo_inicial']['valor'], False),
+        ('Saldo inicial (Kardex)', t['saldo_inicial']['valor'], False),
         ('+ Compras netas', t['compras']['valor'], False),
         *[(f'      {ETIQUETAS_COMPRA[k]}', t['compras_detalle'][k], False) for k in CLAVES_COMPRA],
         ('Subtotal', t['disponible']['valor'], False),
-        ('− Saldo final (al P.U. promedio)', t['saldo_final']['valor'], False),
-        *([('− Mermas (al P.U. promedio)', t['mermas']['valor'], False)] if not _es_cero(t['mermas']['valor']) else []),
+        ('− Saldo final (Kardex)', t['saldo_final']['valor'], False),
+        ('= Salidas del inventario', t['salidas']['valor'], False),
+        *[(f'   − {ETIQUETAS_DESGLOSE[k]}', t['conciliacion'][k], False)
+          for k in CLAVES_CONCILIACION if not _es_cero(t['conciliacion'][k])],
         ('= COSTO DE VENTA', t['costo_venta']['valor'], True),
     ]
     for etiqueta, valor, total in resumen:
@@ -129,28 +134,29 @@ def escribir_hoja_costo_venta(hoja, reporte, notas=()):
         _celda(hoja, fila, 2, _num(valor), FMT_MONTO, negrita=total, relleno=AZUL_CLARO if total else None)
         fila += 1
     fila += 1
-    _celda(hoja, fila, 1, 'Desglose informativo del costo de venta', negrita=True, relleno=VERDE)
+    _celda(hoja, fila, 1, 'Comprobación: salidas por ventas según el Kardex', negrita=True, relleno=VERDE)
     _celda(hoja, fila, 2, None, relleno=VERDE)
     fila += 1
-    for k in CLAVES_DESGLOSE:
+    for k in CLAVES_VENTA:
         _celda(hoja, fila, 1, ETIQUETAS_DESGLOSE[k])
         _celda(hoja, fila, 2, _num(t['desglose'][k]), FMT_MONTO)
         fila += 1
     _celda(hoja, fila, 1, 'Diferencia (debe ser 0)', negrita=True)
     _celda(hoja, fila, 2, _num(t['diferencia']), FMT_MONTO, negrita=True)
     fila += 2
-    _celda(hoja, fila, 1, 'Referencia: Kardex (promedio móvil)', negrita=True, relleno=AMARILLO)
+    _celda(hoja, fila, 1, f"Comparación: {reporte['metodo_comparacion']}", negrita=True, relleno=AMARILLO)
     _celda(hoja, fila, 2, None, relleno=AMARILLO)
     fila += 1
-    for etiqueta, valor in (('Saldo final según Kardex', t['kardex']['saldo_final']['valor']),
-                            ('Costo de venta según Kardex', t['kardex']['costo_venta']['valor']),
-                            ('Diferencia por método', t['diferencia_metodo'])):
+    for etiqueta, valor in (('Saldo final al P.U. promedio', t['comparacion']['saldo_final']['valor']),
+                            ('Costo de venta con promedio', t['comparacion']['costo_venta']['valor']),
+                            ('Diferencia (promedio − Kardex)', t['diferencia_metodo'])):
         _celda(hoja, fila, 1, etiqueta)
         _celda(hoja, fila, 2, _num(valor), FMT_MONTO)
         fila += 1
     fila += 2
 
-    grupos = [g for g in GRUPOS if g[1] != 'mermas' or not _es_cero(t['mermas']['valor'])]
+    conciliacion = [k for k in CLAVES_CONCILIACION if not _es_cero(t['conciliacion'][k])]
+    detalle = [*CLAVES_VENTA, *conciliacion]
     # ---- Detalle por producto ----
     titulo = _celda(hoja, fila, 1, 'DETALLE POR PRODUCTO', borde=False)
     titulo.font = Font(name=FUENTE, bold=True, size=12, color=AZUL)
@@ -159,17 +165,22 @@ def escribir_hoja_costo_venta(hoja, reporte, notas=()):
         hoja.merge_cells(start_row=fila, start_column=col, end_row=fila + 1, end_column=col)
         _celda(hoja, fila, col, texto, negrita=True, relleno=AZUL_CLARO)
     col = 4
-    for texto, _ in grupos:
+    for texto, _ in GRUPOS:
         hoja.merge_cells(start_row=fila, start_column=col, end_row=fila, end_column=col + 2)
         _celda(hoja, fila, col, texto, negrita=True, relleno=AZUL_CLARO).alignment = Alignment(horizontal='center')
         for i, sub in enumerate(('Unid.', 'P.U.', 'Total')):
             _celda(hoja, fila + 1, col + i, sub, negrita=True, relleno=AZUL_CLARO)
         col += 3
-    hoja.merge_cells(start_row=fila, start_column=col, end_row=fila, end_column=col + len(CLAVES_DESGLOSE) - 1)
-    _celda(hoja, fila, col, 'Desglose (S/)', negrita=True, relleno=VERDE)
-    for i, k in enumerate(CLAVES_DESGLOSE):
+    hoja.merge_cells(start_row=fila, start_column=col, end_row=fila, end_column=col + 2)
+    _celda(hoja, fila, col, 'Comparación: promedio', negrita=True, relleno=AMARILLO)
+    for i, sub in enumerate(('P.U. promedio', 'Costo de venta', 'Diferencia')):
+        _celda(hoja, fila + 1, col + i, sub, negrita=True, relleno=AMARILLO)
+    col += 3
+    hoja.merge_cells(start_row=fila, start_column=col, end_row=fila, end_column=col + len(detalle) - 1)
+    _celda(hoja, fila, col, 'Detalle de salidas según Kardex (S/)', negrita=True, relleno=VERDE)
+    for i, k in enumerate(detalle):
         _celda(hoja, fila + 1, col + i, ETIQUETAS_DESGLOSE[k], negrita=True, relleno=VERDE)
-    ultima_col = col + len(CLAVES_DESGLOSE) - 1
+    ultima_col = col + len(detalle) - 1
     fila += 2
 
     for p in reporte['productos']:
@@ -177,26 +188,36 @@ def escribir_hoja_costo_venta(hoja, reporte, notas=()):
         _celda(hoja, fila, 2, p['producto']['descripcion'])
         _celda(hoja, fila, 3, p['producto']['unidad'])
         col = 4
-        for _, clave in grupos:
+        for _, clave in GRUPOS:
             bloque = p[clave]
             _celda(hoja, fila, col, _num(bloque['cantidad']), FMT_CANT)
             _celda(hoja, fila, col + 1, _num(bloque['costo_unitario']), FMT_CANT)
             _celda(hoja, fila, col + 2, _num(bloque['valor']), FMT_MONTO, negrita=clave == 'costo_venta')
             col += 3
-        for i, k in enumerate(CLAVES_DESGLOSE):
-            _celda(hoja, fila, col + i, _num(p['desglose'][k]['valor']), FMT_MONTO)
+        _celda(hoja, fila, col, _num(p['comparacion']['costo_unitario']), FMT_CANT)
+        _celda(hoja, fila, col + 1, _num(p['comparacion']['costo_venta']['valor']), FMT_MONTO)
+        _celda(hoja, fila, col + 2, _num(p['diferencia_metodo']), FMT_MONTO)
+        col += 3
+        for i, k in enumerate(detalle):
+            bloque = p['desglose'][k] if k in CLAVES_VENTA else p['conciliacion'][k]
+            _celda(hoja, fila, col + i, _num(bloque['valor']), FMT_MONTO)
         fila += 1
 
     hoja.merge_cells(start_row=fila, start_column=1, end_row=fila, end_column=3)
     _celda(hoja, fila, 1, 'TOTAL EMPRESA', negrita=True, relleno=AZUL_CLARO)
     col = 4
-    for _, clave in grupos:
+    for _, clave in GRUPOS:
         _celda(hoja, fila, col, None, relleno=AZUL_CLARO)
         _celda(hoja, fila, col + 1, None, relleno=AZUL_CLARO)
         _celda(hoja, fila, col + 2, _num(t[clave]['valor']), FMT_MONTO, negrita=True, relleno=AZUL_CLARO)
         col += 3
-    for i, k in enumerate(CLAVES_DESGLOSE):
-        _celda(hoja, fila, col + i, _num(t['desglose'][k]), FMT_MONTO, negrita=True, relleno=AZUL_CLARO)
+    _celda(hoja, fila, col, None, relleno=AMARILLO)
+    _celda(hoja, fila, col + 1, _num(t['comparacion']['costo_venta']['valor']), FMT_MONTO, negrita=True, relleno=AMARILLO)
+    _celda(hoja, fila, col + 2, _num(t['diferencia_metodo']), FMT_MONTO, negrita=True, relleno=AMARILLO)
+    col += 3
+    for i, k in enumerate(detalle):
+        valor = t['desglose'][k] if k in CLAVES_VENTA else t['conciliacion'][k]
+        _celda(hoja, fila, col + i, _num(valor), FMT_MONTO, negrita=True, relleno=AZUL_CLARO)
 
     anchos = {1: 40, 2: 40, 3: 8}
     for c in range(1, ultima_col + 1):

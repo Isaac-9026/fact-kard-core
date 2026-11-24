@@ -54,20 +54,25 @@ export const ETIQUETAS_COMPRA: Record<string, string> = {
   notas_credito_debito: 'Notas de crédito / débito de compra',
 };
 
+/** Salidas atribuibles a ventas (comprobación del costo de venta según el Kardex). */
 export const ETIQUETAS_DESGLOSE: Record<string, string> = {
   ventas: 'Mercadería vendida',
   devoluciones_venta: 'Devoluciones de clientes',
+};
+
+/** Salidas del inventario que no son ventas: se concilian aparte del costo de venta. */
+export const ETIQUETAS_CONCILIACION: Record<string, string> = {
   mermas_desmedros: 'Mermas y desmedros',
   consumo_retiros: 'Consumo interno y retiros',
   ajustes: 'Ajustes de inventario',
   transferencias: 'Transferencias entre almacenes',
-  otros: 'Otros y redondeo',
+  otros: 'Otros movimientos',
 };
 
 export interface BloqueCostoMin { cantidad: string | null; costo_unitario: string | null; valor: string }
 
 export interface FilaFormula {
-  clave: 'saldo_inicial' | 'compras' | 'subtotal' | 'saldo_final' | 'mermas' | 'costo_venta';
+  clave: 'saldo_inicial' | 'compras' | 'subtotal' | 'saldo_final' | 'salidas' | 'no_atribuibles' | 'costo_venta';
   signo: '' | '+' | '−' | '=';
   etiqueta: string;
   cantidad: string | null;
@@ -81,26 +86,27 @@ export const esCero = (valor?: string | null): boolean => {
 };
 
 /**
- * Filas en el orden de la hoja del dueño:
- *   S.I.  + Compras  (subtotal)  − S. final  = Costo de venta
- * El subtotal (S.I. + Compras) lleva las unidades disponibles y el P.U. promedio del período, que es
- * el mismo P.U. del saldo final y del costo de venta (100 u. × 20 + 100 u. × 22.50 → 200 u. × 21.25).
+ * Filas del cálculo principal, con ambos saldos según el Kardex (promedio móvil):
+ *   S.I. + Compras (subtotal) − S. final = Salidas del inventario − Salidas que no son ventas = Costo de venta
+ * Las líneas de salidas y de conciliación solo aparecen si hubo salidas que no son ventas.
  */
 export const filasFormula = (b: {
   saldo_inicial: BloqueCostoMin; compras: BloqueCostoMin; saldo_final: BloqueCostoMin; costo_venta: BloqueCostoMin;
-  disponible?: BloqueCostoMin; mermas?: BloqueCostoMin;
+  disponible?: BloqueCostoMin; salidas?: BloqueCostoMin; no_atribuibles?: BloqueCostoMin;
 }): FilaFormula[] => {
   const subtotal: BloqueCostoMin = b.disponible
     ?? { cantidad: null, costo_unitario: null, valor: sumarTexto(b.saldo_inicial.valor, b.compras.valor) };
   const fila = (clave: FilaFormula['clave'], signo: FilaFormula['signo'], etiqueta: string, bloque: BloqueCostoMin): FilaFormula => ({
     clave, signo, etiqueta, cantidad: bloque.cantidad, costoUnitario: bloque.costo_unitario, valor: bloque.valor,
   });
+  const conciliar = !!b.no_atribuibles && !esCero(b.no_atribuibles.valor);
   return [
     fila('saldo_inicial', '', 'Saldo inicial', b.saldo_inicial),
     fila('compras', '+', 'Compras', b.compras),
     fila('subtotal', '', 'Subtotal', subtotal),
-    fila('saldo_final', '−', 'Saldo final', b.saldo_final),
-    ...(b.mermas && !esCero(b.mermas.valor) ? [fila('mermas', '−', 'Mermas', b.mermas)] : []),
+    fila('saldo_final', '−', 'Saldo final (Kardex)', b.saldo_final),
+    ...(conciliar && b.salidas ? [fila('salidas', '=', 'Salidas del inventario', b.salidas)] : []),
+    ...(conciliar && b.no_atribuibles ? [fila('no_atribuibles', '−', 'Salidas que no son ventas', b.no_atribuibles)] : []),
     fila('costo_venta', '=', 'Costo de venta', b.costo_venta),
   ];
 };

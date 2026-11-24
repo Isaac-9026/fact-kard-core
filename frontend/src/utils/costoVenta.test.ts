@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  aniosDePeriodos, conceptosConImporte, cuadra, esCero, ETIQUETAS_DESGLOSE, filasFormula, paramsCostoVenta,
+  aniosDePeriodos, conceptosConImporte, cuadra, esCero, ETIQUETAS_CONCILIACION, ETIQUETAS_DESGLOSE, filasFormula, paramsCostoVenta,
   paramsCostoVentaAnual, sumarTexto, validarRangoPeriodos,
 } from './costoVenta.ts';
 
@@ -33,27 +33,29 @@ test('ejemplo del dueño: 30 + 1 000 = 1 030; − 500 = 530', () => {
     ['', 'Saldo inicial', '30.00000000'],
     ['+', 'Compras', '1000.00000000'],
     ['', 'Subtotal', '1030.00000000'],
-    ['−', 'Saldo final', '500.00000000'],
+    ['−', 'Saldo final (Kardex)', '500.00000000'],
     ['=', 'Costo de venta', '530.00000000'],
   ]);
   assert.equal(filas[2].cantidad, null);
 });
 
-test('promedio del período: el subtotal lleva unidades y P.U. promedio (200 u. × 21.25)', () => {
+test('principal según Kardex: el subtotal lleva unidades y su costo medio', () => {
   const b = (cantidad: string, pu: string, valor: string) => ({ cantidad, costo_unitario: pu, valor });
   const filas = filasFormula({
     saldo_inicial: b('100.00000000', '20.00000000', '2000.00000000'),
     compras: b('100.00000000', '22.50000000', '2250.00000000'),
     disponible: b('200.00000000', '21.25000000', '4250.00000000'),
-    saldo_final: b('150.00000000', '21.25000000', '3187.50000000'),
-    costo_venta: b('50.00000000', '21.25000000', '1062.50000000'),
+    saldo_final: b('150.00000000', '21.66666667', '3250.00000000'),
+    salidas: b('50.00000000', '20.00000000', '1000.00000000'),
+    no_atribuibles: b('0.00000000', '', '0.00000000'),
+    costo_venta: b('50.00000000', '20.00000000', '1000.00000000'),
   });
   assert.deepEqual(filas.map((f) => [f.etiqueta, f.cantidad, f.costoUnitario, f.valor]), [
     ['Saldo inicial', '100.00000000', '20.00000000', '2000.00000000'],
     ['Compras', '100.00000000', '22.50000000', '2250.00000000'],
     ['Subtotal', '200.00000000', '21.25000000', '4250.00000000'],
-    ['Saldo final', '150.00000000', '21.25000000', '3187.50000000'],
-    ['Costo de venta', '50.00000000', '21.25000000', '1062.50000000'],
+    ['Saldo final (Kardex)', '150.00000000', '21.66666667', '3250.00000000'],
+    ['Costo de venta', '50.00000000', '20.00000000', '1000.00000000'],
   ]);
 });
 
@@ -68,26 +70,29 @@ test('cuadra y conceptos con importe', () => {
   assert.ok(cuadra('0.00000000'));
   assert.ok(cuadra('-0.00000000'));
   assert.ok(!cuadra('0.00000001'));
-  const conceptos = conceptosConImporte({ ventas: '530.00000000', mermas_desmedros: '0.00000000', otros: '-1.5' }, ETIQUETAS_DESGLOSE);
-  assert.deepEqual(conceptos.map((c) => c.clave), ['ventas', 'otros']);
+  const conceptos = conceptosConImporte({ ventas: '530.00000000', devoluciones_venta: '0.00000000' }, ETIQUETAS_DESGLOSE);
+  assert.deepEqual(conceptos.map((c) => c.clave), ['ventas']);
+  const conciliacion = conceptosConImporte({ mermas_desmedros: '30', ajustes: '0', otros: '-1.5' }, ETIQUETAS_CONCILIACION);
+  assert.deepEqual(conciliacion.map((c) => c.clave), ['mermas_desmedros', 'otros']);
 });
 
-test('mermas: la línea solo aparece si hubo y se resta aparte del costo de venta', () => {
+test('salidas que no son ventas: se concilian solo si hubo', () => {
   const b = (cantidad: string, pu: string, valor: string) => ({ cantidad, costo_unitario: pu, valor });
   const base = {
     saldo_inicial: b('100.00000000', '20.00000000', '2000.00000000'),
     compras: b('100.00000000', '22.50000000', '2250.00000000'),
-    disponible: b('200.00000000', '21.25000000', '4250.00000000'),
-    saldo_final: b('148.00000000', '21.25000000', '3145.00000000'),
-    costo_venta: b('50.00000000', '21.25000000', '1062.50000000'),
+    saldo_final: b('148.00000000', '21.66666667', '3206.66666600'),
+    salidas: b('52.00000000', '', '1043.33333400'),
+    costo_venta: b('50.00000000', '20.00000000', '1000.00000000'),
   };
   assert.ok(esCero('0.00000000'));
-  assert.ok(!filasFormula({ ...base, mermas: b('0.00000000', '', '0.00000000') }).some((f) => f.clave === 'mermas'));
-  const conMerma = filasFormula({ ...base, mermas: b('2.00000000', '21.25000000', '42.50000000') });
+  assert.ok(!filasFormula({ ...base, no_atribuibles: b('0.00000000', '', '0.00000000') }).some((f) => f.clave === 'salidas'));
+  const conMerma = filasFormula({ ...base, no_atribuibles: b('2.00000000', '', '43.33333400') });
   assert.deepEqual(conMerma.map((f) => [f.signo, f.etiqueta, f.valor]).slice(3), [
-    ['−', 'Saldo final', '3145.00000000'],
-    ['−', 'Mermas', '42.50000000'],
-    ['=', 'Costo de venta', '1062.50000000'],
+    ['−', 'Saldo final (Kardex)', '3206.66666600'],
+    ['=', 'Salidas del inventario', '1043.33333400'],
+    ['−', 'Salidas que no son ventas', '43.33333400'],
+    ['=', 'Costo de venta', '1000.00000000'],
   ]);
 });
 
