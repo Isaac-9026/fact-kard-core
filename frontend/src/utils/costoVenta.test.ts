@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  conceptosConImporte, cuadra, esCero, ETIQUETAS_DESGLOSE, filasFormula, paramsCostoVenta,
-  sumarTexto, validarRangoPeriodos,
+  aniosDePeriodos, conceptosConImporte, cuadra, esCero, ETIQUETAS_DESGLOSE, filasFormula, paramsCostoVenta,
+  paramsCostoVentaAnual, sumarTexto, validarRangoPeriodos,
 } from './costoVenta.ts';
 
 test('parámetros: el período final igual al inicial no se envía; producto opcional', () => {
@@ -89,4 +89,12 @@ test('mermas: la línea solo aparece si hubo y se resta aparte del costo de vent
     ['−', 'Mermas', '42.50000000'],
     ['=', 'Costo de venta', '1062.50000000'],
   ]);
+});
+
+test('vista por año: años disponibles y parámetros', () => {
+  assert.deepEqual(aniosDePeriodos([{ anio: 2023 }, { anio: 2026 }, { anio: 2023 }, { anio: 2024 }]), [2026, 2024, 2023]);
+  assert.deepEqual(aniosDePeriodos([]), []);
+  assert.deepEqual(paramsCostoVentaAnual({ anio: 2023 }), { anio: 2023 });
+  assert.deepEqual(paramsCostoVentaAnual({ anio: 2023, producto_id: 7 }), { anio: 2023, producto_id: 7 });
+  assert.deepEqual(paramsCostoVentaAnual({ anio: 2023, producto_id: '' }), { anio: 2023 });
 });

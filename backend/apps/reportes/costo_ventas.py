@@ -16,7 +16,12 @@ from apps.kardex.models import Movimiento
 ZERO = Decimal('0.00000000')
 Q8 = Decimal('0.00000001')
 Q2 = Decimal('0.01')
-METODO = 'Promedio ponderado del período: P.U. = (Saldo inicial + Compras) ÷ unidades disponibles'
+METODO = ('Promedio ponderado del mes: P.U. = (Saldo inicial + Compras) ÷ unidades disponibles. '
+          'El saldo inicial de cada mes es el saldo valorizado del Kardex (promedio móvil).')
+METODO_RANGO = ('Promedio único del rango: un solo P.U. = (Saldo inicial + Compras del rango) ÷ unidades '
+                'disponibles. El saldo inicial es el saldo valorizado del Kardex (promedio móvil).')
+METODO_ANUAL = ('Suma de costos mensuales: cada mes con su promedio ponderado, partiendo de su saldo inicial '
+                'según el Kardex (promedio móvil). Es el mismo cálculo de la hoja «Costo de Venta» del Excel.')
 
 GRUPOS_COMPRA = {
     'COMPRA': 'compras',
@@ -189,9 +194,15 @@ def generar_costo_ventas(*, empresa_id, periodo_id, periodo_hasta_id=None, produ
         sf_kardex = q8(p['sf_valor'])
 
         pu = disp_valor / disp_cant if disp_cant > ZERO else None
-        sf_valor = q2(sf_cant * pu) if pu is not None else sf_kardex
+        # Precisión completa (8 decimales); el redondeo a céntimos es solo al mostrar.
+        if pu is None:
+            sf_valor = sf_kardex
+        elif sf_cant == disp_cant:
+            sf_valor = disp_valor          # sin salidas en el mes: no queda costo de venta ni residuo
+        else:
+            sf_valor = q8(sf_cant * pu)
         merma_cant = q8(p['desglose']['mermas_desmedros'][0])
-        merma_valor = q2(merma_cant * pu) if pu is not None else ZERO
+        merma_valor = q8(merma_cant * pu) if pu is not None else ZERO
         cv_cant = q8(disp_cant - sf_cant - merma_cant)
         cv_valor = q8(disp_valor - sf_valor - merma_valor)
         merma_kardex = q8(p['desglose']['mermas_desmedros'][1])
@@ -200,7 +211,7 @@ def generar_costo_ventas(*, empresa_id, periodo_id, periodo_hasta_id=None, produ
         desglose = {}
         for clave in CLAVES_DESGLOSE:
             cant = p['desglose'][clave][0]
-            desglose[clave] = [q8(cant), q2(cant * pu) if pu is not None else ZERO]
+            desglose[clave] = [q8(cant), q8(cant * pu) if pu is not None else ZERO]
         redondeo = q8(cv_valor - sum((v[1] for v in desglose.values()), ZERO))
         desglose['otros'][1] = q8(desglose['otros'][1] + redondeo)
 
@@ -250,7 +261,7 @@ def generar_costo_ventas(*, empresa_id, periodo_id, periodo_hasta_id=None, produ
         'fecha_fin': fin.isoformat(),
         'moneda': 'PEN',
         'formula': FORMULA,
-        'metodo': METODO,
+        'metodo': METODO if desde.id == hasta.id else METODO_RANGO,
         'totales': {
             # Las cantidades no se suman entre productos con unidades distintas.
             'saldo_inicial': _bloque(ZERO, totales['si'], con_cantidad=False),
@@ -269,4 +280,59 @@ def generar_costo_ventas(*, empresa_id, periodo_id, periodo_hasta_id=None, produ
             'diferencia_metodo': _texto(totales['cv'] - totales['cv_kardex']),
         },
         'productos': filas,
+    }
+
+
+COLUMNAS_MENSUALES = ('saldo_inicial', 'compras', 'disponible', 'saldo_final', 'mermas', 'costo_venta')
+
+
+def resumen_mensual(reportes):
+    """
+    Una fila por mes (cada reporte es un mes) y el total, sumando con la precisión de cálculo.
+    Lo usan la vista anual y la hoja «Costo de Venta» del Excel, para que muestren lo mismo.
+    """
+    filas = []
+    sumas = {'compras': ZERO, 'mermas': ZERO, 'costo_venta': ZERO, 'costo_venta_kardex': ZERO, 'diferencia_metodo': ZERO}
+    for reporte in reportes:
+        t = reporte['totales']
+        fila = {'periodo': reporte['periodo_desde']}
+        for clave in COLUMNAS_MENSUALES:
+            fila[clave] = Decimal(t[clave]['valor'])
+        fila['costo_venta_kardex'] = Decimal(t['kardex']['costo_venta']['valor'])
+        fila['diferencia_metodo'] = Decimal(t['diferencia_metodo'])
+        for clave in sumas:
+            sumas[clave] += fila[clave]
+        filas.append(fila)
+    total = dict(sumas)
+    if filas:
+        total['saldo_inicial'] = filas[0]['saldo_inicial']
+        total['saldo_final'] = filas[-1]['saldo_final']
+    return filas, total
+
+
+def generar_costo_ventas_anual(*, empresa_id, anio, producto_id=None):
+    """Kardex → Costo de Venta «Por año»: el costo de cada mes del año y su suma (consulta)."""
+    if not anio:
+        raise ValidationError({'anio': 'Este parámetro es obligatorio.'})
+    if producto_id and not Producto.objects.filter(pk=producto_id, empresa_id=empresa_id).exists():
+        raise ValidationError({'producto_id': 'El producto no pertenece a la empresa activa.'})
+    periodos = list(Periodo.objects.filter(empresa_id=empresa_id, anio=anio).order_by('fecha_inicio', 'orden'))
+    if not periodos:
+        raise ValidationError({'anio': f'La empresa no tiene períodos en {anio}.'})
+    reportes = [generar_costo_ventas(empresa_id=empresa_id, periodo_id=p.id, producto_id=producto_id) for p in periodos]
+    filas, total = resumen_mensual(reportes)
+    empresa = Empresa.objects.get(pk=empresa_id)
+
+    def textos(fila):
+        return {clave: _texto(valor) for clave, valor in fila.items() if clave != 'periodo'}
+
+    return {
+        'empresa': {'ruc': empresa.ruc, 'razon_social': empresa.razon_social},
+        'anio': anio,
+        'producto_id': producto_id,
+        'moneda': 'PEN',
+        'formula': FORMULA,
+        'metodo': METODO_ANUAL,
+        'meses': [{'periodo': f['periodo'], **textos(f)} for f in filas],
+        'total': textos(total),
     }

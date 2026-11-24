@@ -4,7 +4,7 @@ from decimal import Decimal
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from apps.reportes.costo_ventas import CLAVES_COMPRA, CLAVES_DESGLOSE
+from apps.reportes.costo_ventas import CLAVES_COMPRA, CLAVES_DESGLOSE, resumen_mensual
 
 TITULO_HOJA = 'Costo de Venta'
 FUENTE = 'Segoe UI'
@@ -63,34 +63,38 @@ def _nota(hoja, fila, texto):
 def escribir_hoja_por_mes(hoja, reportes, *, razon_social, ruc, notas=()):
     _titulo(hoja, 'COSTO DE VENTA POR MES')
     hoja['A2'] = f'{razon_social} — RUC {ruc}'
-    hoja['A3'] = 'Importes en soles (PEN). Cada mes con su P.U. promedio.'
+    hoja['A3'] = 'Importes en soles (PEN), calculados con precisión completa y mostrados en céntimos.'
     fila = 4
-    for nota in (*notas, 'Para ver el detalle por producto, elija un período en el Kardex Valorizado.'):
+    metodo = ('Método: promedio ponderado del mes. Cada mes parte del saldo valorizado del Kardex (promedio móvil) '
+              'y valoriza su saldo final al P.U. promedio del mes; por eso ese saldo final puede no ser igual al '
+              'saldo inicial del mes siguiente. Las últimas columnas muestran el costo de venta según el Kardex.')
+    for nota in (metodo, *notas, 'Para ver el detalle por producto, elija un período en el Kardex Valorizado.'):
         fila = _nota(hoja, fila, nota)
     fila += 1
     columnas = (('Período', None), ('Saldo inicial', 'saldo_inicial'), ('+ Compras', 'compras'),
                 ('Subtotal', 'disponible'), ('− Saldo final', 'saldo_final'), ('− Mermas', 'mermas'),
-                ('= Costo de venta', 'costo_venta'))
+                ('= Costo de venta', 'costo_venta'), ('Costo de venta según Kardex', 'kardex'),
+                ('Diferencia por método', 'diferencia_metodo'))
     for col, (texto, _) in enumerate(columnas, start=1):
-        _celda(hoja, fila, col, texto, negrita=True, relleno=AZUL_CLARO)
+        _celda(hoja, fila, col, texto, negrita=True, relleno=AMARILLO if col > 7 else AZUL_CLARO)
     fila += 1
-    sumas = {'compras': Decimal(0), 'mermas': Decimal(0), 'costo_venta': Decimal(0)}
-    for reporte in reportes:
-        t = reporte['totales']
-        _celda(hoja, fila, 1, reporte['periodo_desde']['etiqueta'])
+    meses, total = resumen_mensual(reportes)
+    sumas = {'compras': total['compras'], 'mermas': total['mermas'], 'costo_venta': total['costo_venta'],
+             'kardex': total['costo_venta_kardex'], 'diferencia_metodo': total['diferencia_metodo']}
+    for mes in meses:
+        valores = {**mes, 'kardex': mes['costo_venta_kardex']}
+        _celda(hoja, fila, 1, mes['periodo']['etiqueta'])
         for col, (_, clave) in enumerate(columnas[1:], start=2):
-            _celda(hoja, fila, col, _num(t[clave]['valor']), FMT_MONTO, negrita=clave == 'costo_venta')
-            if clave in sumas:
-                sumas[clave] += Decimal(t[clave]['valor'])
+            _celda(hoja, fila, col, valores[clave], FMT_MONTO, negrita=clave == 'costo_venta')
         fila += 1
     _celda(hoja, fila, 1, 'TOTAL', negrita=True, relleno=AZUL_CLARO)
     for col, (_, clave) in enumerate(columnas[1:], start=2):
-        _celda(hoja, fila, col, sumas.get(clave), FMT_MONTO, negrita=True, relleno=AZUL_CLARO)
+        _celda(hoja, fila, col, sumas.get(clave), FMT_MONTO, negrita=True, relleno=AMARILLO if col > 7 else AZUL_CLARO)
     if not reportes:
         _nota(hoja, fila + 2, 'No hay movimientos de inventario registrados.')
     hoja.column_dimensions['A'].width = 14
     for col in range(2, len(columnas) + 1):
-        hoja.column_dimensions[get_column_letter(col)].width = 17
+        hoja.column_dimensions[get_column_letter(col)].width = 17 if col <= 7 else 20
 
 
 def escribir_hoja_costo_venta(hoja, reporte, notas=()):

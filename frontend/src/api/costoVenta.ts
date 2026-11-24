@@ -1,5 +1,7 @@
 import apiClient from './http';
-import { paramsCostoVenta, type FiltrosCostoVenta } from '../utils/costoVenta';
+import {
+  paramsCostoVenta, paramsCostoVentaAnual, type FiltrosCostoVenta, type FiltrosCostoVentaAnual,
+} from '../utils/costoVenta';
 
 /** Unidades / costo unitario / total de un concepto (cantidad y P.U. son null en los totales de la empresa). */
 export interface BloqueCosto { cantidad: string | null; costo_unitario: string | null; valor: string }
@@ -58,3 +60,32 @@ export const URL_COSTO_VENTA = '/reportes/costo-ventas/';
 
 export const obtenerCostoVenta = async (filtros: FiltrosCostoVenta): Promise<CostoVentaResponse> =>
   (await apiClient.get<CostoVentaResponse>(URL_COSTO_VENTA, { params: paramsCostoVenta(filtros) })).data;
+
+/** Kardex → Costo de Venta «Por año»: una fila por mes (cada mes con su promedio) y la suma del año. */
+export interface MesCostoVenta {
+  periodo: PeriodoCostoVenta;
+  saldo_inicial: string;
+  compras: string;
+  disponible: string;
+  saldo_final: string;
+  mermas: string;
+  costo_venta: string;
+  costo_venta_kardex: string;
+  diferencia_metodo: string;
+}
+
+export interface CostoVentaAnualResponse {
+  empresa: { ruc: string; razon_social: string };
+  anio: number;
+  producto_id: number | null;
+  moneda: 'PEN';
+  formula: string;
+  metodo: string;
+  meses: MesCostoVenta[];
+  total: Omit<MesCostoVenta, 'periodo' | 'disponible'> & { disponible?: string };
+}
+
+export const URL_COSTO_VENTA_ANUAL = '/reportes/costo-ventas/anual/';
+
+export const obtenerCostoVentaAnual = async (filtros: FiltrosCostoVentaAnual): Promise<CostoVentaAnualResponse> =>
+  (await apiClient.get<CostoVentaAnualResponse>(URL_COSTO_VENTA_ANUAL, { params: paramsCostoVentaAnual(filtros) })).data;

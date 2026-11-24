@@ -19,6 +19,20 @@ export const paramsCostoVenta = (f: FiltrosCostoVenta): Record<string, number | 
   ...(f.producto_id ? { producto_id: f.producto_id } : {}),
 });
 
+export interface FiltrosCostoVentaAnual {
+  anio: number | string;
+  producto_id?: number | string;
+}
+
+export const paramsCostoVentaAnual = (f: FiltrosCostoVentaAnual): Record<string, number | string> => ({
+  anio: f.anio,
+  ...(f.producto_id ? { producto_id: f.producto_id } : {}),
+});
+
+/** Años con períodos registrados, del más reciente al más antiguo. */
+export const aniosDePeriodos = (periodos: { anio: number }[]): number[] =>
+  [...new Set(periodos.map((p) => p.anio))].sort((a, b) => b - a);
+
 export interface PeriodoOrdenable { id: number; orden: number }
 
 /** Mensaje de error si el período final es anterior al inicial; null si el rango es válido. */

@@ -157,7 +157,8 @@ class EjemploDelDuenoTests(CostoVentasBase):
 
     def test_bonificacion_entra_a_costo_cero_y_baja_el_pu(self):
         # + 10 u. de bonificación (costo 0): disponible 210 u. / 4 250 → P.U. 20.238095…
-        # S. final 160 u. → 3 238.10; costo de venta 4 250 − 3 238.10 = 1 011.90 (antes 1 062.50).
+        # S. final 160 u. → 3 238.0952…; costo de venta 4 250 − 3 238.0952… = 1 011.9048… (antes 1 062.50).
+        # Se calcula con precisión completa: el redondeo a céntimos es solo al mostrar.
         self.saldo_inicial('100', '2000')
         self.documento_confirmado('VENTA', [self.linea('VENTA', '50', '30')], fecha='2026-01-10')
         self.documento_confirmado('COMPRA', [self.linea('COMPRA', '100', '22.50'),
@@ -166,9 +167,10 @@ class EjemploDelDuenoTests(CostoVentasBase):
         fila = self.fila(self.reporte())
         self.assertEqual(dec(fila['disponible']['cantidad']), D('210'))
         self.assertEqual(dec(fila['disponible']['valor']), D('4250'))
-        self.assertEqual(dec(fila['saldo_final']['valor']), D('3238.10'))
+        self.assertEqual(dec(fila['saldo_final']['valor']), D('3238.09523810'))
         self.assertEqual(dec(fila['costo_venta']['cantidad']), D('50'))
-        self.assertEqual(dec(fila['costo_venta']['valor']), D('1011.90'))
+        self.assertEqual(dec(fila['costo_venta']['valor']), D('1011.90476190'))
+        self.assertEqual(dec(fila['costo_venta']['valor']).quantize(D('0.01')), D('1011.90'))
 
     def test_totales_de_la_empresa_suman_los_productos(self):
         self.saldo_inicial('3', '30')
@@ -240,8 +242,8 @@ class EscenarioIntegralTests(CostoVentasBase):
         self.assertEqual(dec(fila['mermas']['cantidad']), D('1'))
         self.assertEqual(dec(fila['costo_venta']['cantidad']), D('2'))   # 2 − 1 devolución + 1 venta (sin merma)
         promedio = (si + compras) / D('8')
-        self.assertEqual(sf, (D('5') * promedio).quantize(D('0.01')))
-        self.assertEqual(mermas, (D('1') * promedio).quantize(D('0.01')))
+        self.assertEqual(sf, (D('5') * promedio).quantize(D('0.00000001')))
+        self.assertEqual(mermas, (D('1') * promedio).quantize(D('0.00000001')))
 
         kardex = consultar_kardex_valorizado(empresa_id=self.empresa.id, producto_id=self.producto.id,
                                              periodo_id=self.enero.id)['resumen']
@@ -281,12 +283,35 @@ class EscenarioIntegralTests(CostoVentasBase):
         self.assertEqual(dec(total['disponible']['valor']), disp_valor)
         self.assertEqual(dec(total['disponible']['cantidad']), D('15'))   # 3 + 5 + 7
         self.assertEqual(dec(total['saldo_final']['valor']),
-                         (dec(total['saldo_final']['cantidad']) * disp_valor / D('15')).quantize(D('0.01')))
+                         (dec(total['saldo_final']['cantidad']) * disp_valor / D('15')).quantize(D('0.00000001')))
         self.assertEqual(dec(total['costo_venta']['valor']),
                          disp_valor - dec(total['saldo_final']['valor']) - dec(total['mermas']['valor']))
         self.assertEqual(rango['periodo_desde']['etiqueta'], '2026-01')
         self.assertEqual(rango['periodo_hasta']['etiqueta'], '2026-02')
         self.assertEqual(dec(rango['totales']['diferencia']), D('0'))
+
+
+class PrecisionYMesSinSalidasTests(CostoVentasBase):
+    def test_mes_sin_salidas_da_costo_cero_exacto(self):
+        # Saldo con más de 2 decimales (como el Kardex real): antes quedaba un residuo de céntimos.
+        self.saldo_inicial('3', '10.00321')
+        self.compra_confirmada('1', '0.01', fecha='2026-01-05')
+        self.documento_confirmado('COMPRA', [self.linea('COMPRA', '2', '1')], fecha='2026-02-05', periodo=self.febrero)
+        for periodo in (self.enero, self.febrero):
+            fila = self.fila(self.reporte(periodo))
+            self.assertEqual(dec(fila['costo_venta']['valor']), D('0'))
+            self.assertEqual(dec(fila['saldo_final']['valor']), dec(fila['disponible']['valor']))
+
+    def test_mes_con_saldo_y_sin_movimientos(self):
+        self.saldo_inicial('7', '10.00321')
+        self.compra_confirmada('3', '1', fecha='2026-01-05')
+        fila = self.fila(self.reporte(self.febrero))
+        self.assertEqual(dec(fila['costo_venta']['valor']), D('0'))
+        self.assertEqual(dec(fila['saldo_final']['valor']), D('13.00321'))
+
+    def test_el_metodo_queda_explicito(self):
+        self.saldo_inicial('3', '10')
+        self.assertIn('saldo valorizado del Kardex', self.reporte()['metodo'])
 
 
 class CostoVentasApiTests(CostoVentasBase):
@@ -387,6 +412,52 @@ class CostoVentasApiTests(CostoVentasBase):
                          D(enero['costo_venta']['valor']) + D(febrero['costo_venta']['valor']))
         self.assertIsNone(meses['TOTAL'][1])
         self.assertTrue(any('elija un período' in str(f[0]) for f in filas if f[0]))
+
+    def escenario_dos_meses(self):
+        # Febrero con otro P.U.: el promedio único del rango y la suma mensual dan cifras distintas.
+        self.documento_confirmado('COMPRA', [self.linea('COMPRA', '10', '13')], fecha='2026-02-05', periodo=self.febrero)
+        self.documento_confirmado('VENTA', [self.linea('VENTA', '20', '15')], fecha='2026-02-10', periodo=self.febrero)
+
+    def test_por_anio_suma_los_meses_y_coincide_con_el_excel(self):
+        self.escenario_dos_meses()
+        resp = self.client.get(reverse('costo-ventas-anual'), {'anio': 2026}, **self.headers)
+        self.assertEqual(resp.status_code, 200, resp.data)
+        datos = resp.data
+        self.assertIn('Suma de costos mensuales', datos['metodo'])
+        self.assertEqual([m['periodo']['etiqueta'] for m in datos['meses']], ['2026-01', '2026-02'])
+        enero = self.reporte()['totales']
+        febrero = self.reporte(self.febrero)['totales']
+        self.assertEqual(D(datos['meses'][0]['costo_venta']), D(enero['costo_venta']['valor']))
+        self.assertEqual(D(datos['meses'][1]['costo_venta_kardex']), D(febrero['kardex']['costo_venta']['valor']))
+        total = datos['total']
+        self.assertEqual(D(total['costo_venta']), D(enero['costo_venta']['valor']) + D(febrero['costo_venta']['valor']))
+        self.assertEqual(D(total['diferencia_metodo']), D(total['costo_venta']) - D(total['costo_venta_kardex']))
+        self.assertEqual(D(total['saldo_inicial']), D(enero['saldo_inicial']['valor']))
+        self.assertEqual(D(total['saldo_final']), D(febrero['saldo_final']['valor']))
+        # Misma cifra que la hoja «Costo de Venta» del Excel, con los mismos filtros.
+        hoja = self._hoja_kardex(producto_id=self.producto.id)
+        fila_total = [f for f in hoja.iter_rows(values_only=True) if f[0] == 'TOTAL'][0]
+        self.assertEqual(D(str(fila_total[6])), D(total['costo_venta']))
+        self.assertEqual(D(str(fila_total[7])), D(total['costo_venta_kardex']))
+        # El rango enero–febrero usa un solo promedio y da otra cifra, con su método a la vista.
+        rango = self.reporte(self.enero, hasta=self.febrero)
+        self.assertIn('Promedio único del rango', rango['metodo'])
+        self.assertNotEqual(D(rango['totales']['costo_venta']['valor']), D(total['costo_venta']))
+        self.assertIn('Promedio ponderado del mes', self.reporte()['metodo'])
+
+    def test_por_anio_con_producto_y_validaciones(self):
+        self.escenario_dos_meses()
+        url = reverse('costo-ventas-anual')
+        con_producto = self.client.get(url, {'anio': 2026, 'producto_id': self.producto.id}, **self.headers)
+        self.assertEqual(con_producto.status_code, 200)
+        self.assertEqual(con_producto.data['producto_id'], self.producto.id)
+        for params, campo in (({}, 'anio'), ({'anio': 1999}, 'anio'), ({'anio': 2026, 'producto_id': 999999}, 'producto_id')):
+            with self.subTest(params=params):
+                resp = self.client.get(url, params, **self.headers)
+                self.assertEqual(resp.status_code, 400)
+                self.assertIn(campo, resp.data)
+        otra = self.client.get(url, {'anio': 2026}, HTTP_X_EMPRESA_ID=str(self.otra_empresa.id))
+        self.assertEqual(otra.status_code, 403)
 
     def test_ya_no_hay_excel_separado(self):
         resp = self.client.get('/api/reportes/costo-ventas/excel/', {'periodo_id': self.enero.id}, **self.headers)

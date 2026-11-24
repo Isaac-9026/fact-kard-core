@@ -11,7 +11,7 @@ from apps.reportes.excel_exporter import generar_bytes_excel_kardex
 from apps.empresas.models import Periodo
 from apps.reportes.formato131_excel import generar_excel_formato_131, nombre_archivo_formato_131
 from apps.reportes.formato131_service import generar_formato_131
-from apps.reportes.costo_ventas import generar_costo_ventas
+from apps.reportes.costo_ventas import generar_costo_ventas, generar_costo_ventas_anual
 from apps.reportes.dashboard_graficos import generar_graficos_dashboard
 from apps.reportes.piloto_service import comparar_piloto, obtener_valores_factkard
 from apps.reportes.serializers import PilotoComparacionSerializer
@@ -198,6 +198,23 @@ class CostoVentasView(APIView):
 
     def get(self, request):
         return Response(generar_costo_ventas(**filtros_costo_ventas(request)))
+
+
+class CostoVentasAnualView(APIView):
+    """
+    GET /api/reportes/costo-ventas/anual/?anio=&producto_id=
+    Una fila por mes (promedio ponderado de cada mes) y la suma del año, con la referencia del Kardex.
+    """
+    authentication_classes = (UsuarioTokenAuthentication,)
+    permission_classes = (TieneEmpresaActiva,)
+
+    def get(self, request):
+        params = request.query_params
+        return Response(generar_costo_ventas_anual(
+            empresa_id=request.empresa_id,
+            anio=entero_param(params, 'anio', requerido=True),
+            producto_id=entero_param(params, 'producto_id'),
+        ))
 
 
 class DashboardGraficosView(APIView):

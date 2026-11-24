@@ -604,8 +604,11 @@ def generar_libro_excel_kardex(
         )
         escribir_hoja_costo_venta(ws5, reporte_cv, notas=notas_cv)
     else:
+        con_movimientos = {'movimientos__isnull': False}
+        if producto_id:
+            con_movimientos = {'movimientos__producto_id': producto_id}
         periodos_ids = (
-            Periodo.objects.filter(empresa_id=empresa_id, movimientos__isnull=False)
+            Periodo.objects.filter(empresa_id=empresa_id, **con_movimientos)
             .distinct().order_by('fecha_inicio', 'orden').values_list('id', flat=True)
         )
         reportes_cv = [

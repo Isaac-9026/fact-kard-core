@@ -8,7 +8,7 @@
  * pantalla no calcula costos, solo los muestra. Exportación a Excel generada por el backend.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Calculator, CheckCircle2, AlertTriangle, Search, Info } from 'lucide-react'
+import { Calculator, CheckCircle2, AlertTriangle, Search, Info, CalendarRange, CalendarDays } from 'lucide-react'
 import {
   obtenerCostoVenta, type CostoVentaResponse, type FilaCostoVenta,
 } from '../../api/costoVenta'
@@ -23,6 +23,8 @@ import { Select } from '../../components/ui/select'
 import { Badge } from '../../components/ui/badge'
 import { AlertaFormulario } from '../../components/ui/alerta-formulario'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table'
+import { Tabs, TabsList, TabsTrigger } from '../../components/ui/tabs'
+import { CostoVentaAnual } from './CostoVentaAnual'
 import { formatearDecimal } from '../../utils/decimal'
 import { mensajesDeErrorApi } from '../../utils/errores'
 import {
@@ -128,6 +130,7 @@ export function CostoVentaPage() {
   const [seleccionado, setSeleccionado] = useState<number | null>(null)
   const [cargando, setCargando] = useState(false)
   const [error, setError] = useState<string[] | null>(null)
+  const [modo, setModo] = useState<'RANGO' | 'ANIO'>('RANGO')
 
   useEffect(() => {
     if (!empresaActiva?.id) return
@@ -176,10 +179,18 @@ export function CostoVentaPage() {
     <div className="space-y-6">
       <PageHeader
         title="Costo de Venta"
-        description="Saldo inicial + Compras − Saldo final = Costo de venta, con un solo P.U.: el promedio ponderado del período. El Excel sale en Kardex Valorizado → Exportar Excel (hoja “Costo de Venta”)."
+        description="Saldo inicial + Compras − Saldo final = Costo de venta. «Por período» usa un solo P.U. para todo el rango; «Por año» suma el costo de cada mes, igual que la hoja “Costo de Venta” del Excel (Kardex Valorizado → Exportar Excel)."
         icon={<Calculator className="h-5 w-5" />}
       />
 
+      <Tabs value={modo} onValueChange={(v) => setModo(v as 'RANGO' | 'ANIO')}>
+        <TabsList aria-label="Tipo de consulta">
+          <TabsTrigger value="RANGO" role="tab" aria-selected={modo === 'RANGO'} icon={<CalendarRange className="h-4 w-4" />}>Por período o rango</TabsTrigger>
+          <TabsTrigger value="ANIO" role="tab" aria-selected={modo === 'ANIO'} icon={<CalendarDays className="h-4 w-4" />}>Por año</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {modo === 'ANIO' ? <CostoVentaAnual periodos={periodos} productos={productos} /> : (<>
       <Card>
         <CardContent className="grid grid-cols-1 gap-3 pt-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-1">
@@ -195,6 +206,9 @@ export function CostoVentaPage() {
               <option value="">Solo ese mes</option>
               {periodosOrdenados.map((p) => <option key={p.id} value={p.id}>{etiquetaPeriodo(p)}</option>)}
             </Select>
+            {hasta !== '' && hasta !== desde && (
+              <p className="text-[11px] text-slate-500">Método: Promedio único del rango.</p>
+            )}
           </div>
           <div className="space-y-1">
             <Label htmlFor="cv-producto">Producto</Label>
@@ -220,6 +234,7 @@ export function CostoVentaPage() {
               <CardTitle>Costo de venta de la empresa — {rango}</CardTitle>
               <CardDescription>
                 {datos.empresa.razon_social} · RUC {datos.empresa.ruc} · del {datos.fecha_inicio} al {datos.fecha_fin} · importes en soles
+                <span className="mt-1 block text-[11px] text-slate-500" data-testid="metodo-costo-venta">{datos.metodo}</span>
               </CardDescription>
             </CardHeader>
             <CardContent className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -321,6 +336,7 @@ export function CostoVentaPage() {
           )}
         </>
       )}
+      </>)}
     </div>
   )
 }
