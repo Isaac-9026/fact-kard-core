@@ -129,6 +129,7 @@ def validar_duplicado_documento(
     )
     if excluir_id:
         qs = qs.exclude(id=excluir_id)
+    qs = qs.exclude(estado='ANULADO', importacion_lote__isnull=False)
 
     if qs.exists():
         raise ValidationError(

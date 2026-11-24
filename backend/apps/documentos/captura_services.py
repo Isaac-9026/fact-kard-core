@@ -1340,7 +1340,9 @@ def generar_borrador_desde_captura(
                 ruc_emisor=ruc_emisor,
                 serie_normalizada=ref_serie,
                 numero_normalizado=ref_num,
-            ).exclude(tipo_comprobante__es_nota=True).order_by('id').first()
+            ).exclude(tipo_comprobante__es_nota=True).exclude(
+                estado='ANULADO', importacion_lote__isnull=False,
+            ).order_by('id').first()
 
     # 4. Fecha de emisión (CON-001): debe ser válida; nunca se reemplaza por "hoy".
     fecha_emision = parsear_fecha_calendario(cabecera.get('fecha_emision'), campo='fecha_emision')

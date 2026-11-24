@@ -370,6 +370,7 @@ def _existentes(empresa_id, claves):
         return {}
     docs = (
         Documento.objects.filter(empresa_id=empresa_id, serie_normalizada__in={c[2] for c in claves})
+        .exclude(estado='ANULADO', importacion_lote__isnull=False)
         .select_related('tipo_comprobante')
         .prefetch_related('detalles')
     )
@@ -700,3 +701,77 @@ def _analizar(*, empresa_id, archivos, proveedores=None):
 def previsualizar_importacion_kardex(*, empresa_id: int, archivos, proveedores=None) -> dict:
     """archivos: lista de (nombre, archivo). Devuelve el diagnóstico sin escribir nada."""
     return _analizar(empresa_id=empresa_id, archivos=archivos, proveedores=proveedores)[0]
+
+
+def generar_plantilla_entradas_salidas(empresa_id: int):
+    """Plantilla .xlsx con el mismo formato del Kardex por producto del cliente + columnas opcionales."""
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from apps.reportes.excel_seguro import neutralizar_formulas
+
+    azul = PatternFill('solid', fgColor='17365D')
+    gris = PatternFill('solid', fgColor='E5E7EB')
+    blanco = Font(bold=True, color='FFFFFF')
+    centro = Alignment(horizontal='center', vertical='center', wrap_text=True)
+
+    libro = Workbook()
+    hoja = libro.active
+    hoja.title = 'Entradas_y_salidas'
+    hoja.append(['Código', 'COMPROBANTE', None, None, None, 'Tipo de Operación', 'ENTRADAS', None, None, 'SALIDAS', None, None,
+                 'OPCIONALES', None, None, None])
+    hoja.append([None, 'Fecha', 'Tipo', 'Serie', 'Número', None, 'Cantidad', 'Costo Unitario', 'Costo Total',
+                 'Cantidad', 'Costo Unitario', 'Costo Total', 'RUC/DNI', 'Razón social', 'Precio unitario', 'Moneda'])
+    for rango in ('A1:A2', 'B1:E1', 'F1:F2', 'G1:I1', 'J1:L1', 'M1:P1'):
+        hoja.merge_cells(rango)
+    for fila in hoja.iter_rows(min_row=1, max_row=2):
+        for celda in fila:
+            celda.fill = gris if celda.column > 12 else azul
+            celda.font = Font(bold=True) if celda.column > 12 else blanco
+            celda.alignment = centro
+    ejemplos = [
+        ['P-001', date(2026, 1, 5), 1, 'F001', 120, '02 Compra', 20, 10.5, 210, 0, 0, 0, '20100100100', 'PROVEEDOR EJEMPLO SAC', None, 'PEN'],
+        ['P-001', date(2026, 1, 8), 3, 'B001', 455, '01 Venta', 0, 0, 0, 2, 10.5, 21, None, None, 15, 'PEN'],
+        ['P-001', date(2026, 1, 9), 1, 'F001', 88, '01 Venta', 0, 0, 0, 1, 10.5, 10.5, '20600600600', 'CLIENTE EJEMPLO SAC', 16, 'PEN'],
+        ['P-001', date(2026, 1, 9), 7, 'FC01', 3, '05 Devolución Recibida', 1, 0, 0, 0, 0, 0, None, None, None, 'PEN'],
+    ]
+    for fila in ejemplos:
+        hoja.append(fila)
+    for fila in hoja.iter_rows(min_row=3, min_col=2, max_col=2):
+        for celda in fila:
+            celda.number_format = 'DD/MM/YYYY'
+    for col, ancho in zip('ABCDEFGHIJKLMNOP', (12, 12, 6, 8, 10, 24, 10, 14, 14, 10, 14, 14, 14, 30, 14, 8)):
+        hoja.column_dimensions[col].width = ancho
+    hoja.freeze_panes = 'A3'
+
+    ayuda = libro.create_sheet('Instrucciones')
+    for linea in (
+        ['Cómo llenar la plantilla "Entradas y salidas"'],
+        [],
+        ['Una fila = una línea de comprobante. Si un comprobante tiene varios productos, repita fecha, tipo, serie y número.'],
+        ['Tipo: 1 Factura, 3 Boleta, 7 Nota de crédito.'],
+        ['Tipo de operación: 01 Venta, 02 Compra, 05 Devolución recibida, 06 Devolución entregada.'],
+        ['Entradas (compras y devoluciones recibidas): cantidad y costo unitario sin IGV. Salidas: solo cantidad (el costo lo calcula el sistema).'],
+        ['RUC/DNI: obligatorio en compras (o elíjalo en la previsualización). En facturas de venta sin RUC se usa "VARIOS (importación)".'],
+        ['Precio unitario: precio de venta sin IGV. Si se deja vacío la venta entra a costo y no suma ingresos.'],
+        ['Moneda: PEN o USD (el tipo de cambio se toma de la fecha). Vacío = PEN.'],
+        ['Puede subir varios archivos a la vez (uno por producto). Las filas de ejemplo deben borrarse.'],
+    ):
+        ayuda.append(linea)
+    ayuda['A1'].font = Font(bold=True, size=12)
+    ayuda.column_dimensions['A'].width = 120
+
+    catalogo = libro.create_sheet('Productos')
+    catalogo.append(['Código', 'Descripción'])
+    for celda in catalogo[1]:
+        celda.font = Font(bold=True)
+    for codigo, descripcion in Producto.objects.filter(empresa_id=empresa_id, estado='ACTIVO').order_by('codigo_interno').values_list('codigo_interno', 'descripcion'):
+        catalogo.append([codigo, descripcion])
+    catalogo.column_dimensions['A'].width = 14
+    catalogo.column_dimensions['B'].width = 60
+
+    neutralizar_formulas(libro)
+    salida = io.BytesIO()
+    libro.save(salida)
+    salida.seek(0)
+    return salida

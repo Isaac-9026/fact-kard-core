@@ -317,6 +317,19 @@ class EndpointTests(ImportacionKardexBase):
         self.assertEqual({f['archivo'] for f in resp.data['filas']}, {'011004.xlsx', '011049.xlsx'})
         self.assertEqual(Documento.objects.count(), antes)
 
+    def test_plantilla_se_lee_con_el_mismo_importador(self):
+        resp = self.client.get(reverse('importacion-entradas-salidas-plantilla'), **self.headers)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('plantilla_entradas_salidas.xlsx', resp['Content-Disposition'])
+        filas = leer_archivo(io.BytesIO(resp.content), 'plantilla.xlsx')
+        self.assertEqual(len(filas), 4)
+        self.assertEqual([f.errores for f in filas], [[], [], [], []])
+        self.assertEqual((filas[0].ruc, filas[1].precio_unitario, filas[3].operacion), ('20100100100', Decimal('15'), '05'))
+        from openpyxl import load_workbook
+        libro = load_workbook(io.BytesIO(resp.content))
+        codigos = [f[0] for f in libro['Productos'].iter_rows(min_row=2, values_only=True)]
+        self.assertIn('011004', codigos)
+
     def test_validaciones_del_archivo(self):
         malo = io.BytesIO(b'x')
         malo.name = 'datos.csv'
@@ -544,7 +557,7 @@ class AnularLoteTests(ImportacionKardexBase):
         self.assertEqual(set(Documento.objects.filter(importacion_lote=lote).values_list('estado', flat=True)), {'ANULADO'})
         self.assertEqual(self.stock(self.p1), Decimal('0'))
         nota = Documento.objects.get(importacion_lote=lote, serie_normalizada='B001')
-        self.assertEqual((nota.numero, nota.numero_normalizado), ('3', f'3~A{lote_id}'))
+        self.assertEqual((nota.numero, nota.numero_normalizado), ('3', '3'))
 
     def test_despues_de_anular_se_puede_volver_a_importar_el_mismo_archivo(self):
         lote_id = self.importar()
@@ -554,7 +567,25 @@ class AnularLoteTests(ImportacionKardexBase):
         nuevo = self.importar()
         self.assertNotEqual(nuevo, lote_id)
         self.assertEqual(self.stock(self.p1), Decimal('15'))
-        self.assertEqual(Documento.objects.filter(serie_normalizada='F035', numero='1081').count(), 2)
+        dos = Documento.objects.filter(serie_normalizada='F035', numero_normalizado='1081')
+        self.assertEqual(sorted(dos.values_list('estado', flat=True)), ['ANULADO', 'CONFIRMADO'])
+
+    def test_el_numero_anulado_se_ve_limpio_y_solo_lo_importado_se_libera(self):
+        lote_id = self.importar()
+        self.anular(lote_id)
+        resp = self.client.get(reverse('documento-list-create'), {'search': 'F035'}, **self.headers)
+        datos = resp.data['results'] if isinstance(resp.data, dict) else resp.data
+        self.assertTrue(all('~' not in str(d.get('numero_normalizado', '')) for d in datos))
+        self.assertIn('1081', [d['numero_normalizado'] for d in datos])
+        manual = Documento.objects.get(importacion_lote_id=lote_id, serie_normalizada='F035')
+        Documento.objects.filter(pk=manual.pk).update(importacion_lote=None)
+        from django.db import IntegrityError
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Documento.objects.create(
+                empresa=self.empresa, clase='COMPRA', periodo=self.enero, ruc_emisor=manual.ruc_emisor,
+                tipo_comprobante=manual.tipo_comprobante, serie='F035', serie_normalizada='F035', numero='1081',
+                numero_normalizado='1081', fecha_emision=date(2026, 1, 3), moneda_codigo=self.pen,
+            )
 
     def test_no_anula_nada_si_un_comprobante_esta_en_periodo_cerrado(self):
         lote_id = self.importar()

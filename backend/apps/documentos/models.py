@@ -146,7 +146,10 @@ class Documento(models.Model):
                     'serie_normalizada',
                     'numero_normalizado',
                 ],
-                name='uq_documento_emisor_comprobante'
+                name='uq_documento_emisor_comprobante',
+                # Un comprobante importado y luego anulado (lote anulado) libera su número para
+                # volver a importarlo. Los demás, incluso anulados, lo siguen ocupando.
+                condition=~models.Q(estado='ANULADO', importacion_lote__isnull=False),
             ),
             models.CheckConstraint(
                 condition=models.Q(clase__in=['COMPRA', 'VENTA']),

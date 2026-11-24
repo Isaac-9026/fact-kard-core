@@ -37,7 +37,9 @@ from apps.documentos.captura_services import (
     generar_borrador_desde_captura,
 )
 from apps.documentos.importacion_kardex_confirmar import anular_lote_importacion, confirmar_importacion_kardex
-from apps.documentos.importacion_kardex_excel import MAX_ARCHIVOS, previsualizar_importacion_kardex
+from apps.documentos.importacion_kardex_excel import (
+    MAX_ARCHIVOS, generar_plantilla_entradas_salidas, previsualizar_importacion_kardex,
+)
 from apps.usuarios.permissions import EsAdminEmpresa, RequiereConfirmacionPassword, TieneEmpresaActiva
 
 
@@ -330,6 +332,21 @@ def _proveedores_importacion(request):
         return json.loads(crudo) if isinstance(crudo, str) else crudo
     except ValueError:
         raise ValidationError({'proveedores': 'Formato inválido: se espera un JSON {comprobante: RUC}.'})
+
+
+class ImportacionKardexPlantillaView(APIView):
+    """GET /api/documentos/importacion/entradas-salidas/plantilla/ — plantilla .xlsx con el catálogo de productos."""
+    permission_classes = [TieneEmpresaActiva, EsAdminEmpresa]
+
+    def get(self, request):
+        from django.http import HttpResponse
+        archivo = generar_plantilla_entradas_salidas(request.empresa_id)
+        respuesta = HttpResponse(
+            archivo.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        respuesta['Content-Disposition'] = 'attachment; filename="plantilla_entradas_salidas.xlsx"'
+        return respuesta
 
 
 class ImportacionKardexPrevisualizarView(APIView):

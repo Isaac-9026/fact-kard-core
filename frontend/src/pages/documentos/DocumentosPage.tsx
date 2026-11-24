@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   CONFIG_VISTAS, TABS_COMPROBANTES, claseDeTab, claseInicialNuevo, filtrosApiDocumentos, queryConTab, tabDesdeQuery,
   tiposComprobanteDeVista, type TabComprobantes, type VistaDocumentos,
@@ -16,6 +16,7 @@ import {
   AlertCircle,
   Trash2,
   Receipt,
+  Upload,
 } from 'lucide-react'
 import {
   obtenerDocumentos,
@@ -151,6 +152,7 @@ export const DocumentosPage: React.FC<DocumentosPageProps> = ({ vista = 'COMPROB
   const { empresaActiva, usuario } = useAuth()
   const esAdmin = Boolean(usuario?.es_admin_global || empresaActiva?.rol === 'ADMIN')
   const soloConsulta = useSoloConsulta()
+  const navigate = useNavigate()
   const configVista = CONFIG_VISTAS[vista]
   const [searchParams, setSearchParams] = useSearchParams()
 
@@ -900,9 +902,16 @@ export const DocumentosPage: React.FC<DocumentosPageProps> = ({ vista = 'COMPROB
         description={configVista.descripcion}
         icon={<FileSpreadsheet className="h-5 w-5" />}
         actions={!soloConsulta && (
-          <Button variant="primary" onClick={abrirNuevo}>
-            <Plus className="h-4 w-4 mr-1.5" /> {configVista.botonNuevo}
-          </Button>
+          <div className="flex items-center gap-2">
+            {vista === 'COMPROBANTES' && esAdmin && (
+              <Button variant="outline" onClick={() => navigate('/comprobantes/importar')} data-acceso="/comprobantes/importar">
+                <Upload className="h-4 w-4 mr-1.5" /> Importar Excel
+              </Button>
+            )}
+            <Button variant="primary" onClick={abrirNuevo}>
+              <Plus className="h-4 w-4 mr-1.5" /> {configVista.botonNuevo}
+            </Button>
+          </div>
         )}
       />
 

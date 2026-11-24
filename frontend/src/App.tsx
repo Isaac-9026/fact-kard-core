@@ -15,6 +15,7 @@ const CatalogosPage = lazy(() => import('./pages/catalogos/CatalogosPage').then(
 const PeriodosPage = lazy(() => import('./pages/periodos/PeriodosPage').then((m) => ({ default: m.PeriodosPage })));
 const MaestrosInventarioPage = lazy(() => import('./pages/inventario/MaestrosInventarioPage').then((m) => ({ default: m.MaestrosInventarioPage })));
 const DocumentosPage = lazy(() => import('./pages/documentos/DocumentosPage').then((m) => ({ default: m.DocumentosPage })));
+const ImportacionExcelPage = lazy(() => import('./pages/documentos/ImportacionExcelPage').then((m) => ({ default: m.ImportacionExcelPage })));
 const StockActualPage = lazy(() => import('./pages/inventario/StockActualPage').then((m) => ({ default: m.StockActualPage })));
 const OperacionesInternasPage = lazy(() => import('./pages/operaciones/OperacionesInternasPage').then((m) => ({ default: m.OperacionesInternasPage })));
 const TransferenciasPage = lazy(() => import('./pages/transferencias/TransferenciasPage').then((m) => ({ default: m.TransferenciasPage })));
@@ -92,6 +93,7 @@ export const App: React.FC = () => {
               <Route path="inventario" element={diferido(StockActualPage)} />
               {/* OPERACIONES */}
               <Route path="comprobantes" element={vistaDocumentos('COMPROBANTES')} />
+              <Route path="comprobantes/importar" element={diferido(ImportacionExcelPage)} />
               <Route path="notas" element={vistaDocumentos('NOTAS')} />
               <Route path="transferencias" element={diferido(TransferenciasPage)} />
               <Route path="captura-homologacion" element={diferido(CapturaHomologacionPage)} />

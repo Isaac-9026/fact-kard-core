@@ -282,18 +282,6 @@ def _mensaje(exc):
     return str(detalle)
 
 
-def _liberar_numero(documento, lote_id):
-    """
-    El número de un comprobante anulado sigue ocupando la clave única del sistema. Para poder
-    volver a importar el mismo Excel después de anular el lote, el comprobante anulado conserva
-    su serie y número originales (campos `serie` y `numero`) y solo su clave normalizada recibe
-    la marca del lote anulado.
-    """
-    marca = f'~A{lote_id}'
-    documento.numero_normalizado = f'{documento.numero_normalizado}{marca}'[:50]
-    documento.save(update_fields=['numero_normalizado'])
-
-
 def anular_lote_importacion(*, empresa_id, lote_id, usuario, motivo) -> dict:
     """
     Anula un lote completo o nada: primero valida que todos sus comprobantes se puedan anular
@@ -354,9 +342,6 @@ def anular_lote_importacion(*, empresa_id, lote_id, usuario, motivo) -> dict:
             if isinstance(exc.detail, dict) and 'lote' in exc.detail:
                 raise
             raise ValidationError({'lote': f'No se anuló nada. Al recalcular el Kardex: {_mensaje(exc)}'})
-
-        for documento in Documento.objects.filter(importacion_lote=lote):
-            _liberar_numero(documento, lote.id)
 
         lote.estado = 'ANULADO'
         lote.anulado_por = usuario
