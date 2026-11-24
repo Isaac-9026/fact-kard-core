@@ -22,8 +22,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
-from django.core.exceptions import ValidationError
 from openpyxl import load_workbook
+from rest_framework.exceptions import ValidationError
 
 from apps.catalogos.models import TipoComprobante
 from apps.documentos.models import Documento, DocumentoDetalle
@@ -32,6 +32,8 @@ from apps.empresas.models import Empresa, Periodo
 from apps.inventario.models import Producto
 
 MAX_FILAS = 5000
+# Medido con datos reales: ~40 comprobantes por segundo al confirmar. 2000 deja margen al límite de 120 s.
+MAX_COMPROBANTES_LOTE = 2000
 MAX_ARCHIVOS = 50
 CERO = Decimal('0')
 
@@ -70,6 +72,7 @@ class FilaKardex:
     precio_unitario: Decimal | None = None
     moneda: str = 'PEN'
     estado: str = ''
+    origen: tuple | None = None
     errores: list = field(default_factory=list)
     observaciones: list = field(default_factory=list)
 
@@ -252,11 +255,42 @@ def _clave_comprobante(fila, ruc_empresa):
     return (ruc_emisor, fila.tipo, fila.serie, fila.numero)
 
 
+def clave_proveedor(fila) -> str:
+    """Identifica una compra sin RUC para elegir su proveedor en pantalla (nunca una regla fija)."""
+    return f'{fila.tipo}-{fila.serie}-{fila.numero}-{fila.fecha.isoformat() if fila.fecha else ""}'
+
+
+def _aplicar_proveedores(filas, proveedores):
+    if not proveedores:
+        return
+    if not isinstance(proveedores, dict):
+        raise ValidationError({'proveedores': 'Debe ser un objeto {comprobante: RUC}.'})
+    limpios = {}
+    for clave, ruc in proveedores.items():
+        ruc = re.sub(r'\D', '', str(ruc or ''))
+        if len(ruc) != 11:
+            raise ValidationError({'proveedores': f'RUC inválido para {clave}: debe tener 11 dígitos.'})
+        limpios[str(clave)] = ruc
+    for f in filas:
+        if f.clase == 'COMPRA' and not f.ruc and clave_proveedor(f) in limpios:
+            f.ruc = limpios[clave_proveedor(f)]
+
+
+def _tipo_identidad(numero):
+    from apps.inventario.documentos_identidad import DNI, RUC
+    return RUC if len(numero) == 11 else DNI
+
+
 def _validar_contexto(filas, empresa_id):
+    from apps.inventario.models import Tercero
     codigos = {f.codigo for f in filas if f.codigo}
     productos = {p.codigo_interno: p for p in Producto.objects.filter(empresa_id=empresa_id, codigo_interno__in=codigos)}
     periodos = list(Periodo.objects.filter(empresa_id=empresa_id).order_by('fecha_inicio'))
     tipos = {t.codigo_sunat: t for t in TipoComprobante.objects.filter(codigo_sunat__in={f.tipo for f in filas if f.tipo})}
+    terceros = {
+        (t.tipo_documento, t.numero_documento): t
+        for t in Tercero.objects.filter(empresa_id=empresa_id, numero_documento__in={f.ruc for f in filas if f.ruc})
+    }
 
     for f in filas:
         e = f.errores
@@ -282,14 +316,21 @@ def _validar_contexto(filas, empresa_id):
                 if f.operacion not in DEVOLUCIONES and tipo.es_nota:
                     e.append('Una nota de crédito solo puede ser devolución (05 o 06).')
         if f.clase == 'COMPRA' and f.operacion and len(f.ruc) != 11:
-            e.append('Una compra necesita el RUC del proveedor (11 dígitos) en la columna RUC/DNI.')
-        if f.clase == 'VENTA' and f.tipo == '01' and not f.ruc:
+            e.append('Una compra necesita el RUC del proveedor (11 dígitos): llénelo en la columna RUC/DNI o elíjalo en la previsualización.')
+        if f.clase == 'VENTA' and f.tipo == '01' and f.operacion == '01' and not f.ruc:
             f.observaciones.append('Factura sin RUC del cliente: se registrará con el cliente genérico "VARIOS (importación)".')
+        if f.ruc and f.operacion not in DEVOLUCIONES and not e:
+            rol = 'proveedor' if f.clase == 'COMPRA' else 'cliente'
+            tercero = terceros.get((_tipo_identidad(f.ruc), f.ruc))
+            if not tercero:
+                f.observaciones.append(f'Se registrará el {rol} {f.ruc}.')
+            elif not (tercero.es_proveedor if rol == 'proveedor' else tercero.es_cliente):
+                f.observaciones.append(f'{tercero.razon_social} se marcará también como {rol}.')
         if f.naturaleza == 'SALIDA' and f.cantidad > CERO and f.costo_unitario == CERO:
             f.observaciones.append('Costo 0 en el Excel: se valoriza con el costo promedio del sistema.')
         if f.clase == 'VENTA' and f.operacion == '01' and f.precio_unitario is None:
             f.observaciones.append('Sin precio de venta: entra a costo y no suma ingresos en el dashboard.')
-    return productos
+    return productos, periodos, tipos
 
 
 def _agrupar(filas, ruc_empresa):
@@ -298,30 +339,36 @@ def _agrupar(filas, ruc_empresa):
         if f.tipo and f.serie and f.numero != '0' and f.operacion:
             grupos[_clave_comprobante(f, ruc_empresa)].append(f)
     for lineas in grupos.values():
-        fechas = {l.fecha for l in lineas if l.fecha}
-        operaciones = {l.operacion for l in lineas}
-        rucs = {l.ruc for l in lineas}
-        monedas = {l.moneda for l in lineas}
         problemas = []
-        if len(fechas) > 1:
+        if len({l.fecha for l in lineas if l.fecha}) > 1:
             problemas.append('El mismo comprobante aparece con fechas distintas.')
-        if len(operaciones) > 1:
+        if len({l.operacion for l in lineas}) > 1:
             problemas.append('El mismo comprobante mezcla tipos de operación distintos.')
-        if len(rucs) > 1:
+        if len({l.ruc for l in lineas}) > 1:
             problemas.append('El mismo comprobante aparece con RUC/DNI distintos.')
-        if len(monedas) > 1:
+        if len({l.moneda for l in lineas}) > 1:
             problemas.append('El mismo comprobante aparece con monedas distintas.')
         for l in lineas:
             l.errores.extend(problemas)
+    # Una compra con el mismo número y fecha pero RUC distinto suele ser un RUC mal escrito en
+    # uno de los archivos: se bloquea en vez de partir la factura en dos.
+    compras = defaultdict(set)
+    for (ruc, tipo, serie, numero), lineas in grupos.items():
+        if lineas[0].clase == 'COMPRA' and ruc:
+            compras[(tipo, serie, numero, lineas[0].fecha)].add(ruc)
+    for (ruc, tipo, serie, numero), lineas in grupos.items():
+        rucs = compras.get((tipo, serie, numero, lineas[0].fecha), set())
+        if lineas[0].clase == 'COMPRA' and len(rucs) > 1:
+            for l in lineas:
+                l.errores.append(f'La compra {serie}-{numero} del mismo día aparece con RUC distintos ({", ".join(sorted(rucs))}). Revise el RUC.')
     return grupos
 
 
 def _existentes(empresa_id, claves):
     if not claves:
         return {}
-    series = {c[2] for c in claves}
     docs = (
-        Documento.objects.filter(empresa_id=empresa_id, serie_normalizada__in=series)
+        Documento.objects.filter(empresa_id=empresa_id, serie_normalizada__in={c[2] for c in claves})
         .exclude(estado='ANULADO')
         .select_related('tipo_comprobante')
         .prefetch_related('detalles')
@@ -334,59 +381,97 @@ def _existentes(empresa_id, claves):
     return resultado
 
 
-def _emparejar_devoluciones(grupos, productos, empresa_id, ruc_empresa):
+def _emparejar_devoluciones(grupos, productos, empresa_id):
     """
-    Cada nota de crédito necesita su comprobante de origen. Se busca, por producto y cantidad,
-    la venta (o compra) de la misma fecha o la más cercana anterior, primero en el Excel y
-    luego en lo ya registrado. Cada línea de origen se usa una sola vez.
+    Cada nota de crédito necesita su comprobante de origen: una venta (o compra) del mismo producto
+    ANTERIOR a la nota (fecha menor, o el mismo día pero más arriba en el mismo archivo).
+    1) Misma cantidad, la más reciente: en el Excel y luego en lo ya registrado.
+    2) Si no hay, la más reciente con cantidad suficiente (origen aproximado, queda observado).
+    En cada línea de la nota queda `origen`: ('EXCEL', clave, índice) o ('SISTEMA', id del detalle).
     """
-    usados = set()
+    disponible = {}
     candidatos = defaultdict(list)
     for clave, lineas in grupos.items():
         for i, l in enumerate(lineas):
             if l.operacion in ('01', '02') and l.fecha and not l.errores:
-                candidatos[(l.clase, l.codigo, l.cantidad)].append((l.fecha, clave, i))
+                candidatos[(l.clase, l.codigo)].append((l.fecha, l.archivo, l.fila, clave, i, l))
+                disponible[('EXCEL', clave, i)] = l.cantidad
+    usados_sistema = defaultdict(lambda: CERO)
+
+    def anterior(c, nota):
+        return c[0] < nota.fecha or (c[0] == nota.fecha and c[1] == nota.archivo and c[2] < nota.fila)
+
+    def del_excel(nota, exacta):
+        opciones = [
+            c for c in candidatos[(nota.clase, nota.codigo)]
+            if anterior(c, nota) and (disponible[('EXCEL', c[3], c[4])] == nota.cantidad if exacta
+                                      else disponible[('EXCEL', c[3], c[4])] >= nota.cantidad)
+        ]
+        return max(opciones, key=lambda c: (c[0], c[2]), default=None)
+
+    def del_sistema(nota, exacta):
+        producto = productos.get(nota.codigo)
+        if not producto:
+            return None
+        qs = DocumentoDetalle.objects.filter(
+            documento__empresa_id=empresa_id, documento__clase=nota.clase, documento__estado='CONFIRMADO',
+            documento__tipo_comprobante__es_nota=False, documento__fecha_emision__lte=nota.fecha, producto=producto,
+        ).select_related('documento__tipo_comprobante').order_by('-documento__fecha_emision', '-id')
+        qs = qs.filter(cantidad_original=nota.cantidad) if exacta else qs.filter(cantidad_original__gte=nota.cantidad)
+        for detalle in qs[:50]:
+            if detalle.cantidad_original - usados_sistema[detalle.id] >= nota.cantidad:
+                return detalle
+        return None
 
     origenes = {}
     for clave, lineas in grupos.items():
         if lineas[0].operacion not in DEVOLUCIONES:
             continue
         destinos = set()
+        aproximado = False
         for l in lineas:
             if l.errores or not l.fecha:
                 continue
-            opciones = sorted(
-                (c for c in candidatos[(l.clase, l.codigo, l.cantidad)] if c[0] <= l.fecha and (c[1], c[2]) not in usados),
-                key=lambda c: (l.fecha - c[0], c[1]),
-            )
-            if opciones:
-                fecha, origen, i = opciones[0]
-                usados.add((origen, i))
-                destinos.add(('EXCEL', origen))
-                continue
-            producto = productos.get(l.codigo)
-            existente = (
-                DocumentoDetalle.objects.filter(
-                    documento__empresa_id=empresa_id, documento__clase=l.clase, documento__estado='CONFIRMADO',
-                    documento__tipo_comprobante__es_nota=False, documento__fecha_emision__lte=l.fecha,
-                    producto=producto, cantidad_original=l.cantidad,
-                ).select_related('documento__tipo_comprobante').order_by('-documento__fecha_emision', '-id').first()
-                if producto else None
-            )
-            if existente:
-                d = existente.documento
-                destinos.add(('SISTEMA', (d.ruc_emisor, d.tipo_comprobante.codigo_sunat, d.serie_normalizada, d.numero_normalizado)))
-            else:
+            encontrado = None
+            for exacta in (True, False):
+                c = del_excel(l, exacta)
+                if c:
+                    disponible[('EXCEL', c[3], c[4])] -= l.cantidad
+                    l.origen = ('EXCEL', c[3], c[4])
+                    destinos.add(('EXCEL', c[3], c[0], c[5].naturaleza))
+                    encontrado = True
+                    break
+                detalle = del_sistema(l, exacta)
+                if detalle:
+                    d = detalle.documento
+                    usados_sistema[detalle.id] += l.cantidad
+                    l.origen = ('SISTEMA', detalle.id)
+                    destinos.add(('SISTEMA', (d.ruc_emisor, d.tipo_comprobante.codigo_sunat, d.serie_normalizada, d.numero_normalizado), d.fecha_emision, None))
+                    encontrado = True
+                    break
+            if not encontrado:
                 l.errores.append(
                     f'Devolución sin comprobante de origen: no hay una {"venta" if l.clase == "VENTA" else "compra"} '
-                    f'de {l.codigo} por {l.cantidad} en esa fecha o antes.'
+                    f'anterior de {l.codigo} por {l.cantidad} o más.'
                 )
+            elif not exacta:
+                aproximado = True
         if len(destinos) > 1:
             for l in lineas:
                 l.errores.append('Las líneas de la nota de crédito corresponden a comprobantes de origen distintos.')
         elif destinos:
-            fuente, origen = destinos.pop()
-            origenes[clave] = {'fuente': fuente, 'comprobante': f'{origen[2]}-{origen[3]}', 'tipo': origen[1]}
+            fuente, origen, fecha_origen, naturaleza_origen = destinos.pop()
+            origenes[clave] = {
+                'fuente': fuente, 'comprobante': f'{origen[2]}-{origen[3]}', 'tipo': origen[1],
+                'aproximado': aproximado, '_clave': origen,
+                '_mismo_dia_salida': fecha_origen == lineas[0].fecha and naturaleza_origen == 'SALIDA',
+            }
+            if aproximado:
+                for l in lineas:
+                    l.observaciones.append(
+                        f'Origen aproximado: no hay un comprobante anterior por la misma cantidad; se asocia a '
+                        f'{origen[2]}-{origen[3]} (cantidad suficiente). Revíselo.'
+                    )
             if lineas[0].serie[:1] != origen[2][:1]:
                 for l in lineas:
                     l.observaciones.append(f'La nota {l.serie} devuelve el comprobante {origen[2]}-{origen[3]} de otra serie.')
@@ -397,8 +482,76 @@ def _texto_decimal(valor):
     return None if valor is None else format(valor, 'f')
 
 
-def previsualizar_importacion_kardex(*, empresa_id: int, archivos) -> dict:
-    """archivos: lista de (nombre, archivo). Devuelve el diagnóstico sin escribir nada."""
+def _orden(lineas, origen=None):
+    """Por fecha; el mismo día primero las entradas (más stock disponible), luego las salidas. Una nota
+    cuyo origen es una salida del mismo día va al final, después de su origen."""
+    primera = lineas[0]
+    if origen and origen.get('_mismo_dia_salida'):
+        rango = 2
+    else:
+        rango = 0 if primera.naturaleza == 'ENTRADA' else 1
+    return (primera.fecha or date.max, rango, primera.serie, primera.numero.zfill(12))
+
+
+def _cantidad(valor):
+    return format(valor.normalize(), 'f') if valor else '0'
+
+
+def _simular_stock(ordenados, existentes, productos, empresa_id):
+    """
+    Recorre en orden los comprobantes que se van a grabar y marca como error la salida que dejaría
+    el stock en negativo, para verlo en la previsualización y no recién al confirmar. Parte del stock
+    registrado antes de la primera fecha del Excel y suma los movimientos ya registrados después.
+    """
+    from django.db.models import Case, DecimalField, F, Sum, When
+    from apps.kardex.models import Movimiento
+
+    pendientes = [(c, ls) for c, ls in ordenados if c not in existentes and not any(l.errores for l in ls)]
+    primeras = {}
+    for _, lineas in pendientes:
+        for l in lineas:
+            pid = productos[l.codigo].id
+            primeras[pid] = min(primeras.get(pid, l.fecha), l.fecha)
+    if not primeras:
+        return
+    efecto = Case(
+        When(naturaleza='ENTRADA', then=F('cantidad_base')),
+        When(naturaleza='SALIDA', then=-F('cantidad_base')),
+        default=CERO, output_field=DecimalField(max_digits=20, decimal_places=8),
+    )
+    stock = {}
+    posteriores = defaultdict(list)
+    for pid, desde in primeras.items():
+        movs = Movimiento.objects.filter(empresa_id=empresa_id, producto_id=pid)
+        stock[pid] = movs.filter(fecha_movimiento__lt=desde).aggregate(t=Sum(efecto))['t'] or CERO
+        posteriores[pid] = list(
+            movs.filter(fecha_movimiento__gte=desde).values_list('fecha_movimiento').annotate(t=Sum(efecto)).order_by('fecha_movimiento')
+        )
+
+    def avanzar(pid, fecha):
+        while posteriores[pid] and posteriores[pid][0][0] <= fecha:
+            stock[pid] += posteriores[pid].pop(0)[1] or CERO
+
+    for _, lineas in pendientes:
+        cambios = defaultdict(lambda: CERO)
+        for l in lineas:
+            cambios[productos[l.codigo].id] += l.cantidad if l.naturaleza == 'ENTRADA' else -l.cantidad
+        faltantes = []
+        for pid, delta in cambios.items():
+            avanzar(pid, lineas[0].fecha)
+            if stock[pid] + delta < CERO:
+                codigo = next(l.codigo for l in lineas if productos[l.codigo].id == pid)
+                faltantes.append(f'Stock insuficiente de {codigo}: hay {_cantidad(stock[pid])} y sale {_cantidad(-delta)}. '
+                                 'Revise el saldo inicial o las compras anteriores.')
+        if faltantes:
+            for l in lineas:
+                l.errores.extend(faltantes)
+            continue
+        for pid, delta in cambios.items():
+            stock[pid] += delta
+
+
+def _analizar(*, empresa_id, archivos, proveedores=None):
     if not archivos:
         raise ValidationError({'archivos': 'Adjunte al menos un archivo Excel (.xlsx).'})
     if len(archivos) > MAX_ARCHIVOS:
@@ -413,13 +566,17 @@ def previsualizar_importacion_kardex(*, empresa_id: int, archivos) -> dict:
     if not filas:
         raise ValidationError({'archivos': 'Los archivos no tienen filas de datos.'})
 
-    productos = _validar_contexto(filas, empresa_id)
+    _aplicar_proveedores(filas, proveedores)
+    productos, periodos, tipos = _validar_contexto(filas, empresa_id)
     grupos = _agrupar(filas, empresa.ruc)
-    origenes = _emparejar_devoluciones(grupos, productos, empresa_id, empresa.ruc)
+    origenes = _emparejar_devoluciones(grupos, productos, empresa_id)
     existentes = _existentes(empresa_id, set(grupos))
 
+    ordenados = sorted(grupos.items(), key=lambda g: _orden(g[1], origenes.get(g[0])))
+    _simular_stock(ordenados, existentes, productos, empresa_id)
     comprobantes = []
-    for clave, lineas in grupos.items():
+    estados = {}
+    for clave, lineas in ordenados:
         primera = lineas[0]
         errores = sorted({m for l in lineas for m in l.errores})
         existente = existentes.get(clave)
@@ -432,6 +589,7 @@ def previsualizar_importacion_kardex(*, empresa_id: int, archivos) -> dict:
             estado = 'CONFLICTO' if faltantes else 'YA_EXISTE'
         else:
             estado = 'NUEVO'
+        estados[clave] = estado
         if estado == 'CONFLICTO':
             mensaje = (
                 f'El comprobante ya está registrado sin los productos {", ".join(faltantes)}. '
@@ -441,6 +599,8 @@ def previsualizar_importacion_kardex(*, empresa_id: int, archivos) -> dict:
             mensaje = 'Ya está registrado con estos productos: se omite, no se sobrescribe.'
         else:
             mensaje = '; '.join(errores)
+        origen = origenes.get(clave)
+        sin_proveedor = primera.clase == 'COMPRA' and len(primera.ruc) != 11
         comprobantes.append({
             'clave': f'{primera.tipo}-{primera.serie}-{primera.numero}' + (f'-{primera.ruc}' if primera.clase == 'COMPRA' else ''),
             'clase': primera.clase,
@@ -453,20 +613,17 @@ def previsualizar_importacion_kardex(*, empresa_id: int, archivos) -> dict:
             'naturaleza': primera.naturaleza,
             'lineas': len(lineas),
             'productos': sorted({l.codigo for l in lineas}),
-            'origen': origenes.get(clave),
+            'origen': {k: v for k, v in origen.items() if not k.startswith('_')} if origen else None,
+            'requiere_proveedor': sin_proveedor,
+            'clave_proveedor': clave_proveedor(primera) if sin_proveedor else None,
             'estado': estado,
             'mensaje': mensaje,
             'observaciones': sorted({m for l in lineas for m in l.observaciones}),
-            '_orden': (primera.fecha or date.max, 0 if primera.naturaleza == 'ENTRADA' else 1, primera.serie, primera.numero.zfill(12)),
         })
         for l in lineas:
             l.estado = estado if not l.errores else 'ERROR'
             if estado == 'ERROR' and not l.errores:
                 l.errores.append('Otra línea del mismo comprobante tiene error.')
-
-    comprobantes.sort(key=lambda c: c['_orden'])
-    for c in comprobantes:
-        del c['_orden']
 
     detalle_filas = []
     for f in filas:
@@ -485,7 +642,7 @@ def previsualizar_importacion_kardex(*, empresa_id: int, archivos) -> dict:
 
     contar = lambda e: sum(1 for c in comprobantes if c['estado'] == e)
     fechas = [f.fecha for f in filas if f.fecha]
-    return {
+    resultado = {
         'formato': 'ENTRADAS_SALIDAS',
         'resumen': {
             'archivos': len(archivos),
@@ -497,11 +654,26 @@ def previsualizar_importacion_kardex(*, empresa_id: int, archivos) -> dict:
             'ya_existen': contar('YA_EXISTE'),
             'conflictos': contar('CONFLICTO'),
             'con_error': contar('ERROR'),
+            'requieren_proveedor': sum(1 for c in comprobantes if c['requiere_proveedor']),
             'productos': len({f.codigo for f in filas if f.codigo}),
             'desde': min(fechas).isoformat() if fechas else None,
             'hasta': max(fechas).isoformat() if fechas else None,
-            'puede_confirmar': contar('NUEVO') > 0 and contar('ERROR') == 0 and contar('CONFLICTO') == 0,
+            'limite_lote': MAX_COMPROBANTES_LOTE,
+            'excede_limite': contar('NUEVO') > MAX_COMPROBANTES_LOTE,
+            'puede_confirmar': (
+                0 < contar('NUEVO') <= MAX_COMPROBANTES_LOTE and contar('ERROR') == 0 and contar('CONFLICTO') == 0
+            ),
         },
         'comprobantes': comprobantes,
         'filas': detalle_filas,
     }
+    contexto = {
+        'empresa': empresa, 'ordenados': ordenados, 'estados': estados, 'origenes': origenes,
+        'productos': productos, 'periodos': periodos, 'tipos': tipos, 'existentes': existentes,
+    }
+    return resultado, contexto
+
+
+def previsualizar_importacion_kardex(*, empresa_id: int, archivos, proveedores=None) -> dict:
+    """archivos: lista de (nombre, archivo). Devuelve el diagnóstico sin escribir nada."""
+    return _analizar(empresa_id=empresa_id, archivos=archivos, proveedores=proveedores)[0]

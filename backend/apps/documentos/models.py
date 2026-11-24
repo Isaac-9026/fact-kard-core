@@ -124,6 +124,14 @@ class Documento(models.Model):
         related_name='+'
     )
     confirmado_en = models.DateTimeField(null=True, blank=True)
+    importacion_lote = models.ForeignKey(
+        'documentos.ImportacionLote',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        db_column='importacion_lote_id',
+        related_name='documentos'
+    )
 
     class Meta:
         db_table = 'documento'
@@ -145,7 +153,7 @@ class Documento(models.Model):
                 name='chk_documento_clase'
             ),
             models.CheckConstraint(
-                condition=models.Q(origen_captura__in=['MANUAL', 'XML', 'PDF', 'IMAGEN', 'ESCANER']),
+                condition=models.Q(origen_captura__in=['MANUAL', 'XML', 'PDF', 'IMAGEN', 'ESCANER', 'IMPORTACION']),
                 name='chk_documento_origen_captura'
             ),
             models.CheckConstraint(
@@ -249,6 +257,9 @@ class DocumentoDetalle(models.Model):
         db_column='detalle_origen_id',
         related_name='detalles_derivados'
     )
+    # Importación Excel: costo que traía el archivo, para compararlo con el CPP del sistema.
+    costo_unitario_importado = models.DecimalField(max_digits=20, decimal_places=8, null=True, blank=True)
+    costo_total_importado = models.DecimalField(max_digits=20, decimal_places=8, null=True, blank=True)
 
     class Meta:
         db_table = 'documento_detalle'
@@ -466,3 +477,47 @@ class PagoDocumento(models.Model):
             models.CheckConstraint(condition=models.Q(monto__gt=0), name='chk_pago_documento_monto'),
             models.CheckConstraint(condition=models.Q(estado__in=['VIGENTE', 'ANULADO']), name='chk_pago_documento_estado'),
         ]
+
+
+class ImportacionLote(models.Model):
+    """Una importación masiva de comprobantes por Excel. Se anula completa, nunca se borra."""
+    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, db_column='empresa_id', related_name='+')
+    formato = models.CharField(max_length=20)
+    estado = models.CharField(max_length=20, default='CONFIRMADO', db_default='CONFIRMADO')
+    almacen = models.ForeignKey('inventario.Almacen', on_delete=models.PROTECT, db_column='almacen_id', related_name='+')
+    resumen = models.JSONField(default=dict)
+    creado_por = models.ForeignKey(
+        'usuarios.Usuario', on_delete=models.SET_NULL, null=True, blank=True, db_column='creado_por', related_name='+',
+    )
+    creado_en = models.DateTimeField(auto_now_add=True)
+    anulado_por = models.ForeignKey(
+        'usuarios.Usuario', on_delete=models.SET_NULL, null=True, blank=True, db_column='anulado_por', related_name='+',
+    )
+    anulado_en = models.DateTimeField(null=True, blank=True)
+    motivo_anulacion = models.CharField(max_length=500, null=True, blank=True)
+
+    class Meta:
+        db_table = 'importacion_lote'
+        ordering = ['-creado_en', '-id']
+        constraints = [
+            models.CheckConstraint(condition=models.Q(formato__in=['ENTRADAS_SALIDAS', 'ENTRADAS']),
+                                   name='chk_importacion_lote_formato'),
+            models.CheckConstraint(condition=models.Q(estado__in=['CONFIRMADO', 'ANULADO']),
+                                   name='chk_importacion_lote_estado'),
+        ]
+
+    def __str__(self):
+        return f"Lote {self.id} ({self.formato}, {self.estado})"
+
+
+class ImportacionArchivo(models.Model):
+    """Archivo de un lote. La huella SHA-256 impide importar dos veces el mismo archivo."""
+    lote = models.ForeignKey(ImportacionLote, on_delete=models.CASCADE, db_column='lote_id', related_name='archivos')
+    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, db_column='empresa_id', related_name='+')
+    nombre = models.CharField(max_length=255)
+    sha256 = models.CharField(max_length=64)
+    filas = models.IntegerField(default=0)
+
+    class Meta:
+        db_table = 'importacion_archivo'
+        indexes = [models.Index(fields=['empresa', 'sha256'], name='idx_importacion_archivo_hash')]

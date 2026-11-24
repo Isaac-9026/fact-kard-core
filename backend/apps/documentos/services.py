@@ -137,7 +137,7 @@ def validar_duplicado_documento(
         )
 
 
-def validar_tercero_comercial(*, clase, tipo_comprobante, tercero, origen=None):
+def validar_tercero_comercial(*, clase, tipo_comprobante, tercero, origen=None, permitir_sin_ruc=False):
     """
     Bloque 16: COMPRA → el tercero es proveedor; VENTA → es cliente. Factura de venta (01) y sus
     notas → cliente identificado con RUC (catálogo 06 = '6', 11 dígitos).
@@ -154,7 +154,7 @@ def validar_tercero_comercial(*, clase, tipo_comprobante, tercero, origen=None):
     if tipo_comprobante.es_nota and origen is not None:
         origen_obj = origen if isinstance(origen, Documento) else Documento.objects.filter(pk=origen).select_related('tipo_comprobante').first()
         codigo = origen_obj.tipo_comprobante.codigo_sunat if origen_obj else codigo
-    if codigo == '01':
+    if codigo == '01' and not permitir_sin_ruc:
         numero = (tercero.numero_documento or '').strip() if tercero else ''
         if tercero is None or tercero.tipo_documento != RUC or len(numero) != 11 or not numero.isdigit():
             raise ValidationError({'tercero': 'Una factura de venta requiere un cliente identificado con RUC (11 dígitos).'})
@@ -232,8 +232,12 @@ def crear_documento(
             raise ValidationError({'tipo_comprobante': 'El tipo de comprobante seleccionado no existe.'})
 
     # Bloque 16: el tercero debe tener el rol de la operación y la factura de venta exige RUC.
+    # Importación Excel: la factura de venta sin RUC del cliente va con "VARIOS (importación)".
+    # Solo lo habilita un lote real (nunca un dato enviado por la API).
+    importacion_lote = datos_cabecera.get('importacion_lote')
     validar_tercero_comercial(clase=clase, tipo_comprobante=tipo_comprobante, tercero=tercero,
-                              origen=datos_cabecera.get('documento_origen'))
+                              origen=datos_cabecera.get('documento_origen'),
+                              permitir_sin_ruc=importacion_lote is not None)
 
     # Bloque 17A: motivo tributario de la nota (catálogo 09/10). Opcional al registrar; la
     # validación pre-emisión lo exige. No interviene en la lógica contable de la nota.
@@ -388,6 +392,7 @@ def crear_documento(
         serie_comprobante=serie_comprobante,
         motivo_nota=motivo_nota,
         origen_captura=datos_cabecera.get('origen_captura', 'MANUAL'),
+        importacion_lote=importacion_lote,
         estado='BORRADOR',
         estado_revision='PENDIENTE',
         creado_por_id=usuario_id

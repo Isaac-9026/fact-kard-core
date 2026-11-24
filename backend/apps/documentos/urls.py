@@ -1,5 +1,6 @@
 from django.urls import path
 from apps.documentos.views import (
+    ImportacionKardexConfirmarView,
     ImportacionKardexPrevisualizarView,
     DocumentoListCreateView,
     DocumentoDetailView,
@@ -31,6 +32,8 @@ urlpatterns = [
     path('capturas/subir/', DocumentoCapturaSubirView.as_view(), name='documento-captura-subir'),
     path('importacion/entradas-salidas/previsualizar/', ImportacionKardexPrevisualizarView.as_view(),
          name='importacion-entradas-salidas-previsualizar'),
+    path('importacion/entradas-salidas/confirmar/', ImportacionKardexConfirmarView.as_view(),
+         name='importacion-entradas-salidas-confirmar'),
     path('capturas/subir-lote-xml/', DocumentoCapturaSubirLoteXmlView.as_view(), name='documento-captura-subir-lote-xml'),
     path('capturas/<int:pk>/', DocumentoCapturaDetailView.as_view(), name='documento-captura-detail'),
     path('capturas/<int:pk>/corregir-campo/', CapturaCampoCorregirView.as_view(), name='captura-campo-corregir'),

@@ -9,14 +9,19 @@ import io
 from datetime import date
 from decimal import Decimal
 
-from django.core.exceptions import ValidationError
+from unittest import mock
+
 from django.test import TestCase
 from django.urls import reverse
 from openpyxl import Workbook
+from rest_framework.exceptions import ValidationError
 
 from apps.catalogos.models import TipoComprobante
 from apps.documentos.fixtures_bloque2 import Bloque2Fixture
+from apps.documentos.importacion_kardex_confirmar import confirmar_importacion_kardex
 from apps.documentos.importacion_kardex_excel import leer_archivo, previsualizar_importacion_kardex
+from apps.documentos.models import Documento, DocumentoDetalle, ImportacionLote
+from apps.inventario.models import Almacen, Tercero
 from apps.empresas.models import Periodo
 from apps.usuarios.models import Usuario, UsuarioEmpresa
 
@@ -59,11 +64,17 @@ OPC = ('RUC/DNI',)
 
 
 class ImportacionKardexBase(Bloque2Fixture, TestCase):
+    con_stock = True
+
     def setUp(self):
         self.crear_base()
         TipoComprobante.objects.get_or_create(codigo_sunat='03', defaults={'descripcion': 'BOLETA'})
         self.p1 = self.crear_producto('011004')
         self.p2 = self.crear_producto('011049')
+        if self.con_stock:
+            self.documento_confirmado('COMPRA', [
+                self.linea('COMPRA', '100', '10', producto=self.p1), self.linea('COMPRA', '100', '10', producto=self.p2),
+            ], fecha='2026-01-01')
 
     def previa(self, *archivos):
         return previsualizar_importacion_kardex(
@@ -190,20 +201,43 @@ class PrevisualizacionTests(ImportacionKardexBase):
 
 
 class DevolucionesTests(ImportacionKardexBase):
-    def test_devolucion_se_empareja_con_la_venta_del_mismo_dia(self):
+    def test_devolucion_despues_de_su_venta_del_mismo_dia(self):
         datos = self.previa(excel([
+            venta('011049', 10, 1, 'FS01', 16711, 0.39, 41.3),
+            devolucion('011049', 10, 'B001', 3, 0.39),
+        ]))
+        nc = self.comp(datos, 'B001', 3)
+        self.assertEqual(nc['estado'], 'NUEVO')
+        self.assertEqual(nc['origen'], {'fuente': 'EXCEL', 'comprobante': 'FS01-16711', 'tipo': '01', 'aproximado': False})
+        self.assertIn('de otra serie', ' '.join(nc['observaciones']))
+        self.assertEqual([c['serie'] for c in datos['comprobantes']], ['FS01', 'B001'])
+
+    def test_caso_real_devolucion_listada_antes_de_la_venta(self):
+        """PHYTEX 500, 10/05/2023: las notas B001-3 y B001-5 están ANTES que las ventas FS01-16711/16713
+        (a costo 0): devuelven ventas anteriores y su mercadería se vuelve a vender ese día."""
+        datos = self.previa(excel([
+            venta('011049', 2, 3, 'BS01', 100, 1, 41.3),
             devolucion('011049', 10, 'B001', 3, 0.39),
             devolucion('011049', 10, 'B001', 5, 0.398),
             venta('011049', 10, 1, 'FS01', 16711, 0.39, 0),
             venta('011049', 10, 1, 'FS01', 16713, 0.398, 0),
         ]))
         nc3, nc5 = self.comp(datos, 'B001', 3), self.comp(datos, 'B001', 5)
-        self.assertEqual(nc3['estado'], 'NUEVO')
-        self.assertEqual(nc3['origen'], {'fuente': 'EXCEL', 'comprobante': 'FS01-16711', 'tipo': '01'})
-        self.assertEqual(nc5['origen']['comprobante'], 'FS01-16713')
-        self.assertIn('de otra serie', ' '.join(nc3['observaciones']))
+        self.assertEqual((nc3['estado'], nc5['estado']), ('NUEVO', 'NUEVO'))
+        self.assertEqual(nc3['origen']['comprobante'], 'BS01-100')
+        self.assertTrue(nc3['origen']['aproximado'])
+        self.assertIn('Origen aproximado', ' '.join(nc3['observaciones']))
         self.assertIn('Costo 0 en el Excel', ' '.join(self.comp(datos, 'FS01', 16711)['observaciones']))
-        self.assertEqual(datos['comprobantes'][0]['naturaleza'], 'ENTRADA')
+        self.assertEqual([c['serie'] for c in datos['comprobantes']], ['BS01', 'B001', 'B001', 'FS01', 'FS01'])
+
+    def test_devolucion_que_supera_lo_vendido_no_se_empareja(self):
+        datos = self.previa(excel([
+            venta('011049', 2, 3, 'BS01', 100, 0.5, 41.3),
+            devolucion('011049', 10, 'B001', 3, 0.4),
+            devolucion('011049', 10, 'B001', 5, 0.4),
+        ]))
+        self.assertEqual(self.comp(datos, 'B001', 3)['estado'], 'NUEVO')
+        self.assertEqual(self.comp(datos, 'B001', 5)['estado'], 'ERROR')
 
     def test_devolucion_sin_venta_de_origen_es_error(self):
         datos = self.previa(excel([
@@ -269,15 +303,15 @@ class EndpointTests(ImportacionKardexBase):
         return self.client.post(self.url, {'archivos': list(archivos)}, format='multipart', **(headers or self.headers))
 
     def test_previsualiza_varios_archivos_sin_grabar(self):
-        from apps.documentos.models import Documento
         a = excel([venta('011004', 5, 3, 'BS01', 500, 1, 10)])
         b = excel([venta('011049', 5, 3, 'BS01', 500, 2, 20)])
         a.name, b.name = '011004.xlsx', '011049.xlsx'
+        antes = Documento.objects.count()
         resp = self.subir(a, b)
         self.assertEqual(resp.status_code, 200, resp.data)
         self.assertEqual(resp.data['resumen']['comprobantes'], 1)
         self.assertEqual({f['archivo'] for f in resp.data['filas']}, {'011004.xlsx', '011049.xlsx'})
-        self.assertFalse(Documento.objects.filter(empresa=self.empresa).exists())
+        self.assertEqual(Documento.objects.count(), antes)
 
     def test_validaciones_del_archivo(self):
         malo = io.BytesIO(b'x')
@@ -306,3 +340,171 @@ class EndpointTests(ImportacionKardexBase):
             empresa_id=self.otra_empresa.id, archivos=[('a.xlsx', excel([venta('011004', 5, 3, 'BS01', 1, 1, 1)]))],
         )
         self.assertIn('011004 no existe', datos['comprobantes'][0]['mensaje'])
+
+
+class ConfirmarTests(ImportacionKardexBase):
+    """Paso 2: grabar por el flujo normal crear → revisar → confirmar, todo o nada, en un lote."""
+    con_stock = False
+
+    def archivo_completo(self):
+        return excel([
+            compra('011004', 3, 'F035', 1081, 20, 10),
+            venta('011004', 5, 3, 'BS01', 42521, 5, 10.5, ('',)),
+            venta('011004', 6, 1, 'FS01', 15799, 2, 10.2, ('',)),
+            devolucion('011004', 6, 'B001', 3, 2) + [''],
+        ], OPC)
+
+    def importar(self, *archivos, **kwargs):
+        return confirmar_importacion_kardex(
+            empresa_id=self.empresa.id, usuario=self.usuario,
+            archivos=[(f'archivo{i}.xlsx', a) for i, a in enumerate(archivos, 1)], **kwargs,
+        )
+
+    def test_graba_compras_ventas_y_devolucion_en_un_lote(self):
+        r = self.importar(self.archivo_completo())
+        self.assertEqual(r['comprobantes'], 4)
+        lote = ImportacionLote.objects.get(pk=r['lote'])
+        self.assertEqual((lote.estado, lote.formato, lote.almacen_id), ('CONFIRMADO', 'ENTRADAS_SALIDAS', self.almacen.id))
+        self.assertEqual(lote.archivos.count(), 1)
+        docs = {d.serie_normalizada: d for d in Documento.objects.filter(importacion_lote=lote)}
+        self.assertEqual(set(docs), {'F035', 'BS01', 'FS01', 'B001'})
+        for d in docs.values():
+            self.assertEqual((d.estado, d.estado_revision, d.origen_captura), ('CONFIRMADO', 'REVISADO', 'IMPORTACION'))
+        self.assertEqual(docs['F035'].tercero, self.proveedor)
+        self.assertIsNone(docs['BS01'].tercero)
+        self.assertEqual(docs['FS01'].tercero.razon_social, 'VARIOS (IMPORTACIÓN)')
+        nota = docs['B001']
+        self.assertEqual(nota.documento_origen, docs['FS01'])
+        self.assertEqual(nota.tercero, docs['FS01'].tercero)
+        linea = nota.detalles.get()
+        self.assertEqual(linea.detalle_origen, docs['FS01'].detalles.get())
+        compra_linea = docs['F035'].detalles.get()
+        self.assertEqual(compra_linea.costo_unitario_importado, Decimal('10'))
+        self.assertEqual(compra_linea.precio_unitario, Decimal('10'))
+        self.assertEqual(compra_linea.igv, Decimal('36.00'))
+        self.assertEqual(self.stock(self.p1), Decimal('15'))
+
+    def test_stock_insuficiente_se_ve_en_la_previsualizacion(self):
+        archivo = lambda: excel([
+            compra('011004', 3, 'F035', 1081, 2, 10),
+            venta('011004', 5, 3, 'BS01', 1, 1, 10, ('',)),
+            venta('011004', 6, 3, 'BS01', 2, 5, 10, ('',)),
+        ], OPC)
+        datos = self.previa(archivo())
+        c = self.comp(datos, 'BS01', 2)
+        self.assertEqual(c['estado'], 'ERROR')
+        self.assertIn('Stock insuficiente de 011004: hay 1 y sale 5', c['mensaje'])
+        self.assertEqual(self.comp(datos, 'BS01', 1)['estado'], 'NUEVO')
+        with self.assertRaisesMessage(ValidationError, 'No se puede confirmar'):
+            self.importar(archivo())
+        self.assertFalse(Documento.objects.filter(empresa=self.empresa).exists())
+        self.assertFalse(ImportacionLote.objects.exists())
+
+    def test_stock_cuenta_movimientos_ya_registrados(self):
+        self.documento_confirmado('COMPRA', [self.linea('COMPRA', '3', '10', producto=self.p1)], fecha='2026-01-04')
+        datos = self.previa(excel([
+            venta('011004', 5, 3, 'BS01', 1, 2, 10, ('',)),
+            venta('011004', 6, 3, 'BS01', 2, 2, 10, ('',)),
+        ], OPC))
+        self.assertEqual(self.comp(datos, 'BS01', 1)['estado'], 'NUEVO')
+        self.assertIn('hay 1 y sale 2', self.comp(datos, 'BS01', 2)['mensaje'])
+
+    def test_falla_inesperada_tambien_revierte(self):
+        with mock.patch('apps.documentos.importacion_kardex_confirmar.confirmar_documento_validacion',
+                        side_effect=[None, ValidationError({'estado': 'falla simulada'})]):
+            with self.assertRaisesMessage(ValidationError, 'falla simulada'):
+                self.importar(self.archivo_completo())
+        self.assertFalse(Documento.objects.filter(empresa=self.empresa).exists())
+
+    def test_no_confirma_con_errores_y_el_proveedor_se_elige_en_pantalla(self):
+        sin_ruc = [compra('011004', 3, 'F035', 1081, 20, 10)[:12]]
+        with self.assertRaisesMessage(ValidationError, 'No se puede confirmar'):
+            self.importar(excel(sin_ruc))
+        datos = self.previa(excel(sin_ruc))
+        clave = datos['comprobantes'][0]['clave_proveedor']
+        self.assertEqual(clave, '01-F035-1081-2026-01-03')
+        self.assertEqual(datos['resumen']['requieren_proveedor'], 1)
+        r = self.importar(excel(sin_ruc), proveedores={clave: '20555000222'})
+        doc = Documento.objects.get(importacion_lote_id=r['lote'])
+        self.assertEqual((doc.tercero, doc.ruc_emisor), (self.proveedor_2, '20555000222'))
+        with self.assertRaisesMessage(ValidationError, 'RUC inválido'):
+            self.previa(excel(sin_ruc)) if False else previsualizar_importacion_kardex(
+                empresa_id=self.empresa.id, archivos=[('a.xlsx', excel(sin_ruc))], proveedores={clave: '123'},
+            )
+
+    def test_ruc_distinto_en_la_misma_compra_se_bloquea(self):
+        datos = self.previa(
+            excel([compra('011004', 3, 'F035', 1081, 20, 10, ruc=RUC_PROV)], OPC),
+            excel([compra('011049', 3, 'F035', 1081, 5, 10, ruc='20555000112')], OPC),
+        )
+        self.assertEqual(datos['resumen']['con_error'], 2)
+        self.assertIn('RUC distintos', datos['comprobantes'][0]['mensaje'])
+
+    def test_registra_clientes_y_proveedores_nuevos(self):
+        archivo = excel([
+            compra('011004', 3, 'F099', 1, 10, 10, ruc='20777000111') + ['NUEVO PROVEEDOR SAC'],
+            venta('011004', 4, 1, 'FS01', 9, 1, 10, ('20666000111', '')),
+            venta('011004', 4, 3, 'BS01', 9, 1, 10, ('44556677', 'JUAN PEREZ')),
+        ], ('RUC/DNI', 'Razón social'))
+        previa = self.previa(archivo)
+        self.assertIn('Se registrará el proveedor 20777000111.', self.comp(previa, 'F099', 1)['observaciones'])
+        self.importar(archivo)
+        nuevo = Tercero.objects.get(empresa=self.empresa, numero_documento='20777000111')
+        self.assertEqual((nuevo.razon_social, nuevo.es_proveedor, nuevo.tipo_documento), ('NUEVO PROVEEDOR SAC', True, '6'))
+        self.assertEqual(Documento.objects.get(serie_normalizada='FS01').tercero, self.cliente)
+        dni = Tercero.objects.get(empresa=self.empresa, numero_documento='44556677')
+        self.assertEqual((dni.tipo_documento, dni.es_cliente, dni.razon_social), ('1', True, 'JUAN PEREZ'))
+
+    def test_el_mismo_archivo_no_se_importa_dos_veces(self):
+        archivo = self.archivo_completo()
+        r = self.importar(archivo)
+        with self.assertRaisesMessage(ValidationError, f'(lote {r["lote"]})'):
+            self.importar(archivo)
+
+    def test_ya_existentes_se_omiten_y_lo_nuevo_se_graba(self):
+        self.importar(excel([compra('011004', 3, 'F035', 1081, 20, 10)], OPC))
+        r = self.importar(excel([
+            compra('011004', 3, 'F035', 1081, 20, 10),
+            venta('011004', 5, 3, 'BS01', 1, 1, 10, ('',)),
+        ], OPC))
+        self.assertEqual((r['comprobantes'], r['omitidos']), (1, 1))
+
+    def test_almacen_obligatorio_si_hay_varios(self):
+        otro = Almacen.objects.create(empresa=self.empresa, establecimiento=self.establecimiento, codigo='AL2', nombre='DOS')
+        with self.assertRaisesMessage(ValidationError, 'Elija el almacén'):
+            self.importar(self.archivo_completo())
+        r = self.importar(self.archivo_completo(), almacen_id=otro.id)
+        self.assertEqual(ImportacionLote.objects.get(pk=r['lote']).almacen, otro)
+        self.assertTrue(DocumentoDetalle.objects.filter(documento__importacion_lote_id=r['lote'], almacen=otro).exists())
+
+    def test_la_api_no_puede_crear_comprobantes_importados(self):
+        datos = self.payload('VENTA', [self.linea('VENTA', '1', '10')], tercero=self.cliente)
+        datos['origen_captura'] = 'IMPORTACION'
+        resp = self.crear(datos, esperado=400)
+        self.assertIn('origen_captura', resp.data)
+
+    def test_endpoint_confirmar(self):
+        url = reverse('importacion-entradas-salidas-confirmar')
+        sin_ruc = excel([compra('011004', 3, 'F035', 1081, 20, 10)[:12]])
+        sin_ruc.name = 'compras.xlsx'
+        resp = self.client.post(url, {
+            'archivos': [sin_ruc], 'almacen': self.almacen.id,
+            'proveedores': '{"01-F035-1081-2026-01-03": "20555000111"}',
+        }, format='multipart', **self.headers)
+        self.assertEqual(resp.status_code, 201, resp.data)
+        self.assertEqual(resp.data['comprobantes'], 1)
+        self.assertIn('segundos', resp.data)
+        malo = excel([compra('011004', 4, 'F035', 2, 1, 1)[:12]])
+        malo.name = 'b.xlsx'
+        resp = self.client.post(url, {'archivos': [malo], 'proveedores': 'no-json'}, format='multipart', **self.headers)
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('proveedores', resp.data)
+
+    def test_limite_de_comprobantes_por_lote(self):
+        with mock.patch('apps.documentos.importacion_kardex_excel.MAX_COMPROBANTES_LOTE', 2):
+            datos = self.previa(self.archivo_completo())
+            self.assertTrue(datos['resumen']['excede_limite'])
+            self.assertFalse(datos['resumen']['puede_confirmar'])
+            with self.assertRaisesMessage(ValidationError, 'Divídalo por meses'):
+                self.importar(self.archivo_completo())
+        self.assertFalse(Documento.objects.filter(empresa=self.empresa).exists())

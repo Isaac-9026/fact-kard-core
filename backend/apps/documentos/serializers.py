@@ -322,6 +322,8 @@ class DocumentoCreateSerializer(serializers.ModelSerializer):
         read_only_fields = ['id']
 
     def validate(self, attrs):
+        if attrs.get('origen_captura') == 'IMPORTACION':
+            raise serializers.ValidationError({'origen_captura': 'Los comprobantes importados solo se crean desde la importación Excel.'})
         if not attrs.get('serie_comprobante'):
             faltan = {c: 'Este campo es requerido.' for c in ('serie', 'numero') if not (attrs.get(c) or '').strip()}
             if faltan:
