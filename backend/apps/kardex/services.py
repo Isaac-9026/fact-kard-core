@@ -1,3 +1,5 @@
+import threading
+from contextlib import contextmanager
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import transaction
@@ -17,6 +19,55 @@ Q8 = Decimal('0.00000001')
 MAX_PASADAS_DEPENDENCIA = 25
 Q6 = Decimal('0.000001')
 ZERO = Decimal('0.00000000')
+
+
+# Modo lote (importación Excel): mientras está activo, un movimiento retroactivo no recalcula al
+# instante; se anota (producto, fecha más antigua) y al salir se recalcula una sola vez por producto.
+_lote = threading.local()
+
+
+def _pendientes_lote():
+    return getattr(_lote, 'pendientes', None)
+
+
+@contextmanager
+def modo_lote_kardex(*, empresa_id, usuario_id=None):
+    """
+    Difiere los recálculos de los movimientos retroactivos hasta el final del bloque y los ejecuta
+    una vez por producto, desde su fecha más antigua, bloqueando los saldos en orden de producto.
+    Si el recálculo final deja stock negativo en cualquier punto posterior, lanza ValidationError
+    (el `transaction.atomic()` que lo envuelve revierte todo). El estado se limpia siempre.
+    """
+    if not transaction.get_connection().in_atomic_block:
+        raise RuntimeError('modo_lote_kardex debe usarse dentro de transaction.atomic().')
+    if _pendientes_lote() is not None:
+        raise RuntimeError('modo_lote_kardex no admite bloques anidados.')
+    ultima_incidencia = Incidencia.objects.aggregate(m=Max('id'))['m'] or 0
+    _lote.pendientes = {}
+    try:
+        yield
+        pendientes, _lote.pendientes = _lote.pendientes, None
+        productos = sorted(pid for (eid, pid) in pendientes if eid == empresa_id)
+        list(SaldoCppActual.objects.select_for_update().filter(
+            empresa_id=empresa_id, producto_id__in=productos,
+        ).order_by('producto_id').values_list('id', flat=True))
+        for producto_id in productos:
+            ejecutar_recalculo_producto(
+                empresa_id=empresa_id, producto_id=producto_id,
+                fecha_desde=pendientes[(empresa_id, producto_id)], usuario_id=usuario_id,
+            )
+        negativos = Incidencia.objects.filter(
+            id__gt=ultima_incidencia, empresa_id=empresa_id, producto_id__in=productos, tipo='STOCK_INSUFICIENTE',
+        ).select_related('producto', 'movimiento')
+        if negativos:
+            detalle = ', '.join(
+                f'{i.producto.codigo_interno} el {i.movimiento.fecha_movimiento:%d/%m/%Y}' if i.movimiento_id
+                else i.producto.codigo_interno
+                for i in negativos[:10]
+            )
+            raise ValidationError({'stock': f'El recálculo deja stock negativo: {detalle}.'})
+    finally:
+        _lote.pendientes = None
 
 
 def q8(value):
@@ -225,12 +276,17 @@ def aplicar_movimiento(*, empresa_id, producto_id, almacen_id, periodo, tipo_ope
         saldo_valor_empresa=saldo.valor_total_pen, cpp_empresa=saldo.cpp_pen,
     )
     if tiene_posteriores:
-        ejecutar_recalculo_producto(
-            empresa_id=empresa_id,
-            producto_id=producto_id,
-            fecha_desde=fecha,
-            usuario_id=usuario_id,
-        )
+        pendientes = _pendientes_lote()
+        if pendientes is not None:
+            clave = (empresa_id, producto_id)
+            pendientes[clave] = min(pendientes.get(clave, fecha), fecha)
+        else:
+            ejecutar_recalculo_producto(
+                empresa_id=empresa_id,
+                producto_id=producto_id,
+                fecha_desde=fecha,
+                usuario_id=usuario_id,
+            )
     return movimiento
 
 

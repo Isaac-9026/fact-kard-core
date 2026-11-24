@@ -11,6 +11,9 @@ from decimal import Decimal
 
 from unittest import mock
 
+import contextlib
+
+from django.db import transaction
 from django.test import TestCase
 from django.urls import reverse
 from openpyxl import Workbook
@@ -18,10 +21,11 @@ from rest_framework.exceptions import ValidationError
 
 from apps.catalogos.models import TipoComprobante
 from apps.documentos.fixtures_bloque2 import Bloque2Fixture
-from apps.documentos.importacion_kardex_confirmar import confirmar_importacion_kardex
+from apps.documentos.importacion_kardex_confirmar import anular_lote_importacion, confirmar_importacion_kardex
 from apps.documentos.importacion_kardex_excel import leer_archivo, previsualizar_importacion_kardex
 from apps.documentos.models import Documento, DocumentoDetalle, ImportacionLote
 from apps.inventario.models import Almacen, Tercero
+from apps.kardex.models import Movimiento, SaldoCppActual
 from apps.empresas.models import Periodo
 from apps.usuarios.models import Usuario, UsuarioEmpresa
 
@@ -508,3 +512,162 @@ class ConfirmarTests(ImportacionKardexBase):
             with self.assertRaisesMessage(ValidationError, 'Divídalo por meses'):
                 self.importar(self.archivo_completo())
         self.assertFalse(Documento.objects.filter(empresa=self.empresa).exists())
+
+
+class AnularLoteTests(ImportacionKardexBase):
+    """Paso 2b: el lote se anula completo o nada, de lo más reciente a lo más antiguo."""
+    con_stock = False
+
+    def archivo(self):
+        return excel([
+            compra('011004', 3, 'F035', 1081, 20, 10),
+            venta('011004', 5, 3, 'BS01', 42521, 5, 10.5, ('',)),
+            venta('011004', 6, 1, 'FS01', 15799, 2, 10.2, ('',)),
+            devolucion('011004', 6, 'B001', 3, 2) + [''],
+        ], OPC)
+
+    def importar(self, archivo=None):
+        return confirmar_importacion_kardex(
+            empresa_id=self.empresa.id, usuario=self.usuario, archivos=[('kardex.xlsx', archivo or self.archivo())],
+        )['lote']
+
+    def anular(self, lote_id, motivo='Error de almacén'):
+        return anular_lote_importacion(empresa_id=self.empresa.id, lote_id=lote_id, usuario=self.usuario, motivo=motivo)
+
+    def test_anula_todo_y_revierte_el_kardex(self):
+        lote_id = self.importar()
+        self.assertEqual(self.stock(self.p1), Decimal('15'))
+        r = self.anular(lote_id)
+        self.assertEqual(r['comprobantes_anulados'], 4)
+        lote = ImportacionLote.objects.get(pk=lote_id)
+        self.assertEqual((lote.estado, lote.anulado_por, lote.motivo_anulacion), ('ANULADO', self.usuario, 'Error de almacén'))
+        self.assertEqual(set(Documento.objects.filter(importacion_lote=lote).values_list('estado', flat=True)), {'ANULADO'})
+        self.assertEqual(self.stock(self.p1), Decimal('0'))
+        nota = Documento.objects.get(importacion_lote=lote, serie_normalizada='B001')
+        self.assertEqual((nota.numero, nota.numero_normalizado), ('3', f'3~A{lote_id}'))
+
+    def test_despues_de_anular_se_puede_volver_a_importar_el_mismo_archivo(self):
+        lote_id = self.importar()
+        self.anular(lote_id)
+        datos = self.previa(self.archivo())
+        self.assertEqual((datos['resumen']['nuevos'], datos['resumen']['conflictos']), (4, 0))
+        nuevo = self.importar()
+        self.assertNotEqual(nuevo, lote_id)
+        self.assertEqual(self.stock(self.p1), Decimal('15'))
+        self.assertEqual(Documento.objects.filter(serie_normalizada='F035', numero='1081').count(), 2)
+
+    def test_no_anula_nada_si_un_comprobante_esta_en_periodo_cerrado(self):
+        lote_id = self.importar()
+        self.enero.estado = 'CERRADO'
+        self.enero.save(update_fields=['estado'])
+        with self.assertRaisesMessage(ValidationError, 'períodos cerrados (2026-01)'):
+            self.anular(lote_id)
+        self.assertEqual(ImportacionLote.objects.get(pk=lote_id).estado, 'CONFIRMADO')
+        self.assertFalse(Documento.objects.filter(importacion_lote_id=lote_id, estado='ANULADO').exists())
+
+    def test_no_anula_si_hay_notas_fuera_del_lote(self):
+        lote_id = self.importar()
+        venta_doc = Documento.objects.get(importacion_lote_id=lote_id, serie_normalizada='BS01')
+        detalle = venta_doc.detalles.get()
+        datos = self.payload(
+            'VENTA', [self.linea('DEVOLUCION_VENTA', '1', '10.5', producto=self.p1, detalle_origen=detalle.id)],
+            tipo=self.nota_credito, origen=venta_doc, fecha='2026-01-07', serie='BC01',
+        )
+        datos['tercero'] = None
+        nota_id = self.crear(datos).data['id']
+        self.revisar(nota_id)
+        Documento.objects.filter(pk=nota_id).update(estado='CONFIRMADO')
+        with self.assertRaisesMessage(ValidationError, 'notas fuera del lote'):
+            self.anular(lote_id)
+        self.assertEqual(ImportacionLote.objects.get(pk=lote_id).estado, 'CONFIRMADO')
+
+    def test_si_una_anulacion_falla_no_se_anula_ninguno(self):
+        lote_id = self.importar()
+        self.documento_confirmado('VENTA', [self.linea('VENTA', '15', '12', producto=self.p1)],
+                                  fecha='2026-01-20', tercero=self.cliente, serie='F001')
+        with self.assertRaisesMessage(ValidationError, 'No se anuló nada'):
+            self.anular(lote_id)
+        self.assertFalse(Documento.objects.filter(importacion_lote_id=lote_id, estado='ANULADO').exists())
+        self.assertEqual(ImportacionLote.objects.get(pk=lote_id).estado, 'CONFIRMADO')
+
+    def test_validaciones(self):
+        lote_id = self.importar()
+        with self.assertRaisesMessage(ValidationError, 'motivo'):
+            self.anular(lote_id, motivo='  ')
+        self.anular(lote_id)
+        with self.assertRaisesMessage(ValidationError, 'ya está anulado'):
+            self.anular(lote_id)
+        with self.assertRaisesMessage(ValidationError, 'no pertenece'):
+            anular_lote_importacion(empresa_id=self.otra_empresa.id, lote_id=lote_id, usuario=self.usuario, motivo='otro motivo')
+
+    def test_numero_anulado_a_mano_es_conflicto_en_la_previsualizacion(self):
+        doc_id = self.documento_confirmado('COMPRA', [self.linea('COMPRA', '1', '10', producto=self.p1)],
+                                           fecha='2026-01-02', serie='F035')
+        Documento.objects.filter(pk=doc_id).update(numero='1081', numero_normalizado='1081', estado='ANULADO')
+        datos = self.previa(excel([compra('011004', 3, 'F035', 1081, 20, 10)], OPC))
+        c = self.comp(datos, 'F035', 1081)
+        self.assertEqual(c['estado'], 'CONFLICTO')
+        self.assertIn('ANULADO', c['mensaje'])
+
+    def test_endpoints_lista_y_anular_con_password(self):
+        lote_id = self.importar()
+        lista = self.client.get(reverse('importacion-lotes'), **self.headers)
+        self.assertEqual(lista.status_code, 200)
+        self.assertEqual((lista.data[0]['id'], lista.data[0]['comprobantes'], lista.data[0]['archivos']), (lote_id, 4, ['kardex.xlsx']))
+        url = reverse('importacion-lote-anular', args=[lote_id])
+        sin_pass = self.client.post(url, {'motivo': 'Error de almacén'}, format='json', **self.headers)
+        self.assertIn(sin_pass.status_code, (400, 403))
+        mala = self.client.post(url, {'motivo': 'Error de almacén', 'password_confirmacion': 'otra'}, format='json', **self.headers)
+        self.assertIn(mala.status_code, (400, 403))
+        ok = self.client.post(url, {'motivo': 'Error de almacén', 'password_confirmacion': self.PASSWORD_PRUEBAS},
+                              format='json', **self.headers)
+        self.assertEqual(ok.status_code, 200, ok.data)
+        self.assertEqual(ok.data['estado'], 'ANULADO')
+        usuario = Usuario.objects.create(username='usuario_lote', email='l@test.pe', password_hash='x')
+        UsuarioEmpresa.objects.create(usuario=usuario, empresa=self.empresa, rol='USUARIO')
+        self.client.force_authenticate(user=usuario)
+        self.assertEqual(self.client.post(url, {'motivo': 'x' * 10}, format='json', **self.headers).status_code, 403)
+
+
+class ParidadModoLoteTests(ImportacionKardexBase):
+    """Importar y anular en modo lote da el mismo Kardex que hacerlo comprobante por comprobante."""
+    con_stock = False
+
+    def foto(self):
+        saldo = SaldoCppActual.objects.get(empresa=self.empresa, producto=self.p1)
+        return (saldo.cantidad_total, saldo.valor_total_pen, saldo.cpp_pen, self.stock(self.p1), [
+            (m.fecha_movimiento, m.naturaleza, m.cantidad_base, m.valorizacion.costo_unitario_pen,
+             m.valorizacion.saldo_cantidad_empresa, m.valorizacion.saldo_valor_empresa)
+            for m in Movimiento.objects.filter(empresa=self.empresa, producto=self.p1, generado_por_motor=False)
+            .select_related('valorizacion').order_by('fecha_movimiento', 'prioridad_dia', 'secuencia', 'id')
+        ])
+
+    def flujo(self):
+        archivo = excel([
+            compra('011004', 3, 'F035', 1081, 20, 10),
+            venta('011004', 5, 3, 'BS01', 42521, 5, 10.5, ('',)),
+            venta('011004', 6, 1, 'FS01', 15799, 2, 10.2, ('',)),
+            devolucion('011004', 6, 'B001', 3, 2) + [''],
+            compra('011004', 8, 'F035', 1090, 6, 13),
+        ], OPC)
+        lote = confirmar_importacion_kardex(empresa_id=self.empresa.id, usuario=self.usuario, archivos=[('a.xlsx', archivo)])['lote']
+        importado = self.foto()
+        anular_lote_importacion(empresa_id=self.empresa.id, lote_id=lote, usuario=self.usuario, motivo='paridad')
+        return importado, self.foto()
+
+    def test_misma_historia_con_movimientos_posteriores(self):
+        self.documento_confirmado('COMPRA', [self.linea('COMPRA', '10', '12', producto=self.p1)], fecha='2026-01-20')
+        self.documento_confirmado('VENTA', [self.linea('VENTA', '4', '20', producto=self.p1)], fecha='2026-01-25',
+                                  tercero=self.cliente, serie='F001')
+        try:
+            with transaction.atomic():
+                with mock.patch('apps.documentos.importacion_kardex_confirmar.modo_lote_kardex',
+                                lambda **kw: contextlib.nullcontext()):
+                    uno_a_uno = self.flujo()
+                raise RuntimeError('deshacer')
+        except RuntimeError:
+            pass
+        en_lote = self.flujo()
+        self.assertEqual(en_lote, uno_a_uno)
+        self.assertEqual(en_lote[0][0], Decimal('27'))
+        self.assertEqual(en_lote[1][0], Decimal('6'))

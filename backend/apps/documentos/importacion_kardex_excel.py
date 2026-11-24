@@ -32,8 +32,9 @@ from apps.empresas.models import Empresa, Periodo
 from apps.inventario.models import Producto
 
 MAX_FILAS = 5000
-# Medido con datos reales: ~40 comprobantes por segundo al confirmar. 2000 deja margen al límite de 120 s.
-MAX_COMPROBANTES_LOTE = 2000
+# Medido con 810 comprobantes reales en modo lote: importar 19.6 s, anular 17.7 s, reimportar 30.9 s.
+# 1500 deja margen frente al límite de 120 s del servidor.
+MAX_COMPROBANTES_LOTE = 1500
 MAX_ARCHIVOS = 50
 CERO = Decimal('0')
 
@@ -369,7 +370,6 @@ def _existentes(empresa_id, claves):
         return {}
     docs = (
         Documento.objects.filter(empresa_id=empresa_id, serie_normalizada__in={c[2] for c in claves})
-        .exclude(estado='ANULADO')
         .select_related('tipo_comprobante')
         .prefetch_related('detalles')
     )
@@ -514,6 +514,25 @@ def _simular_stock(ordenados, existentes, productos, empresa_id):
             primeras[pid] = min(primeras.get(pid, l.fecha), l.fecha)
     if not primeras:
         return
+
+    # El Kardex se recalcula desde la fecha más antigua del Excel: si después hay movimientos del
+    # producto en un período cerrado, el recálculo no se permite.
+    cerrados = defaultdict(set)
+    for pid, anio, mes, fecha in Movimiento.objects.filter(
+        empresa_id=empresa_id, producto_id__in=primeras, periodo__estado='CERRADO',
+    ).values_list('producto_id', 'periodo__anio', 'periodo__mes', 'fecha_movimiento'):
+        if fecha >= primeras[pid]:
+            cerrados[pid].add(f'{anio}-{mes:02d}')
+    if cerrados:
+        for _, lineas in pendientes:
+            for l in lineas:
+                pid = productos[l.codigo].id
+                if pid in cerrados:
+                    l.errores.append(
+                        f'{l.codigo} tiene movimientos posteriores en períodos cerrados ({", ".join(sorted(cerrados[pid]))}): '
+                        'el Kardex no se puede recalcular. Reabra esos períodos.'
+                    )
+        pendientes = [(c, ls) for c, ls in pendientes if not any(l.errores for l in ls)]
     efecto = Case(
         When(naturaleza='ENTRADA', then=F('cantidad_base')),
         When(naturaleza='SALIDA', then=-F('cantidad_base')),
@@ -583,6 +602,8 @@ def _analizar(*, empresa_id, archivos, proveedores=None):
         faltantes = []
         if errores:
             estado = 'ERROR'
+        elif existente and existente.estado == 'ANULADO':
+            estado = 'CONFLICTO'
         elif existente:
             registrados = {d.producto_id for d in existente.detalles.all()}
             faltantes = sorted({l.codigo for l in lineas if productos[l.codigo].id not in registrados})
@@ -590,7 +611,9 @@ def _analizar(*, empresa_id, archivos, proveedores=None):
         else:
             estado = 'NUEVO'
         estados[clave] = estado
-        if estado == 'CONFLICTO':
+        if estado == 'CONFLICTO' and existente.estado == 'ANULADO':
+            mensaje = 'Existe un comprobante ANULADO con este número: el sistema no permite reutilizarlo.'
+        elif estado == 'CONFLICTO':
             mensaje = (
                 f'El comprobante ya está registrado sin los productos {", ".join(faltantes)}. '
                 'Suba juntos todos los archivos del período o anule el lote anterior.'

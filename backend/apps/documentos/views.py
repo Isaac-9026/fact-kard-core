@@ -36,7 +36,7 @@ from apps.documentos.captura_services import (
     corregir_campo_captura,
     generar_borrador_desde_captura,
 )
-from apps.documentos.importacion_kardex_confirmar import confirmar_importacion_kardex
+from apps.documentos.importacion_kardex_confirmar import anular_lote_importacion, confirmar_importacion_kardex
 from apps.documentos.importacion_kardex_excel import MAX_ARCHIVOS, previsualizar_importacion_kardex
 from apps.usuarios.permissions import EsAdminEmpresa, RequiereConfirmacionPassword, TieneEmpresaActiva
 
@@ -361,6 +361,53 @@ class ImportacionKardexConfirmarView(APIView):
             almacen_id=entero_param(request.data, 'almacen'), proveedores=_proveedores_importacion(request),
         )
         return Response(resultado, status=status.HTTP_201_CREATED)
+
+
+def _lote_dict(lote):
+    resumen = lote.resumen or {}
+    return {
+        'id': lote.id,
+        'formato': lote.formato,
+        'estado': lote.estado,
+        'almacen': {'id': lote.almacen_id, 'codigo': lote.almacen.codigo, 'nombre': lote.almacen.nombre},
+        'archivos': [a.nombre for a in lote.archivos.all()],
+        'comprobantes': resumen.get('grabados', 0),
+        'desde': resumen.get('desde'),
+        'hasta': resumen.get('hasta'),
+        'segundos': resumen.get('segundos'),
+        'creado_por': lote.creado_por.username if lote.creado_por else None,
+        'creado_en': lote.creado_en,
+        'anulado_por': lote.anulado_por.username if lote.anulado_por else None,
+        'anulado_en': lote.anulado_en,
+        'motivo_anulacion': lote.motivo_anulacion,
+    }
+
+
+class ImportacionLoteListView(APIView):
+    """GET /api/documentos/importacion/lotes/ — lotes de importación de la empresa activa."""
+    permission_classes = [TieneEmpresaActiva]
+
+    def get(self, request):
+        from apps.documentos.models import ImportacionLote
+        lotes = (
+            ImportacionLote.objects.filter(empresa_id=request.empresa_id)
+            .select_related('almacen', 'creado_por', 'anulado_por').prefetch_related('archivos')[:200]
+        )
+        return Response([_lote_dict(l) for l in lotes])
+
+
+class ImportacionLoteAnularView(APIView):
+    """
+    POST /api/documentos/importacion/lotes/<id>/anular/ (motivo, password_confirmacion).
+    Anula todo el lote o nada, revirtiendo el Kardex. Solo administradores, con contraseña.
+    """
+    permission_classes = [TieneEmpresaActiva, EsAdminEmpresa, RequiereConfirmacionPassword]
+
+    def post(self, request, pk):
+        return Response(anular_lote_importacion(
+            empresa_id=request.empresa_id, lote_id=pk, usuario=request.user,
+            motivo=request.data.get('motivo'),
+        ))
 
 
 class DocumentoCapturaListView(generics.ListAPIView):
