@@ -137,3 +137,25 @@ export const conceptosConImporte = (valores: Record<string, string | BloqueCosto
       return { clave, etiqueta: etiquetas[clave], valor: typeof v === 'string' ? v : v?.valor ?? '0' };
     })
     .filter((c) => !esCero(c.valor));
+
+/**
+ * Comparación con el promedio ponderado: oculta por defecto (el resultado es el costo según Kardex).
+ * Un solo mes o la vista «Por año» comparan con el promedio mensual; un rango de varios meses, con
+ * un único promedio del rango.
+ */
+export const textosComparacion = (variosMeses: boolean) => {
+  const base = variosMeses ? 'promedio del rango' : 'promedio mensual';
+  return {
+    ver: `Ver comparación con ${variosMeses ? 'el ' : ''}${base}`,
+    ocultar: 'Ocultar comparación',
+    titulo: variosMeses ? 'Comparación con el promedio del rango' : 'Comparación con el promedio mensual',
+    columnaPromedio: variosMeses ? 'Promedio del rango' : 'Promedio mensual',
+    columnaDiferencia: 'Diferencia (promedio − Kardex)',
+  };
+};
+
+/** Signo explícito para una diferencia: "+29.21", "-39.48", "0.00". */
+export const conSigno = (valor: string): string => {
+  if (esCero(valor)) return valor.replace(/^[-+]/, '');
+  return valor.startsWith('-') || valor.startsWith('+') ? valor : `+${valor}`;
+};

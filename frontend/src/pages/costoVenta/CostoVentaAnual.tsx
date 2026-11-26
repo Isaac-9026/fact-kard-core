@@ -1,10 +1,11 @@
 /**
- * Kardex → Costo de Venta «Por año»: el costo de cada mes del año (promedio ponderado del mes,
- * partiendo del saldo del Kardex) y su suma, junto al costo según el Kardex. Es el mismo cálculo
- * de la hoja «Costo de Venta» del Excel. Solo consulta: los importes vienen del backend.
+ * Kardex → Costo de Venta «Por año»: el costo de cada mes según el Kardex (saldo inicial + compras
+ * − saldo final) y su suma. La comparación con el promedio ponderado de cada mes está oculta por
+ * defecto y se muestra con un botón. Es el mismo cálculo de la hoja «Costo de Venta» del Excel
+ * (que conserva sus columnas). Solo consulta: los importes vienen del backend.
  */
 import { useState } from 'react'
-import { Search } from 'lucide-react'
+import { Eye, EyeOff, Search } from 'lucide-react'
 import { obtenerCostoVentaAnual, type CostoVentaAnualResponse } from '../../api/costoVenta'
 import type { Periodo } from '../../api/periodos'
 import type { Producto } from '../../api/inventario'
@@ -16,7 +17,7 @@ import { AlertaFormulario } from '../../components/ui/alerta-formulario'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../../components/ui/table'
 import { formatearDecimal } from '../../utils/decimal'
 import { mensajesDeErrorApi } from '../../utils/errores'
-import { aniosDePeriodos, esCero } from '../../utils/costoVenta'
+import { aniosDePeriodos, conSigno, esCero, textosComparacion } from '../../utils/costoVenta'
 
 const monto = (valor?: string | null) => formatearDecimal(valor)
 
@@ -34,6 +35,8 @@ export function CostoVentaAnual({ periodos, productos }: { periodos: Periodo[]; 
   const [datos, setDatos] = useState<CostoVentaAnualResponse | null>(null)
   const [cargando, setCargando] = useState(false)
   const [error, setError] = useState<string[] | null>(null)
+  const [verComparacion, setVerComparacion] = useState(false)
+  const textos = textosComparacion(false)
   const anioElegido = anio || anios[0] || ''
 
   const consultar = async () => {
@@ -86,12 +89,22 @@ export function CostoVentaAnual({ periodos, productos }: { periodos: Periodo[]; 
       {datos && (
         <Card data-testid="costo-venta-anual">
           <CardHeader>
-            <CardTitle>Costo de venta {datos.anio} — {nombreProducto}</CardTitle>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <CardTitle>Costo de venta {datos.anio} — {nombreProducto}</CardTitle>
+              <Button
+                variant="outline" size="sm" onClick={() => setVerComparacion((v) => !v)}
+                aria-pressed={verComparacion} data-testid="boton-comparacion"
+              >
+                {verComparacion ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                {verComparacion ? textos.ocultar : textos.ver}
+              </Button>
+            </div>
             <CardDescription>
               {datos.empresa.razon_social} · RUC {datos.empresa.ruc} · importes en soles
               <span className="mt-1 block text-[11px] text-slate-500" data-testid="metodo-costo-venta">
                 <b>Método: suma mensual del costo según Kardex.</b> Cada mes = saldo inicial + compras − saldo final según el Kardex,
-                menos las salidas que no son ventas. Las columnas amarillas comparan con el promedio ponderado de cada mes.
+                menos las salidas que no son ventas.
+                {verComparacion && ' Las columnas amarillas comparan con el promedio ponderado de cada mes.'}
               </span>
             </CardDescription>
           </CardHeader>
@@ -104,8 +117,8 @@ export function CostoVentaAnual({ periodos, productos }: { periodos: Periodo[]; 
                     <TableHead key={c.clave} numeric>{c.titulo}</TableHead>
                   ))}
                   <TableHead numeric>Costo de venta (Kardex)</TableHead>
-                  <TableHead numeric className="bg-amber-50">Comparación: promedio mensual</TableHead>
-                  <TableHead numeric className="bg-amber-50">Diferencia (promedio − Kardex)</TableHead>
+                  {verComparacion && <TableHead numeric className="bg-amber-50">{textos.columnaPromedio}</TableHead>}
+                  {verComparacion && <TableHead numeric className="bg-amber-50">{textos.columnaDiferencia}</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -116,10 +129,12 @@ export function CostoVentaAnual({ periodos, productos }: { periodos: Periodo[]; 
                       <TableCell key={c.clave} numeric>{monto(m[c.clave])}</TableCell>
                     ))}
                     <TableCell numeric className="font-semibold">{monto(m.costo_venta)}</TableCell>
-                    <TableCell numeric className="bg-amber-50/40 text-slate-600">{monto(m.costo_venta_promedio)}</TableCell>
-                    <TableCell numeric className={`bg-amber-50/40 ${esCero(m.diferencia_metodo) ? 'text-slate-400' : 'text-amber-700'}`}>
-                      {monto(m.diferencia_metodo)}
-                    </TableCell>
+                    {verComparacion && <TableCell numeric className="bg-amber-50/40 text-slate-600">{monto(m.costo_venta_promedio)}</TableCell>}
+                    {verComparacion && (
+                      <TableCell numeric className={`bg-amber-50/40 ${esCero(m.diferencia_metodo) ? 'text-slate-400' : 'text-amber-700'}`}>
+                        {conSigno(monto(m.diferencia_metodo))}
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
                 <TableRow className="bg-indigo-50 font-semibold" data-testid="total-anual">
@@ -127,15 +142,17 @@ export function CostoVentaAnual({ periodos, productos }: { periodos: Periodo[]; 
                   {COLUMNAS.filter((c) => c.clave !== 'no_atribuibles' || hayNoVentas).map((c) => (
                     <TableCell key={c.clave} numeric>{monto(datos.total[c.clave])}</TableCell>
                   ))}
-                  <TableCell numeric className="text-base">{monto(datos.total.costo_venta)}</TableCell>
-                  <TableCell numeric>{monto(datos.total.costo_venta_promedio)}</TableCell>
-                  <TableCell numeric className="text-amber-700">{monto(datos.total.diferencia_metodo)}</TableCell>
+                  <TableCell numeric className="text-base" data-testid="costo-kardex-total">{monto(datos.total.costo_venta)}</TableCell>
+                  {verComparacion && <TableCell numeric data-testid="promedio-total">{monto(datos.total.costo_venta_promedio)}</TableCell>}
+                  {verComparacion && (
+                    <TableCell numeric className="text-amber-700" data-testid="diferencia-total">{conSigno(monto(datos.total.diferencia_metodo))}</TableCell>
+                  )}
                 </TableRow>
               </TableBody>
             </Table>
             <p className="px-4 py-3 text-xs text-slate-500">
               En la fila Total, el saldo inicial es el de enero y el saldo final el del último mes; compras, salidas y costos son la suma de los meses.
-              El costo según Kardex cuadra con el inventario valorizado; el promedio mensual es solo una comparación.
+              El costo según Kardex cuadra con el inventario valorizado{verComparacion ? '; el promedio mensual es solo una comparación.' : '.'}
             </p>
           </CardContent>
         </Card>

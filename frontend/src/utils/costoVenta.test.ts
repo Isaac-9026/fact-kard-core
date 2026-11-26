@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   aniosDePeriodos, conceptosConImporte, cuadra, esCero, ETIQUETAS_CONCILIACION, ETIQUETAS_DESGLOSE, filasFormula, paramsCostoVenta,
-  paramsCostoVentaAnual, sumarTexto, validarRangoPeriodos,
+  paramsCostoVentaAnual, sumarTexto, validarRangoPeriodos, textosComparacion, conSigno,
 } from './costoVenta.ts';
 
 test('parámetros: el período final igual al inicial no se envía; producto opcional', () => {
@@ -102,4 +102,16 @@ test('vista por año: años disponibles y parámetros', () => {
   assert.deepEqual(paramsCostoVentaAnual({ anio: 2023 }), { anio: 2023 });
   assert.deepEqual(paramsCostoVentaAnual({ anio: 2023, producto_id: 7 }), { anio: 2023, producto_id: 7 });
   assert.deepEqual(paramsCostoVentaAnual({ anio: 2023, producto_id: '' }), { anio: 2023 });
+});
+
+test('comparación con el promedio: textos por mes, año y rango; diferencia con signo', () => {
+  assert.equal(textosComparacion(false).ver, 'Ver comparación con promedio mensual');
+  assert.equal(textosComparacion(false).columnaPromedio, 'Promedio mensual');
+  assert.equal(textosComparacion(true).titulo, 'Comparación con el promedio del rango');
+  assert.equal(textosComparacion(true).ver, 'Ver comparación con el promedio del rango');
+  assert.equal(textosComparacion(true).columnaDiferencia, 'Diferencia (promedio − Kardex)');
+  assert.equal(conSigno('29.21'), '+29.21');
+  assert.equal(conSigno('-39.48'), '-39.48');
+  assert.equal(conSigno('0.00'), '0.00');
+  assert.equal(conSigno('-0.00'), '0.00');
 });

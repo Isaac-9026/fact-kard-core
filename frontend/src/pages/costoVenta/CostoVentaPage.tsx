@@ -8,7 +8,7 @@
  * pantalla no calcula costos, solo los muestra. Exportación a Excel generada por el backend.
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Calculator, CheckCircle2, AlertTriangle, Search, Info, CalendarRange, CalendarDays } from 'lucide-react'
+import { Calculator, CheckCircle2, AlertTriangle, Search, Info, CalendarRange, CalendarDays, Eye, EyeOff } from 'lucide-react'
 import {
   obtenerCostoVenta, type CostoVentaResponse, type FilaCostoVenta,
 } from '../../api/costoVenta'
@@ -28,8 +28,8 @@ import { CostoVentaAnual } from './CostoVentaAnual'
 import { formatearDecimal } from '../../utils/decimal'
 import { mensajesDeErrorApi } from '../../utils/errores'
 import {
-  ETIQUETAS_COMPRA, ETIQUETAS_CONCILIACION, ETIQUETAS_DESGLOSE, conceptosConImporte, cuadra, esCero, filasFormula,
-  validarRangoPeriodos,
+  ETIQUETAS_COMPRA, ETIQUETAS_CONCILIACION, ETIQUETAS_DESGLOSE, conceptosConImporte, conSigno, cuadra, esCero, filasFormula,
+  textosComparacion, validarRangoPeriodos,
 } from '../../utils/costoVenta'
 
 const etiquetaPeriodo = (p: Pick<Periodo, 'anio' | 'mes'>) => `${p.anio}-${String(p.mes).padStart(2, '0')}`
@@ -77,13 +77,14 @@ function HojaFormula({ titulo, bloques, conUnidades }: {
   )
 }
 
-function Desglose({ ventas, conciliacion, diferencia, comparacion, diferenciaMetodo, metodoComparacion }: {
+function Desglose({ ventas, conciliacion, diferencia, comparacion, diferenciaMetodo, tituloComparacion }: {
   ventas: { clave: string; etiqueta: string; valor: string }[]
   conciliacion: { clave: string; etiqueta: string; valor: string }[]
   diferencia: string
   comparacion: { costo_venta: { valor: string } }
   diferenciaMetodo: string
-  metodoComparacion: string
+  /** null = comparación oculta */
+  tituloComparacion: string | null
 }) {
   const ok = cuadra(diferencia)
   return (
@@ -123,13 +124,15 @@ function Desglose({ ventas, conciliacion, diferencia, comparacion, diferenciaMet
           <Badge size="sm" variant="destructive"><AlertTriangle className="mr-1 h-3 w-3" /> Diferencia {monto(diferencia)}</Badge>
         )}
       </div>
-      <div className="rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-slate-700" data-testid="comparacion">
-        <p className="font-semibold">Comparación: {metodoComparacion.split(':')[0]}</p>
-        <p className="mt-0.5">
-          Costo de venta con promedio <span className="font-mono">{monto(comparacion.costo_venta.valor)}</span> ·
-          diferencia (promedio − Kardex) <span className="font-mono">{monto(diferenciaMetodo)}</span>
-        </p>
-      </div>
+      {tituloComparacion && (
+        <div className="rounded-md border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-slate-700" data-testid="comparacion">
+          <p className="font-semibold">{tituloComparacion}</p>
+          <p className="mt-0.5">
+            Costo de venta con promedio <span className="font-mono">{monto(comparacion.costo_venta.valor)}</span> ·
+            diferencia (promedio − Kardex) <span className="font-mono">{conSigno(monto(diferenciaMetodo))}</span>
+          </p>
+        </div>
+      )}
     </div>
   )
 }
@@ -146,6 +149,7 @@ export function CostoVentaPage() {
   const [cargando, setCargando] = useState(false)
   const [error, setError] = useState<string[] | null>(null)
   const [modo, setModo] = useState<'RANGO' | 'ANIO'>('RANGO')
+  const [verComparacion, setVerComparacion] = useState(false)
 
   useEffect(() => {
     if (!empresaActiva?.id) return
@@ -184,6 +188,10 @@ export function CostoVentaPage() {
 
   const hayNoVentas = !!datos && !esCero(datos.totales.no_atribuibles.valor)
   const filaSeleccionada: FilaCostoVenta | undefined = datos?.productos.find((f) => f.producto.id === seleccionado)
+  const variosMeses = !!datos && datos.periodo_desde.id !== datos.periodo_hasta.id
+  const textos = textosComparacion(variosMeses)
+  const tituloComparacion = verComparacion ? textos.titulo : null
+  const columnas = 10 + (hayNoVentas ? 1 : 0) - (verComparacion ? 0 : 2)
   const rango = datos
     ? datos.periodo_desde.id === datos.periodo_hasta.id
       ? datos.periodo_desde.etiqueta
@@ -194,7 +202,7 @@ export function CostoVentaPage() {
     <div className="space-y-6">
       <PageHeader
         title="Costo de Venta"
-        description="Saldo inicial + Compras − Saldo final, ambos según el Kardex, menos las salidas que no son ventas = Costo de venta. Cuadra con el inventario valorizado; el promedio ponderado se muestra solo como comparación. Igual que la hoja “Costo de Venta” del Excel (Kardex Valorizado → Exportar Excel)."
+        description="Saldo inicial + Compras − Saldo final, ambos según el Kardex, menos las salidas que no son ventas = Costo de venta. Cuadra con el inventario valorizado. La comparación con el promedio ponderado está oculta: ábrala con su botón. Igual que la hoja “Costo de Venta” del Excel (Kardex Valorizado → Exportar Excel)."
         icon={<Calculator className="h-5 w-5" />}
       />
 
@@ -221,9 +229,6 @@ export function CostoVentaPage() {
               <option value="">Solo ese mes</option>
               {periodosOrdenados.map((p) => <option key={p.id} value={p.id}>{etiquetaPeriodo(p)}</option>)}
             </Select>
-            {hasta !== '' && hasta !== desde && (
-              <p className="text-[11px] text-slate-500">Comparación: promedio único del rango.</p>
-            )}
           </div>
           <div className="space-y-1">
             <Label htmlFor="cv-producto">Producto</Label>
@@ -246,7 +251,16 @@ export function CostoVentaPage() {
         <>
           <Card>
             <CardHeader>
-              <CardTitle>Costo de venta de la empresa — {rango}</CardTitle>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <CardTitle>Costo de venta de la empresa — {rango}</CardTitle>
+                <Button
+                  variant="outline" size="sm" onClick={() => setVerComparacion((v) => !v)}
+                  aria-pressed={verComparacion} data-testid="boton-comparacion"
+                >
+                  {verComparacion ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  {verComparacion ? textos.ocultar : textos.ver}
+                </Button>
+              </div>
               <CardDescription>
                 {datos.empresa.razon_social} · RUC {datos.empresa.ruc} · del {datos.fecha_inicio} al {datos.fecha_fin} · importes en soles
                 <span className="mt-1 block text-[11px] text-slate-500" data-testid="metodo-costo-venta">{datos.metodo}</span>
@@ -269,7 +283,7 @@ export function CostoVentaPage() {
                 diferencia={datos.totales.diferencia}
                 comparacion={datos.totales.comparacion}
                 diferenciaMetodo={datos.totales.diferencia_metodo}
-                metodoComparacion={datos.metodo_comparacion}
+                tituloComparacion={tituloComparacion}
               />
             </CardContent>
           </Card>
@@ -292,13 +306,13 @@ export function CostoVentaPage() {
                     {hayNoVentas && <TableHead numeric>− Salidas que no son ventas</TableHead>}
                     <TableHead numeric>Unid. vendidas</TableHead>
                     <TableHead numeric>= Costo de venta</TableHead>
-                    <TableHead numeric className="bg-amber-50">Comparación: promedio</TableHead>
-                    <TableHead numeric className="bg-amber-50">Diferencia</TableHead>
+                    {verComparacion && <TableHead numeric className="bg-amber-50">{textos.columnaPromedio}</TableHead>}
+                    {verComparacion && <TableHead numeric className="bg-amber-50">{textos.columnaDiferencia}</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {datos.productos.length === 0 && (
-                    <TableRow><TableCell colSpan={hayNoVentas ? 11 : 10} className="py-8 text-center text-slate-500">Sin movimientos de inventario en el período.</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={columnas} className="py-8 text-center text-slate-500">Sin movimientos de inventario en el período.</TableCell></TableRow>
                   )}
                   {datos.productos.map((f) => (
                     <TableRow
@@ -315,8 +329,8 @@ export function CostoVentaPage() {
                       {hayNoVentas && <TableCell numeric>{monto(f.no_atribuibles.valor)}</TableCell>}
                       <TableCell numeric>{cantidad(f.costo_venta.cantidad)}</TableCell>
                       <TableCell numeric className="font-semibold">{monto(f.costo_venta.valor)}</TableCell>
-                      <TableCell numeric className="bg-amber-50/40 text-slate-600">{monto(f.comparacion.costo_venta.valor)}</TableCell>
-                      <TableCell numeric className="bg-amber-50/40 text-slate-600">{monto(f.diferencia_metodo)}</TableCell>
+                      {verComparacion && <TableCell numeric className="bg-amber-50/40 text-slate-600">{monto(f.comparacion.costo_venta.valor)}</TableCell>}
+                      {verComparacion && <TableCell numeric className="bg-amber-50/40 text-slate-600">{conSigno(monto(f.diferencia_metodo))}</TableCell>}
                     </TableRow>
                   ))}
                   {datos.productos.length > 1 && (
@@ -328,8 +342,8 @@ export function CostoVentaPage() {
                       {hayNoVentas && <TableCell numeric>{monto(datos.totales.no_atribuibles.valor)}</TableCell>}
                       <TableCell numeric />
                       <TableCell numeric>{monto(datos.totales.costo_venta.valor)}</TableCell>
-                      <TableCell numeric className="bg-amber-50/40">{monto(datos.totales.comparacion.costo_venta.valor)}</TableCell>
-                      <TableCell numeric className="bg-amber-50/40">{monto(datos.totales.diferencia_metodo)}</TableCell>
+                      {verComparacion && <TableCell numeric className="bg-amber-50/40">{monto(datos.totales.comparacion.costo_venta.valor)}</TableCell>}
+                      {verComparacion && <TableCell numeric className="bg-amber-50/40">{conSigno(monto(datos.totales.diferencia_metodo))}</TableCell>}
                     </TableRow>
                   )}
                 </TableBody>
@@ -351,7 +365,7 @@ export function CostoVentaPage() {
                   diferencia={filaSeleccionada.diferencia}
                   comparacion={filaSeleccionada.comparacion}
                   diferenciaMetodo={filaSeleccionada.diferencia_metodo}
-                  metodoComparacion={filaSeleccionada.comparacion.metodo}
+                  tituloComparacion={tituloComparacion}
                 />
               </CardContent>
             </Card>
