@@ -145,6 +145,8 @@ STATIC_ROOT = config('STATIC_ROOT', default=str(BASE_DIR / 'staticfiles'))
 # Identidad Visual Multiempresa: logos de empresas
 MEDIA_URL = config('MEDIA_URL', default='/media/')
 MEDIA_ROOT = Path(config('MEDIA_ROOT', default=str(BASE_DIR / 'media')))
+# Staging compartido (backend + tareas) para archivos Excel de importación masiva.
+IMPORTACION_STAGING_DIR = Path(config('IMPORTACION_STAGING_DIR', default='/app/storage/importaciones'))
 # Límite del cuerpo de peticiones no-archivo (JSON grandes); los archivos usan CAPTURA_MAX_BYTES.
 DATA_UPLOAD_MAX_MEMORY_SIZE = config('DATA_UPLOAD_MAX_MEMORY_SIZE', default=5 * 1024 * 1024, cast=int)
 

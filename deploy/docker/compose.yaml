@@ -68,10 +68,12 @@ services:
       STATIC_ROOT: /srv/fact-kard/static
       MEDIA_ROOT: /srv/fact-kard/datos/media
       FACT_KARD_BACKUP_DIR: /srv/fact-kard/datos/respaldos
+      IMPORTACION_STAGING_DIR: /app/storage/importaciones
       TZ: America/Lima
     volumes:
       - media:/srv/fact-kard/datos/media
       - static:/srv/fact-kard/static
+      - importaciones_staging:/app/storage/importaciones
       # Respaldos en una carpeta del servidor (para copiarlos fuera del VPS).
       - ${FK_DIR_RESPALDOS:-./datos/respaldos}:/srv/fact-kard/datos/respaldos
     depends_on:
@@ -99,10 +101,12 @@ services:
       STATIC_ROOT: /srv/fact-kard/static
       MEDIA_ROOT: /srv/fact-kard/datos/media
       FACT_KARD_BACKUP_DIR: /srv/fact-kard/datos/respaldos
+      IMPORTACION_STAGING_DIR: /app/storage/importaciones
       FK_RESPALDO_HORA: ${FK_RESPALDO_HORA:-04:00}
       TZ: America/Lima
     volumes:
       - media:/srv/fact-kard/datos/media:ro
+      - importaciones_staging:/app/storage/importaciones
       - ${FK_DIR_RESPALDOS:-./datos/respaldos}:/srv/fact-kard/datos/respaldos
     depends_on:
       backend:
@@ -146,3 +150,4 @@ volumes:
   pgdata:
   media:
   static:
+  importaciones_staging:

@@ -532,3 +532,67 @@ class ImportacionArchivo(models.Model):
     class Meta:
         db_table = 'importacion_archivo'
         indexes = [models.Index(fields=['empresa', 'sha256'], name='idx_importacion_archivo_hash')]
+
+
+class ImportacionTrabajo(models.Model):
+    """
+    Cola persistente en PostgreSQL para procesar importaciones o anulaciones de lotes en segundo plano.
+    REGLA DE SEGURIDAD: `parametros_json` nunca debe almacenar contraseñas ni secretos.
+    """
+    TIPOS = (('CONFIRMAR', 'Confirmar importación'), ('ANULAR', 'Anular lote'))
+    ESTADOS = (
+        ('EN_COLA', 'En cola'),
+        ('PROCESANDO', 'Procesando'),
+        ('COMPLETADO', 'Completado'),
+        ('ERROR', 'Error'),
+    )
+
+    empresa = models.ForeignKey(
+        'empresas.Empresa', on_delete=models.CASCADE, db_column='empresa_id', related_name='+',
+    )
+    usuario = models.ForeignKey(
+        'usuarios.Usuario', on_delete=models.SET_NULL, null=True, blank=True, db_column='usuario_id', related_name='+',
+    )
+    tipo = models.CharField(max_length=20, choices=TIPOS)
+    estado = models.CharField(max_length=20, choices=ESTADOS, default='EN_COLA', db_default='EN_COLA')
+    lote = models.ForeignKey(
+        ImportacionLote, on_delete=models.SET_NULL, null=True, blank=True, db_column='lote_id', related_name='trabajos',
+    )
+    almacen = models.ForeignKey(
+        'inventario.Almacen', on_delete=models.PROTECT, null=True, blank=True, db_column='almacen_id', related_name='+',
+    )
+    parametros_json = models.JSONField(default=dict, blank=True)
+    archivos_meta_json = models.JSONField(default=list, blank=True)
+    staging_dir = models.CharField(max_length=255, blank=True, default='')
+    resumen_json = models.JSONField(default=dict, blank=True)
+    error_detalle = models.TextField(blank=True, default='')
+    intentos = models.PositiveSmallIntegerField(default=0, db_default=0)
+    creado_en = models.DateTimeField(auto_now_add=True)
+    iniciado_en = models.DateTimeField(null=True, blank=True)
+    finalizado_en = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'importacion_trabajo'
+        ordering = ['-creado_en', '-id']
+        indexes = [
+            models.Index(fields=['estado', 'creado_en'], name='idx_imp_trabajo_estado_creado'),
+            models.Index(fields=['empresa', 'estado'], name='idx_imp_trabajo_emp_estado'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(tipo__in=['CONFIRMAR', 'ANULAR']),
+                name='chk_imp_trabajo_tipo',
+            ),
+            models.CheckConstraint(
+                condition=models.Q(estado__in=['EN_COLA', 'PROCESANDO', 'COMPLETADO', 'ERROR']),
+                name='chk_imp_trabajo_estado',
+            ),
+            models.UniqueConstraint(
+                fields=['lote'],
+                condition=models.Q(tipo='ANULAR', estado__in=['EN_COLA', 'PROCESANDO'], lote__isnull=False),
+                name='uq_imp_trabajo_anular_activo_lote',
+            ),
+        ]
+
+    def __str__(self):
+        return f"Trabajo #{self.id} ({self.tipo} - {self.estado})"

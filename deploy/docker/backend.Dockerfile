@@ -43,8 +43,8 @@ COPY deploy/docker/backend-tareas.sh /usr/local/bin/fk-tareas
 
 RUN sed -i 's/\r$//' /usr/local/bin/fk-entrypoint /usr/local/bin/fk-healthcheck /usr/local/bin/fk-tareas \
     && chmod 0755 /usr/local/bin/fk-entrypoint /usr/local/bin/fk-healthcheck /usr/local/bin/fk-tareas \
-    && mkdir -p /srv/fact-kard/datos/media /srv/fact-kard/datos/respaldos /srv/fact-kard/static \
-    && chown -R factkard:factkard /srv/fact-kard/datos /srv/fact-kard/static \
+    && mkdir -p /srv/fact-kard/datos/media /srv/fact-kard/datos/respaldos /srv/fact-kard/static /app/storage/importaciones \
+    && chown -R factkard:factkard /srv/fact-kard/datos /srv/fact-kard/static /app/storage \
     && chmod 0700 /srv/fact-kard/datos/respaldos
 
 USER factkard
