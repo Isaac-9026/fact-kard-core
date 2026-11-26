@@ -9,10 +9,12 @@ Formato (el que exporta el sistema anterior del cliente), un archivo por product
 y, opcionales al final: RUC/DNI | Razón social | Precio unitario | Moneda.
 
 Reglas:
-- Ninguna fila se descarta en silencio: cada una sale como NUEVO, YA_EXISTE, CONFLICTO o ERROR.
+- Ninguna fila se descarta en silencio: cada una sale como NUEVO, COMPLETAR, YA_EXISTE, CONFLICTO o ERROR.
 - Un comprobante puede venir repartido en varios archivos (uno por producto): se agrupa.
-- Contra lo ya registrado se compara por línea: si el comprobante existe pero le falta un producto
-  del Excel, es CONFLICTO (nunca se omite).
+- Contra lo ya registrado se compara por línea. Si al comprobante le falta un producto del Excel y
+  fue importado y confirmado (cabecera igual, período abierto, sin cobros ni pagos), es COMPLETAR:
+  se le agregará solo esa línea. Si no se puede completar, o el mismo producto trae otra cantidad o
+  costo, es CONFLICTO (nunca se omite en silencio).
 - Las notas de crédito se emparejan con su venta (o compra) de origen por producto y cantidad.
 """
 import re
@@ -26,7 +28,9 @@ from openpyxl import load_workbook
 from rest_framework.exceptions import ValidationError
 
 from apps.catalogos.models import TipoComprobante
-from apps.documentos.models import Documento, DocumentoDetalle
+from django.db.models import Prefetch
+
+from apps.documentos.models import Documento, DocumentoDetalle, PagoDocumento
 from apps.documentos.services import MONEDAS_SOPORTADAS, normalizar_numero, normalizar_serie
 from apps.empresas.models import Empresa, Periodo
 from apps.inventario.models import Producto
@@ -37,6 +41,8 @@ MAX_FILAS = 5000
 MAX_COMPROBANTES_LOTE = 1500
 MAX_ARCHIVOS = 50
 CERO = Decimal('0')
+# Diferencia máxima para considerar que el costo de una línea del Excel es el ya registrado.
+TOLERANCIA_COSTO = Decimal('0.000001')
 
 # Tipo de operación (Tabla 12 SUNAT) → (clase del comprobante, naturaleza en el Kardex)
 OPERACIONES = {
@@ -371,8 +377,11 @@ def _existentes(empresa_id, claves):
     docs = (
         Documento.objects.filter(empresa_id=empresa_id, serie_normalizada__in={c[2] for c in claves})
         .exclude(estado='ANULADO', importacion_lote__isnull=False)
-        .select_related('tipo_comprobante')
-        .prefetch_related('detalles')
+        .select_related('tipo_comprobante', 'periodo', 'tercero', 'importacion_lote')
+        .prefetch_related(
+            Prefetch('detalles', queryset=DocumentoDetalle.objects.filter(revertida_en__isnull=True).order_by('linea')),
+            Prefetch('pagos', queryset=PagoDocumento.objects.filter(estado='VIGENTE'), to_attr='pagos_vigentes'),
+        )
     )
     resultado = {}
     for d in docs:
@@ -417,6 +426,7 @@ def _emparejar_devoluciones(grupos, productos, empresa_id):
         qs = DocumentoDetalle.objects.filter(
             documento__empresa_id=empresa_id, documento__clase=nota.clase, documento__estado='CONFIRMADO',
             documento__tipo_comprobante__es_nota=False, documento__fecha_emision__lte=nota.fecha, producto=producto,
+            revertida_en__isnull=True,
         ).select_related('documento__tipo_comprobante').order_by('-documento__fecha_emision', '-id')
         qs = qs.filter(cantidad_original=nota.cantidad) if exacta else qs.filter(cantidad_original__gte=nota.cantidad)
         for detalle in qs[:50]:
@@ -498,16 +508,25 @@ def _cantidad(valor):
     return format(valor.normalize(), 'f') if valor else '0'
 
 
-def _simular_stock(ordenados, existentes, productos, empresa_id):
+def _simular_stock(ordenados, existentes, productos, empresa_id, planes=None):
     """
     Recorre en orden los comprobantes que se van a grabar y marca como error la salida que dejaría
     el stock en negativo, para verlo en la previsualización y no recién al confirmar. Parte del stock
     registrado antes de la primera fecha del Excel y suma los movimientos ya registrados después.
+    De un comprobante a completar solo cuentan las líneas que se le agregarán.
     """
     from django.db.models import Case, DecimalField, F, Sum, When
     from apps.kardex.models import Movimiento
 
-    pendientes = [(c, ls) for c, ls in ordenados if c not in existentes and not any(l.errores for l in ls)]
+    planes = planes or {}
+    pendientes = []
+    for c, ls in ordenados:
+        if any(l.errores for l in ls):
+            continue
+        if c not in existentes:
+            pendientes.append((c, ls))
+        elif planes.get(c, {}).get('estado') == 'COMPLETAR':
+            pendientes.append((c, planes[c]['agregar']))
     primeras = {}
     for _, lineas in pendientes:
         for l in lineas:
@@ -571,6 +590,114 @@ def _simular_stock(ordenados, existentes, productos, empresa_id):
             stock[pid] += delta
 
 
+def _costo_registrado(detalle, clase):
+    if detalle.costo_unitario_importado is not None:
+        return detalle.costo_unitario_importado
+    if clase == 'COMPRA':
+        return detalle.precio_unitario
+    return None
+
+
+def _identificacion(tercero):
+    return (tercero.numero_documento or '').strip() if tercero else ''
+
+
+def motivo_no_completable(existente, lineas):
+    """Por qué no se le pueden agregar líneas a un comprobante ya registrado (None si se puede)."""
+    primera = lineas[0]
+    if existente.estado != 'CONFIRMADO':
+        return f'El comprobante ya existe en estado {existente.estado}: solo se completan comprobantes confirmados.'
+    if existente.origen_captura != 'IMPORTACION' or existente.importacion_lote_id is None:
+        return 'El comprobante ya existe y no fue importado por Excel: agregue la línea manualmente.'
+    if existente.importacion_lote.estado != 'CONFIRMADO':
+        return 'El lote que importó el comprobante está anulado.'
+    if existente.tipo_comprobante.es_nota or any(l.operacion in DEVOLUCIONES for l in lineas):
+        return 'Las notas de crédito no se completan: anule la nota y vuelva a importarla completa.'
+    diferencias = []
+    if existente.clase != primera.clase:
+        diferencias.append('clase')
+    if existente.fecha_emision != primera.fecha:
+        diferencias.append(f'fecha (registrada {existente.fecha_emision:%d/%m/%Y})')
+    if existente.moneda_codigo_id != primera.moneda:
+        diferencias.append(f'moneda (registrada {existente.moneda_codigo_id})')
+    if primera.clase == 'VENTA' and primera.ruc and _identificacion(existente.tercero) not in ('', primera.ruc):
+        diferencias.append(f'cliente (registrado {_identificacion(existente.tercero)})')
+    if diferencias:
+        return f'La cabecera no coincide con la registrada: {", ".join(diferencias)}.'
+    if existente.periodo.estado != 'ABIERTO':
+        return f'El período {existente.periodo.anio}-{existente.periodo.mes:02d} del comprobante está cerrado.'
+    if getattr(existente, 'pagos_vigentes', None) is None:
+        tiene_pagos = existente.pagos.filter(estado='VIGENTE').exists()
+    else:
+        tiene_pagos = bool(existente.pagos_vigentes)
+    if tiene_pagos:
+        return 'El comprobante tiene cobros o pagos aplicados: anúlelos antes de completarlo.'
+    return None
+
+
+def comparar_con_registrado(existente, lineas, productos):
+    """
+    Compara las líneas del Excel con las vigentes del comprobante registrado.
+    - Mismo producto, cantidad y costo → ya está (se omite).
+    - Mismo producto con otra cantidad o costo → CONFLICTO: el Excel no identifica qué línea es.
+    - Producto que no está → se agregará (COMPLETAR), si el comprobante admite completarse.
+    Devuelve {'estado', 'agregar': [FilaKardex], 'mensaje'}.
+    """
+    if existente.estado == 'ANULADO':
+        return {'estado': 'CONFLICTO', 'agregar': [],
+                'mensaje': 'Existe un comprobante ANULADO con este número: el sistema no permite reutilizarlo.'}
+    registradas = defaultdict(list)
+    for d in existente.detalles.all():
+        if d.revertida_en is None:
+            registradas[d.producto_id].append(d)
+    agregar, diferentes = [], []
+    for l in lineas:
+        pid = productos[l.codigo].id
+        if pid not in registradas:
+            agregar.append(l)
+            continue
+        candidatas = registradas[pid]
+        igual = next((
+            d for d in candidatas
+            if d.cantidad_original == l.cantidad and (
+                _costo_registrado(d, existente.clase) is None
+                or abs(_costo_registrado(d, existente.clase) - l.costo_unitario) <= TOLERANCIA_COSTO
+            )
+        ), None)
+        if igual is not None:
+            candidatas.remove(igual)
+            continue
+        if candidatas:
+            d = candidatas[0]
+            costo = _costo_registrado(d, existente.clase)
+            diferentes.append(
+                f'{l.codigo}: el Excel trae {_cantidad(l.cantidad)} a {_texto_costo(l.costo_unitario)} y está registrado '
+                f'{_cantidad(d.cantidad_original or CERO)}' + (f' a {_texto_costo(costo)}' if costo is not None else '')
+            )
+        else:
+            diferentes.append(f'{l.codigo}: el Excel trae más líneas de este producto que las registradas')
+    if diferentes:
+        return {'estado': 'CONFLICTO', 'agregar': [], 'mensaje': (
+            'El comprobante ya está registrado con el mismo producto pero otra cantidad o costo, y el Excel no '
+            f'identifica la línea. Revíselo: {"; ".join(diferentes)}.'
+        )}
+    if not agregar:
+        return {'estado': 'YA_EXISTE', 'agregar': [],
+                'mensaje': 'Ya está registrado con estos productos: se omite, no se sobrescribe.'}
+    motivo = motivo_no_completable(existente, lineas)
+    if motivo:
+        faltan = ', '.join(sorted({l.codigo for l in agregar}))
+        return {'estado': 'CONFLICTO', 'agregar': [],
+                'mensaje': f'Al comprobante registrado le faltan los productos {faltan}, pero no se puede completar. {motivo}'}
+    return {'estado': 'COMPLETAR', 'agregar': agregar, 'mensaje': 'Se agregará: ' + '; '.join(
+        f'{l.codigo} × {_cantidad(l.cantidad)} a {_texto_costo(l.costo_unitario)}' for l in agregar
+    ) + f' (al comprobante del lote {existente.importacion_lote_id}).'}
+
+
+def _texto_costo(valor):
+    return format(valor.quantize(Decimal('0.01')), 'f') if valor is not None else '—'
+
+
 def _analizar(*, empresa_id, archivos, proveedores=None):
     if not archivos:
         raise ValidationError({'archivos': 'Adjunte al menos un archivo Excel (.xlsx).'})
@@ -593,36 +720,26 @@ def _analizar(*, empresa_id, archivos, proveedores=None):
     existentes = _existentes(empresa_id, set(grupos))
 
     ordenados = sorted(grupos.items(), key=lambda g: _orden(g[1], origenes.get(g[0])))
-    _simular_stock(ordenados, existentes, productos, empresa_id)
+    planes = {
+        clave: comparar_con_registrado(existentes[clave], lineas, productos)
+        for clave, lineas in ordenados
+        if clave in existentes and not any(l.errores for l in lineas)
+    }
+    _simular_stock(ordenados, existentes, productos, empresa_id, planes)
     comprobantes = []
     estados = {}
     for clave, lineas in ordenados:
         primera = lineas[0]
         errores = sorted({m for l in lineas for m in l.errores})
-        existente = existentes.get(clave)
-        faltantes = []
+        plan = planes.get(clave)
         if errores:
-            estado = 'ERROR'
-        elif existente and existente.estado == 'ANULADO':
-            estado = 'CONFLICTO'
-        elif existente:
-            registrados = {d.producto_id for d in existente.detalles.all()}
-            faltantes = sorted({l.codigo for l in lineas if productos[l.codigo].id not in registrados})
-            estado = 'CONFLICTO' if faltantes else 'YA_EXISTE'
+            estado, mensaje = 'ERROR', '; '.join(errores)
+        elif plan:
+            estado, mensaje = plan['estado'], plan['mensaje']
         else:
-            estado = 'NUEVO'
+            estado, mensaje = 'NUEVO', ''
         estados[clave] = estado
-        if estado == 'CONFLICTO' and existente.estado == 'ANULADO':
-            mensaje = 'Existe un comprobante ANULADO con este número: el sistema no permite reutilizarlo.'
-        elif estado == 'CONFLICTO':
-            mensaje = (
-                f'El comprobante ya está registrado sin los productos {", ".join(faltantes)}. '
-                'Suba juntos todos los archivos del período o anule el lote anterior.'
-            )
-        elif estado == 'YA_EXISTE':
-            mensaje = 'Ya está registrado con estos productos: se omite, no se sobrescribe.'
-        else:
-            mensaje = '; '.join(errores)
+        agregar = plan['agregar'] if plan and estado == 'COMPLETAR' else []
         origen = origenes.get(clave)
         sin_proveedor = primera.clase == 'COMPRA' and len(primera.ruc) != 11
         comprobantes.append({
@@ -643,9 +760,20 @@ def _analizar(*, empresa_id, archivos, proveedores=None):
             'estado': estado,
             'mensaje': mensaje,
             'observaciones': sorted({m for l in lineas for m in l.observaciones}),
+            'completa_lote': existentes[clave].importacion_lote_id if estado == 'COMPLETAR' else None,
+            'agregar': [{
+                'archivo': l.archivo, 'fila': l.fila, 'codigo': l.codigo, 'cantidad': _texto_decimal(l.cantidad),
+                'costo_unitario': _texto_decimal(l.costo_unitario), 'costo_total': _texto_decimal(l.costo_total),
+                'precio_unitario': _texto_decimal(l.precio_unitario),
+            } for l in agregar],
         })
         for l in lineas:
-            l.estado = estado if not l.errores else 'ERROR'
+            if l.errores:
+                l.estado = 'ERROR'
+            elif estado == 'COMPLETAR':
+                l.estado = 'COMPLETAR' if any(l is a for a in agregar) else 'YA_EXISTE'
+            else:
+                l.estado = estado
             if estado == 'ERROR' and not l.errores:
                 l.errores.append('Otra línea del mismo comprobante tiene error.')
 
@@ -675,6 +803,8 @@ def _analizar(*, empresa_id, archivos, proveedores=None):
             'filas_con_observacion': sum(1 for f in detalle_filas if f['observaciones']),
             'comprobantes': len(comprobantes),
             'nuevos': contar('NUEVO'),
+            'completar': contar('COMPLETAR'),
+            'lineas_a_agregar': sum(len(c['agregar']) for c in comprobantes),
             'ya_existen': contar('YA_EXISTE'),
             'conflictos': contar('CONFLICTO'),
             'con_error': contar('ERROR'),
@@ -683,9 +813,10 @@ def _analizar(*, empresa_id, archivos, proveedores=None):
             'desde': min(fechas).isoformat() if fechas else None,
             'hasta': max(fechas).isoformat() if fechas else None,
             'limite_lote': MAX_COMPROBANTES_LOTE,
-            'excede_limite': contar('NUEVO') > MAX_COMPROBANTES_LOTE,
+            'excede_limite': contar('NUEVO') + contar('COMPLETAR') > MAX_COMPROBANTES_LOTE,
             'puede_confirmar': (
-                0 < contar('NUEVO') <= MAX_COMPROBANTES_LOTE and contar('ERROR') == 0 and contar('CONFLICTO') == 0
+                0 < contar('NUEVO') + contar('COMPLETAR') <= MAX_COMPROBANTES_LOTE
+                and contar('ERROR') == 0 and contar('CONFLICTO') == 0
             ),
         },
         'comprobantes': comprobantes,
@@ -694,6 +825,7 @@ def _analizar(*, empresa_id, archivos, proveedores=None):
     contexto = {
         'empresa': empresa, 'ordenados': ordenados, 'estados': estados, 'origenes': origenes,
         'productos': productos, 'periodos': periodos, 'tipos': tipos, 'existentes': existentes,
+        'planes': planes,
     }
     return resultado, contexto
 

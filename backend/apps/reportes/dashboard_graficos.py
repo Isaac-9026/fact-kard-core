@@ -5,7 +5,7 @@ con el mismo cálculo del reporte de costo de venta, compras, margen y saldos CP
 from collections import defaultdict
 from decimal import ROUND_HALF_UP, Decimal
 
-from django.db.models import Q, Sum
+from django.db.models import Prefetch, Q, Sum
 from rest_framework.exceptions import ValidationError
 
 from apps.documentos.models import Documento, DocumentoDetalle
@@ -55,7 +55,9 @@ def _ventas_periodo(empresa_id, periodo_id, producto_id=None):
         comprobantes = len({ln.documento_id for ln in lineas if not ln.documento.tipo_comprobante.es_nota})
         return total, comprobantes
     total, comprobantes = ZERO, 0
-    for doc in _ventas_confirmadas(empresa_id, periodo_id).prefetch_related('detalles'):
+    for doc in _ventas_confirmadas(empresa_id, periodo_id).prefetch_related(
+        Prefetch('detalles', queryset=DocumentoDetalle.objects.filter(revertida_en__isnull=True)),
+    ):
         base = doc.subtotal
         if base is None:
             base = sum(((d.precio_unitario or ZERO) * (d.cantidad_original or ZERO) for d in doc.detalles.all()), ZERO)
@@ -68,7 +70,7 @@ def _ventas_periodo(empresa_id, periodo_id, producto_id=None):
 def _lineas_venta(empresa_id, periodo_id):
     return DocumentoDetalle.objects.filter(
         documento__empresa_id=empresa_id, documento__periodo_id=periodo_id,
-        documento__clase='VENTA', documento__estado='CONFIRMADO', producto__isnull=False,
+        documento__clase='VENTA', documento__estado='CONFIRMADO', producto__isnull=False, revertida_en__isnull=True,
     ).select_related('documento__tipo_comprobante')
 
 

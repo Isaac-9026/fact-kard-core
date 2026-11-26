@@ -831,8 +831,10 @@ def anular_documento_motor(*, documento_id, empresa_id, usuario_id, motivo):
             empresa_id=empresa_id, periodo=periodo, fecha=documento.fecha_emision,
         )
     if documento.estado == 'CONFIRMADO':
+        # Completar comprobante: una línea agregada por otro lote que ya se revirtió tiene su
+        # extorno; no se vuelve a extornar.
         for original in Movimiento.objects.filter(
-            empresa_id=empresa_id, documento_detalle__documento=documento,
+            empresa_id=empresa_id, documento_detalle__documento=documento, extornos__isnull=True,
         ).select_related('tipo_operacion', 'valorizacion'):
             if original.naturaleza == 'AJUSTE_VALOR':
                 tipo = tipo_operacion_extorno('AJUSTE_VALOR')

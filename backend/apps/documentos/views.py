@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from django.conf import settings
-from django.db.models import Q, Count
+from django.db.models import Count, Prefetch, Q
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from rest_framework import generics, status
@@ -11,7 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from config.api import PaginacionOpcional, entero_param
-from apps.documentos.models import Documento, DocumentoCaptura
+from apps.documentos.models import Documento, DocumentoCaptura, DocumentoDetalle
 from apps.documentos.serializers import (
     DocumentoListSerializer,
     DocumentoDetailSerializer,
@@ -67,7 +67,7 @@ class DocumentoListCreateView(generics.ListCreateAPIView):
             campos_select.append('emision_electronica')
         qs = Documento.objects.filter(empresa_id=empresa_id).select_related(
             *campos_select
-        ).annotate(num_detalles=Count('detalles'))
+        ).annotate(num_detalles=Count('detalles', filter=Q(detalles__revertida_en__isnull=True)))
 
         clase = self.request.query_params.get('clase')
         if clase:
@@ -155,11 +155,11 @@ class DocumentoDetailView(generics.RetrieveDestroyAPIView):
 
     def get_queryset(self):
         empresa_id = getattr(self.request, 'empresa_id', None)
+        # Completar comprobante: una línea revertida (su lote se anuló) ya no forma parte del comprobante.
         return Documento.objects.filter(empresa_id=empresa_id).prefetch_related(
-            'detalles__producto',
-            'detalles__producto_unidad',
-            'detalles__almacen',
-            'detalles__tipo_operacion'
+            Prefetch('detalles', queryset=DocumentoDetalle.objects.filter(revertida_en__isnull=True).select_related(
+                'producto', 'producto_unidad', 'almacen', 'tipo_operacion',
+            ).order_by('linea')),
         )
 
     def perform_destroy(self, instance):
@@ -389,6 +389,9 @@ def _lote_dict(lote):
         'almacen': {'id': lote.almacen_id, 'codigo': lote.almacen.codigo, 'nombre': lote.almacen.nombre},
         'archivos': [a.nombre for a in lote.archivos.all()],
         'comprobantes': resumen.get('grabados', 0),
+        'completados': resumen.get('completados', 0),
+        'lineas_agregadas': resumen.get('lineas_agregadas', 0),
+        'comprobantes_completados': [c['comprobante'] for c in resumen.get('comprobantes_completados', [])],
         'desde': resumen.get('desde'),
         'hasta': resumen.get('hasta'),
         'segundos': resumen.get('segundos'),

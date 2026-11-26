@@ -21,14 +21,17 @@ import { diferirCarga } from '../../utils/efectos';
 import { mensajesDeErrorApi } from '../../utils/errores';
 import {
   ETIQUETA_ESTADO, ETIQUETA_OPERACION, ETIQUETA_TIPO, aplicarProveedorATodas, archivosXlsx, asignarProveedor,
-  contarPorFiltro, fechaCorta, filtrarComprobantes, motivoNoConfirmable, type FiltroImportacion,
+  contarPorFiltro, fechaCorta, filtrarComprobantes, motivoNoConfirmable, textoPorGrabar, type FiltroImportacion,
 } from '../../utils/importacionExcel';
 
-const VARIANTE_ESTADO = { NUEVO: 'success', YA_EXISTE: 'neutral', CONFLICTO: 'warning', ERROR: 'destructive' } as const;
+const VARIANTE_ESTADO = {
+  NUEVO: 'success', COMPLETAR: 'info', YA_EXISTE: 'neutral', CONFLICTO: 'warning', ERROR: 'destructive',
+} as const;
 
 const FILTROS: { valor: FiltroImportacion; etiqueta: string }[] = [
   { valor: 'TODOS', etiqueta: 'Todos' },
   { valor: 'NUEVO', etiqueta: 'Nuevos' },
+  { valor: 'COMPLETAR', etiqueta: 'A completar' },
   { valor: 'YA_EXISTE', etiqueta: 'Ya existen' },
   { valor: 'ERROR', etiqueta: 'Errores' },
   { valor: 'CONFLICTO', etiqueta: 'Conflictos' },
@@ -212,7 +215,9 @@ const NuevaImportacion: React.FC<{ onImportado: () => void }> = ({ onImportado }
       {errores.length > 0 && <Aviso tipo="error">{errores.map((e) => <p key={e}>{e}</p>)}</Aviso>}
       {resultado && (
         <Aviso tipo="ok">
-          <p>Lote {resultado.lote}: se grabaron {resultado.comprobantes} comprobantes en {resultado.segundos} s
+          <p>Lote {resultado.lote}: se grabaron {resultado.comprobantes} comprobantes
+            {resultado.completados ? ` y se completaron ${resultado.completados} (${resultado.lineas_agregadas} línea(s) agregada(s))` : ''}
+            {' '}en {resultado.segundos} s
             {resultado.omitidos ? ` (${resultado.omitidos} ya existían y se omitieron)` : ''}. El Kardex quedó actualizado.</p>
         </Aviso>
       )}
@@ -299,6 +304,21 @@ const NuevaImportacion: React.FC<{ onImportado: () => void }> = ({ onImportado }
                             <option value="">Elegir proveedor…</option>
                             {proveedoresLista.map((t) => <option key={t.id} value={t.numero_documento}>{t.numero_documento} · {t.razon_social}</option>)}
                           </select>
+                        ) : c.estado === 'COMPLETAR' ? (
+                          <div className="space-y-1" data-testid="importacion-completar">
+                            <p className="text-indigo-800">
+                              Ya está registrado (lote {c.completa_lote}). Se le agregará solo:
+                            </p>
+                            <ul className="list-disc pl-4 text-indigo-800">
+                              {c.agregar.map((a) => (
+                                <li key={`${a.archivo}-${a.fila}`}>
+                                  <span className="font-mono font-semibold">{a.codigo}</span> · cantidad {a.cantidad} · costo {a.costo_unitario}
+                                  {a.precio_unitario ? ` · precio ${a.precio_unitario}` : ''}
+                                  <span className="text-slate-400"> (fila {a.fila} de {a.archivo})</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
                         ) : c.mensaje && <p className={c.estado === 'ERROR' ? 'text-rose-700' : ''}>{c.mensaje}</p>}
                         {c.origen && <p className="text-slate-500">Devuelve {c.origen.comprobante}{c.origen.aproximado ? ' (aproximado)' : ''}</p>}
                         {c.observaciones.map((o) => <p key={o} className="text-amber-700">{o}</p>)}
@@ -313,7 +333,7 @@ const NuevaImportacion: React.FC<{ onImportado: () => void }> = ({ onImportado }
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
-              <p className="text-xs text-slate-500">{bloqueo ?? `Se grabarán ${previa.resumen.nuevos} comprobantes nuevos. Todo o nada.`}</p>
+              <p className="text-xs text-slate-500">{bloqueo ?? `Se grabarán ${textoPorGrabar(previa.resumen)}. Todo o nada.`}</p>
               <Button variant="success" onClick={confirmar} disabled={Boolean(bloqueo) || ocupado} data-testid="importacion-confirmar">
                 {trabajando === 'confirmar' ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-1.5 h-4 w-4" />}
                 Confirmar importación
@@ -355,7 +375,12 @@ const LotesImportados: React.FC<{ recarga: number }> = ({ recarga }) => {
     setErrores([]);
     try {
       const r = await anularLoteImportacion(anulando.id, motivo.trim());
-      setExito(`Lote ${anulando.id} anulado: ${r.comprobantes_anulados} comprobantes y su efecto en el Kardex revertidos.`);
+      setExito(
+        `Lote ${anulando.id} anulado: ${r.comprobantes_anulados} comprobantes y su efecto en el Kardex revertidos.`
+        + (r.lineas_revertidas
+          ? ` Se revirtieron ${r.lineas_revertidas} línea(s) que el lote había agregado a ${r.comprobantes_revertidos.join(', ')}; las demás líneas de esos comprobantes siguen vigentes.`
+          : ''),
+      );
       setAnulando(null);
       setMotivo('');
       await cargar();
@@ -400,7 +425,14 @@ const LotesImportados: React.FC<{ recarga: number }> = ({ recarga }) => {
                     )}
                   </td>
                   <td className="max-w-64 px-3 py-2 text-slate-600">{l.archivos.join(', ')}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{l.comprobantes}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {l.comprobantes}
+                    {l.completados > 0 && (
+                      <span className="block text-[10px] text-indigo-700" title={l.comprobantes_completados.join(', ')}>
+                        + {l.lineas_agregadas} línea(s) en {l.completados} completado(s)
+                      </span>
+                    )}
+                  </td>
                   <td className="whitespace-nowrap px-3 py-2">{fechaCorta(l.desde)} – {fechaCorta(l.hasta)}</td>
                   <td className="px-3 py-2">{l.almacen.codigo}</td>
                   <td className="px-3 py-2">{l.creado_por ?? '—'}</td>

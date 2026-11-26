@@ -191,6 +191,7 @@ def cantidad_ya_devuelta(detalle_origen_id, *, excluir_documento_id=None) -> Dec
         documento__tipo_comprobante__es_nota=True,
         tipo_operacion__naturaleza__in=NATURALEZAS_FISICAS,
         afecta_kardex_aplicado=True,
+        revertida_en__isnull=True,
     )
     if excluir_documento_id is not None:
         qs = qs.exclude(documento_id=excluir_documento_id)

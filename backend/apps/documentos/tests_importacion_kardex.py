@@ -287,7 +287,8 @@ class ExistentesTests(ImportacionKardexBase):
         self.assertIn('se omite', c['mensaje'])
         self.assertFalse(datos['resumen']['puede_confirmar'])
 
-    def test_comprobante_registrado_sin_un_producto_es_conflicto(self):
+    def test_comprobante_manual_sin_un_producto_es_conflicto(self):
+        # Registrado a mano (no por Excel): no se completa automáticamente.
         self.registrar_compra([self.p1])
         datos = self.previa(
             excel([compra('011004', 3, 'F035', 1081, 10, 10)], OPC),
@@ -295,7 +296,8 @@ class ExistentesTests(ImportacionKardexBase):
         )
         c = self.comp(datos, 'F035', 1081)
         self.assertEqual(c['estado'], 'CONFLICTO')
-        self.assertIn('sin los productos 011049', c['mensaje'])
+        self.assertIn('faltan los productos 011049', c['mensaje'])
+        self.assertIn('no fue importado por Excel', c['mensaje'])
         self.assertEqual(datos['resumen']['conflictos'], 1)
         self.assertFalse(datos['resumen']['puede_confirmar'])
 

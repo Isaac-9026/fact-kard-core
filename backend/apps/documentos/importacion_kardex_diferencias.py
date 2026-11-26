@@ -47,11 +47,15 @@ def _texto(valor, unidad):
 
 
 def _lineas_lote(empresa_id, lote):
+    from django.db.models import Q
     from apps.documentos.models import DocumentoDetalle
     from apps.kardex.models import Movimiento
 
+    # Las líneas del lote: las de sus comprobantes y las que agregó a comprobantes de otro lote
+    # («Completar comprobante»); no las que otro lote agregó a los suyos.
     detalles = list(
-        DocumentoDetalle.objects.filter(documento__importacion_lote=lote, documento__empresa_id=empresa_id)
+        DocumentoDetalle.objects.filter(documento__empresa_id=empresa_id)
+        .filter(Q(importacion_lote=lote) | Q(importacion_lote__isnull=True, documento__importacion_lote=lote))
         .select_related('documento__tipo_comprobante', 'documento__tipo_cambio', 'producto')
         .order_by('documento__fecha_emision', 'documento_id', 'linea')
     )

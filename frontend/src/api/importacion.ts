@@ -1,6 +1,17 @@
 import apiClient from './http';
 
-export type EstadoComprobanteImportado = 'NUEVO' | 'YA_EXISTE' | 'CONFLICTO' | 'ERROR';
+export type EstadoComprobanteImportado = 'NUEVO' | 'COMPLETAR' | 'YA_EXISTE' | 'CONFLICTO' | 'ERROR';
+
+/** Línea del Excel que se agregará a un comprobante ya importado («Completar comprobante»). */
+export interface LineaPorAgregar {
+  archivo: string;
+  fila: number;
+  codigo: string;
+  cantidad: string;
+  costo_unitario: string;
+  costo_total: string;
+  precio_unitario: string | null;
+}
 
 export interface ComprobanteImportado {
   clave: string;
@@ -20,6 +31,9 @@ export interface ComprobanteImportado {
   estado: EstadoComprobanteImportado;
   mensaje: string;
   observaciones: string[];
+  /** Lote que importó el comprobante que se completará (solo en COMPLETAR). */
+  completa_lote: number | null;
+  agregar: LineaPorAgregar[];
 }
 
 export interface FilaImportada {
@@ -40,6 +54,8 @@ export interface ResumenImportacion {
   filas_con_observacion: number;
   comprobantes: number;
   nuevos: number;
+  completar: number;
+  lineas_a_agregar: number;
   ya_existen: number;
   conflictos: number;
   con_error: number;
@@ -62,6 +78,8 @@ export interface PrevisualizacionImportacion {
 export interface ResultadoImportacion {
   lote: number;
   comprobantes: number;
+  completados: number;
+  lineas_agregadas: number;
   omitidos: number;
   segundos: number;
 }
@@ -73,6 +91,9 @@ export interface LoteImportacion {
   almacen: { id: number; codigo: string; nombre: string };
   archivos: string[];
   comprobantes: number;
+  completados: number;
+  lineas_agregadas: number;
+  comprobantes_completados: string[];
   desde: string | null;
   hasta: string | null;
   segundos: number | null;
@@ -120,7 +141,13 @@ export const confirmarImportacion = async (
 export const listarLotesImportacion = async (): Promise<LoteImportacion[]> =>
   (await apiClient.get<LoteImportacion[]>(`${BASE}/lotes/`)).data;
 
-export interface ResultadoAnulacionLote { lote: number; estado: 'ANULADO'; comprobantes_anulados: number }
+export interface ResultadoAnulacionLote {
+  lote: number;
+  estado: 'ANULADO';
+  comprobantes_anulados: number;
+  lineas_revertidas: number;
+  comprobantes_revertidos: string[];
+}
 
 export const anularLoteImportacion = async (id: number, motivo: string): Promise<ResultadoAnulacionLote> =>
   (await apiClient.post<ResultadoAnulacionLote>(`${BASE}/lotes/${id}/anular/`, { motivo }, { timeout: 180_000 })).data;

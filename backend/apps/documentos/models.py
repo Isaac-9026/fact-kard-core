@@ -263,6 +263,14 @@ class DocumentoDetalle(models.Model):
     # Importación Excel: costo que traía el archivo, para compararlo con el CPP del sistema.
     costo_unitario_importado = models.DecimalField(max_digits=20, decimal_places=8, null=True, blank=True)
     costo_total_importado = models.DecimalField(max_digits=20, decimal_places=8, null=True, blank=True)
+    # «Completar comprobante»: lote de importación que agregó esta línea a un comprobante ya
+    # registrado (NULL en las líneas creadas junto con el comprobante). Si ese lote se anula, la
+    # línea no se borra (sus movimientos son inalterables): se extorna y queda marcada revertida.
+    importacion_lote = models.ForeignKey(
+        'documentos.ImportacionLote', on_delete=models.PROTECT, null=True, blank=True,
+        db_column='importacion_lote_id', related_name='lineas_agregadas',
+    )
+    revertida_en = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = 'documento_detalle'

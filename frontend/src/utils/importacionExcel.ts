@@ -11,6 +11,7 @@ export type FiltroImportacion = 'TODOS' | EstadoComprobanteImportado | 'OBSERVAD
 
 export const ETIQUETA_ESTADO: Record<EstadoComprobanteImportado, string> = {
   NUEVO: 'Nuevo',
+  COMPLETAR: 'Completar',
   YA_EXISTE: 'Ya existe',
   CONFLICTO: 'Conflicto',
   ERROR: 'Error',
@@ -43,6 +44,7 @@ export const filtrarComprobantes = (
 export const contarPorFiltro = (comprobantes: ComprobanteImportado[], proveedores: Record<string, string>) => ({
   TODOS: comprobantes.length,
   NUEVO: comprobantes.filter((c) => c.estado === 'NUEVO').length,
+  COMPLETAR: comprobantes.filter((c) => c.estado === 'COMPLETAR').length,
   YA_EXISTE: comprobantes.filter((c) => c.estado === 'YA_EXISTE').length,
   CONFLICTO: comprobantes.filter((c) => c.estado === 'CONFLICTO').length,
   ERROR: comprobantes.filter((c) => c.estado === 'ERROR').length,
@@ -70,6 +72,16 @@ export const asignarProveedor = (
   return nuevo;
 };
 
+/** Texto corto de lo que se grabará: "56 nuevos y 2 por completar (2 líneas)". */
+export const textoPorGrabar = (resumen: Pick<PrevisualizacionImportacion['resumen'], 'nuevos' | 'completar' | 'lineas_a_agregar'>): string => {
+  const partes = [];
+  if (resumen.nuevos) partes.push(`${resumen.nuevos} ${resumen.nuevos === 1 ? 'nuevo' : 'nuevos'}`);
+  if (resumen.completar) {
+    partes.push(`${resumen.completar} por completar (${resumen.lineas_a_agregar} ${resumen.lineas_a_agregar === 1 ? 'línea' : 'líneas'})`);
+  }
+  return partes.length ? partes.join(' y ') : 'nada';
+};
+
 /**
  * Solo se confirma con una previsualización vigente (hecha con los mismos archivos y proveedores),
  * sin errores ni conflictos, sin compras pendientes de proveedor y con un almacén elegido.
@@ -91,7 +103,7 @@ export const motivoNoConfirmable = ({
   if (resumen.con_error || resumen.conflictos) {
     return `Corrija ${resumen.con_error + resumen.conflictos} comprobante(s) con error o en conflicto.`;
   }
-  if (!resumen.nuevos) return 'No hay comprobantes nuevos para grabar.';
+  if (!resumen.nuevos && !resumen.completar) return 'No hay comprobantes nuevos ni líneas por agregar.';
   if (!almacenId) return 'Elija el almacén.';
   return resumen.puede_confirmar ? null : 'La previsualización no permite confirmar.';
 };
