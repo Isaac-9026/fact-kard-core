@@ -84,6 +84,46 @@ def obtener_documento_referencia(movimiento):
     return f"MOV-{movimiento.id}"
 
 
+def _signo(naturaleza, cantidad, valor):
+    if naturaleza == 'ENTRADA':
+        return cantidad, valor
+    if naturaleza == 'SALIDA':
+        return -cantidad, -valor
+    return DECIMAL_ZERO, valor
+
+
+def _par_se_compensa(nat_extorno, cant_extorno, valor_extorno, nat_original, cant_original, valor_original):
+    """True si el extorno anula exactamente al original: la suma de sus efectos es 0 en cantidad y valor."""
+    if valor_extorno is None or valor_original is None:
+        return False
+    c1, v1 = _signo(nat_extorno, cant_extorno, valor_extorno)
+    c2, v2 = _signo(nat_original, cant_original, valor_original)
+    return c1 + c2 == DECIMAL_ZERO and v1 + v2 == DECIMAL_ZERO
+
+
+def _efecto_movimiento(mov, val):
+    """(cantidad, valor) con signo que un movimiento suma al saldo."""
+    valor = val.valor_movimiento_pen if (val and val.valor_movimiento_pen is not None) else DECIMAL_ZERO
+    return _signo(mov.naturaleza, mov.cantidad_base, valor)
+
+
+def _saldo_mostrado(estado, pendiente, *, por_almacen):
+    """
+    Saldo de la fila: el del motor menos lo que suman los revertidos ocultos aún sin su par. El CPP
+    de un saldo ajustado es solo un dato de la vista (valor ÷ cantidad); el costo unitario de cada
+    movimiento sigue siendo el registrado por el motor.
+    """
+    cpp_actual = estado['cpp'] if estado['cpp'] is not None else DECIMAL_ZERO
+    if not pendiente or (pendiente[0] == DECIMAL_ZERO and pendiente[1] == DECIMAL_ZERO):
+        return {'saldo_cantidad': estado['cantidad'], 'cpp': cpp_actual, 'saldo_valor': estado['valor']}
+    cantidad = q8(estado['cantidad'] - pendiente[0])
+    if por_almacen:
+        return {'saldo_cantidad': cantidad, 'cpp': cpp_actual, 'saldo_valor': q8(cantidad * cpp_actual)}
+    valor = q8(estado['valor'] - pendiente[1])
+    cpp_fila = (valor / cantidad).quantize(Decimal('0.000001'), rounding=ROUND_HALF_UP) if cantidad else DECIMAL_ZERO
+    return {'saldo_cantidad': cantidad, 'cpp': cpp_fila, 'saldo_valor': valor}
+
+
 def consultar_kardex_valorizado(
     empresa_id: int,
     producto_id: int = None,
@@ -91,7 +131,8 @@ def consultar_kardex_valorizado(
     almacen_id: int = None,
     tipo_operacion_id: int = None,
     fecha_desde: str = None,
-    fecha_hasta: str = None
+    fecha_hasta: str = None,
+    ocultar_revertidos: bool = False,
 ):
     """
     Consulta oficial del Kardex Valorizado bajo el orden cronológico estricto del motor:
@@ -134,6 +175,31 @@ def consultar_kardex_valorizado(
         ventana = ventana.filter(fecha_movimiento__gte=fecha_desde)
     if fecha_hasta:
         ventana = ventana.filter(fecha_movimiento__lte=fecha_hasta)
+
+    # Ocultar revertidos: el movimiento original y su extorno, cuando ambos están en la ventana.
+    # Solo se oculta un par que se compensa exactamente (cantidad y valor): así ocultarlo no
+    # cambia ningún saldo. Un par que no se compensa queda visible.
+    pareja = {}
+    if ocultar_revertidos:
+        pares = ventana.filter(
+            es_extorno=True, movimiento_extornado_id__in=ventana.order_by().values('pk'),
+        ).values_list(
+            'pk', 'movimiento_extornado_id',
+            'naturaleza', 'cantidad_base', 'valorizacion__valor_movimiento_pen',
+            'movimiento_extornado__naturaleza', 'movimiento_extornado__cantidad_base',
+            'movimiento_extornado__valorizacion__valor_movimiento_pen',
+        )
+        for extorno_id, original_id, *datos in pares.iterator():
+            if _par_se_compensa(*datos):
+                pareja[extorno_id] = original_id
+                pareja[original_id] = extorno_id
+    ids_revertidos = set(pareja)
+    # Efecto (cantidad, valor) de los ocultos cuyo par aún no apareció en el orden del motor. El
+    # mismo día la entrada va antes que la salida, así que entre un movimiento oculto y su extorno
+    # puede haber filas visibles: a esas se les descuenta lo pendiente para que cada saldo cuadre
+    # con la fila visible anterior. Al llegar el par el pendiente vuelve a cero.
+    pendientes = {}
+    efectos_ocultos = {}
 
     # Orden cronológico oficial del motor Kardex
     ventana = ventana.order_by('fecha_movimiento', 'prioridad_dia', 'secuencia', 'id')
@@ -188,6 +254,21 @@ def consultar_kardex_valorizado(
             elif mov.naturaleza == 'SALIDA':
                 estado['cantidad'] = q8(estado['cantidad'] - mov.cantidad_base)
 
+        # Ambos movimientos siguen contando para reconstruir saldos históricos.
+        if mov.pk in ids_revertidos:
+            pendiente = pendientes.setdefault(mov.producto_id, [DECIMAL_ZERO, DECIMAL_ZERO])
+            otro = pareja[mov.pk]
+            if otro in efectos_ocultos:
+                # El par ya se validó como compensado (_par_se_compensa): su efecto anula al del primero.
+                cantidad_otro, valor_otro = efectos_ocultos.pop(otro)
+                pendiente[0] -= cantidad_otro
+                pendiente[1] -= valor_otro
+            else:
+                efecto = _efecto_movimiento(mov, val)
+                efectos_ocultos[mov.pk] = efecto
+                pendiente[0] += efecto[0]
+                pendiente[1] += efecto[1]
+            continue
         if tipo_operacion_id and mov.tipo_operacion_id != int(tipo_operacion_id):
             continue
 
@@ -252,9 +333,7 @@ def consultar_kardex_valorizado(
             'salida_cantidad': salida_cant,
             'salida_costo_unitario': salida_costo,
             'salida_valor': salida_val,
-            'saldo_cantidad': estado['cantidad'],
-            'cpp': estado['cpp'] if estado['cpp'] is not None else DECIMAL_ZERO,
-            'saldo_valor': estado['valor'],
+            **_saldo_mostrado(estado, pendientes.get(mov.producto_id), por_almacen=bool(almacen_id)),
             'prioridad_dia': mov.prioridad_dia,
             'secuencia': mov.secuencia,
             'es_extorno': mov.es_extorno,

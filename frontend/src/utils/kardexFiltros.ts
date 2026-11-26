@@ -5,6 +5,7 @@ export interface KardexFiltrosFormulario {
   tipo_operacion_id?: number;
   fecha_desde?: string;
   fecha_hasta?: string;
+  ocultar_revertidos?: '1';
 }
 
 const numeroOpcional = (valor: FormDataEntryValue | null): number | undefined => {
@@ -23,6 +24,7 @@ export const filtrosKardexDesdeFormulario = (datos: FormData): KardexFiltrosForm
   tipo_operacion_id: numeroOpcional(datos.get('tipo_operacion_id')),
   fecha_desde: textoOpcional(datos.get('fecha_desde')),
   fecha_hasta: textoOpcional(datos.get('fecha_hasta')),
+  ...(datos.get('ocultar_revertidos') === '1' ? { ocultar_revertidos: '1' as const } : {}),
 });
 
 export const parametrosKardex = (

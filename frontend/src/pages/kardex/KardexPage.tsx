@@ -70,6 +70,7 @@ export const KardexPage: React.FC = () => {
   const [tipoOperacionId, setTipoOperacionId] = useState<string>('');
   const [fechaDesde, setFechaDesde] = useState<string>('');
   const [fechaHasta, setFechaHasta] = useState<string>('');
+  const [ocultarRevertidos, setOcultarRevertidos] = useState(false);
 
   // Estado de resultados
   const [movimientos, setMovimientos] = useState<KardexFila[]>([]);
@@ -91,9 +92,9 @@ export const KardexPage: React.FC = () => {
   const cargarKardex = useCallback(async (filtros: KardexFiltros, page: number = 1) => {
     setLoading(true);
     setError(null);
-    setConsulta({ filtros, page });
     try {
       const res = await obtenerKardexValorizado(filtros, paramsPaginacion(page, KARDEX_PAGE_SIZE));
+      setConsulta({ filtros, page });
       setMovimientos(res.movimientos);
       setTotalMovimientos(res.paginacion?.count ?? res.movimientos.length);
       setResumen(res.resumen);
@@ -132,6 +133,7 @@ export const KardexPage: React.FC = () => {
           // Bloque 4: última selección válida de esta pestaña; si no, el último abierto.
           const inicial = periodoInicialKardex(persData, leerPeriodoGuardado(empresaActiva?.id));
           setPeriodoId(inicial);
+          setOcultarRevertidos(false);
           void cargarKardex({ periodo_id: inicial ? Number(inicial) : undefined });
         }
       } catch (err) {
@@ -161,15 +163,7 @@ export const KardexPage: React.FC = () => {
   const handleExportarExcel = async () => {
     setExporting(true);
     try {
-      const filtros: KardexFiltros = {
-        producto_id: productoId ? Number(productoId) : undefined,
-        periodo_id: periodoId ? Number(periodoId) : undefined,
-        almacen_id: almacenId ? Number(almacenId) : undefined,
-        tipo_operacion_id: tipoOperacionId ? Number(tipoOperacionId) : undefined,
-        fecha_desde: fechaDesde || undefined,
-        fecha_hasta: fechaHasta || undefined,
-      };
-      await exportarKardexExcel(filtros);
+      await exportarKardexExcel(consulta.filtros);
     } catch (err) {
       console.error('Error al exportar Excel', err);
       alert('Error al generar el archivo Excel. Por favor intente nuevamente.');
@@ -185,6 +179,7 @@ export const KardexPage: React.FC = () => {
     setTipoOperacionId('');
     setFechaDesde('');
     setFechaHasta('');
+    setOcultarRevertidos(false);
     void cargarKardex({});
   };
 
@@ -308,6 +303,16 @@ export const KardexPage: React.FC = () => {
           </div>
 
           {/* Fila 2: Sub-toolbar de Rango de Fechas + Botones de Acción (Separados e Independientes) */}
+          <label className="flex items-center gap-2 text-xs text-slate-700">
+            <input
+              type="checkbox"
+              name="ocultar_revertidos"
+              value="1"
+              checked={ocultarRevertidos}
+              onChange={(event) => setOcultarRevertidos(event.target.checked)}
+            />
+            Ocultar movimientos revertidos
+          </label>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pt-2.5 border-t border-slate-100">
             {/* Fechas */}
             <div className="flex items-center gap-2 flex-wrap">

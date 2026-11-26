@@ -31,6 +31,7 @@ def filtros_kardex(params):
         'tipo_operacion_id': entero_param(params, 'tipo_operacion_id', 'tipo_operacion'),
         'fecha_desde': desde.isoformat() if desde else None,
         'fecha_hasta': hasta.isoformat() if hasta else None,
+        'ocultar_revertidos': params.get('ocultar_revertidos') == '1',
     }
 
 

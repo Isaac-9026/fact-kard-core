@@ -125,7 +125,8 @@ def generar_libro_excel_kardex(
     almacen_id: int = None,
     tipo_operacion_id: int = None,
     fecha_desde: str = None,
-    fecha_hasta: str = None
+    fecha_hasta: str = None,
+    ocultar_revertidos: bool = False,
 ) -> Workbook:
     """
     Genera el libro oficial de Excel del Kardex Valorizado con 5 hojas:
@@ -155,6 +156,7 @@ def generar_libro_excel_kardex(
         tipo_operacion_id=tipo_operacion_id,
         fecha_desde=fecha_desde,
         fecha_hasta=fecha_hasta,
+        ocultar_revertidos=ocultar_revertidos,
     )
     movimientos = data_kardex['movimientos']
     resumen = data_kardex['resumen']
@@ -190,6 +192,7 @@ def generar_libro_excel_kardex(
     ws1["A3"] = (
         f"Período: {periodo_txt} | Producto: {prod_txt} | Almacén: {almacen_txt}"
         + (" | Saldo valorizado: stock del almacén × CPP global" if almacen_filtro else "")
+        + (" | Movimientos revertidos ocultos" if ocultar_revertidos else "")
     )
     ws1["A3"].font = HEADER_VAL_FONT
     ws1["A4"] = "Método de Valuación: PROMEDIO PONDERADO (CPP GLOBAL EN PEN)"

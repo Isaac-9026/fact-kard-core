@@ -52,6 +52,7 @@ export interface KardexFiltros {
   tipo_operacion_id?: number | string;
   fecha_desde?: string;
   fecha_hasta?: string;
+  ocultar_revertidos?: '1';
 }
 
 export interface KardexReporteResponse {
