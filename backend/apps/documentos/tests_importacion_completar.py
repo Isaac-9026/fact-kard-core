@@ -14,6 +14,7 @@ from rest_framework.exceptions import ValidationError
 from apps.auditoria.models import Auditoria
 from apps.catalogos.models import MetodoPago
 from apps.documentos.importacion_kardex_confirmar import anular_lote_importacion, confirmar_importacion_kardex
+from apps.documentos.importacion_kardex_excel import previsualizar_importacion_kardex
 from apps.documentos.models import Documento, DocumentoDetalle, ImportacionLote, PagoDocumento
 from apps.documentos.tests_importacion_kardex import OPC, ImportacionKardexBase, compra, excel, venta
 from apps.kardex.models import Movimiento
@@ -243,3 +244,48 @@ class AnularCompletarTests(CompletarBase):
         self.assertEqual(Movimiento.objects.filter(movimiento_extornado__documento_detalle=agregada).count(), 1)
         self.assertEqual(self.stock(self.p2), stock_p2)
         self.assertEqual(self.stock(self.p1), Decimal('100'))
+
+
+class FormatoUnicoTests(CompletarBase):
+    """Un solo formato «Entradas y salidas»: sirve para archivos con solo compras, solo ventas o ambas."""
+    con_stock = False
+
+    def test_solo_compras_pide_proveedor_si_falta_el_ruc(self):
+        datos = self.previa(excel([compra('011004', 3, 'F035', 1081, 10, 10), compra('011049', 4, 'F036', 7, 5, 8, ruc='')], OPC))
+        self.assertEqual(self.comp(datos, 'F035', 1081)['estado'], 'NUEVO')
+        sin_ruc = self.comp(datos, 'F036', 7)
+        self.assertTrue(sin_ruc['requiere_proveedor'])
+        self.assertEqual(datos['resumen']['requieren_proveedor'], 1)
+        con_proveedor = previsualizar_importacion_kardex(
+            empresa_id=self.empresa.id,
+            archivos=[('compras.xlsx', excel([compra('011004', 3, 'F035', 1081, 10, 10), compra('011049', 4, 'F036', 7, 5, 8, ruc='')], OPC))],
+            proveedores={sin_ruc['clave_proveedor']: self.proveedor.numero_documento},
+        )
+        self.assertEqual(con_proveedor['resumen']['requieren_proveedor'], 0)
+        self.assertTrue(con_proveedor['resumen']['puede_confirmar'])
+
+    def test_solo_ventas_valida_el_stock(self):
+        datos = self.previa(excel([venta('011004', 5, 3, 'BS01', 1, 2, 10)]))
+        c = self.comp(datos, 'BS01', 1)
+        self.assertEqual(c['estado'], 'ERROR')
+        self.assertIn('Stock insuficiente de 011004: hay 0 y sale 2', c['mensaje'])
+        self.assertFalse(datos['resumen']['puede_confirmar'])
+
+    def test_mixto_compras_y_ventas_en_el_mismo_archivo(self):
+        datos = self.previa(excel([
+            compra('011004', 3, 'F035', 1081, 10, 10),
+            venta('011004', 5, 3, 'BS01', 1, 4, 10, ('',)),
+            venta('011004', 6, 3, 'BS01', 2, 9, 10, ('',)),
+        ], OPC))
+        self.assertEqual(self.comp(datos, 'F035', 1081)['estado'], 'NUEVO')
+        self.assertEqual(self.comp(datos, 'BS01', 1)['estado'], 'NUEVO')
+        self.assertIn('Stock insuficiente de 011004: hay 6 y sale 9', self.comp(datos, 'BS01', 2)['mensaje'])
+
+    def test_a_completar_al_subir_compras_y_ventas_por_separado(self):
+        self.importar(excel([compra('011004', 3, 'F035', 1081, 10, 10), compra('011049', 3, 'F036', 2, 10, 10)], OPC))
+        self.importar(excel([venta('011004', 5, 3, 'BS01', 500, 3, 10)]))
+        datos = self.previa(excel([venta('011049', 5, 3, 'BS01', 500, 2, 10)]))
+        c = self.comp(datos, 'BS01', 500)
+        self.assertEqual(c['estado'], 'COMPLETAR')
+        self.assertEqual([a['codigo'] for a in c['agregar']], ['011049'])
+        self.assertTrue(datos['resumen']['puede_confirmar'])

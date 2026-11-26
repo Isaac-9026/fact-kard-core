@@ -151,32 +151,21 @@ const NuevaImportacion: React.FC<{ onImportado: () => void }> = ({ onImportado }
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-2">
-        <Card className="border-indigo-300 ring-1 ring-indigo-200">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-sm">
-              <FileSpreadsheet className="h-4 w-4 text-indigo-600" /> Entradas y salidas
-            </CardTitle>
-            <CardDescription className="text-xs">
-              Formato Kardex por producto: compras, ventas y devoluciones juntas. Puede subir varios archivos a la vez.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Button variant="outline" size="sm" onClick={descargarPlantilla} disabled={ocupado}>
-              <Download className="mr-1.5 h-3.5 w-3.5" /> Descargar plantilla
-            </Button>
-          </CardContent>
-        </Card>
-        <Card className="opacity-60" aria-disabled="true">
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-sm">
-              <FileSpreadsheet className="h-4 w-4 text-slate-400" /> Solo entradas
-              <Badge variant="neutral" size="xs">Próximamente</Badge>
-            </CardTitle>
-            <CardDescription className="text-xs">Compras masivas con RUC del proveedor. Se habilita con el formato del cliente.</CardDescription>
-          </CardHeader>
-        </Card>
-      </div>
+      <Card className="border-indigo-300 ring-1 ring-indigo-200" data-testid="importacion-formato">
+        <CardHeader className="pb-2">
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <FileSpreadsheet className="h-4 w-4 text-indigo-600" /> Entradas y salidas
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Importa un Excel con solo compras, solo ventas o ambas. Puedes seleccionar varios archivos a la vez.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button variant="outline" size="sm" onClick={descargarPlantilla} disabled={ocupado}>
+            <Download className="mr-1.5 h-3.5 w-3.5" /> Descargar plantilla
+          </Button>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardContent className="space-y-3 pt-5">
