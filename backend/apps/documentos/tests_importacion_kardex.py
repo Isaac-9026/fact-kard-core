@@ -503,21 +503,36 @@ class ConfirmarTests(ImportacionKardexBase):
         self.assertIn('origen_captura', resp.data)
 
     def test_endpoint_confirmar(self):
+        import tempfile
+        from django.test import override_settings
+        from apps.documentos.importacion_worker import procesar_siguiente_trabajo
+        from apps.documentos.models import ImportacionTrabajo
+
         url = reverse('importacion-entradas-salidas-confirmar')
-        sin_ruc = excel([compra('011004', 3, 'F035', 1081, 20, 10)[:12]])
-        sin_ruc.name = 'compras.xlsx'
-        resp = self.client.post(url, {
-            'archivos': [sin_ruc], 'almacen': self.almacen.id,
-            'proveedores': '{"01-F035-1081-2026-01-03": "20555000111"}',
-        }, format='multipart', **self.headers)
-        self.assertEqual(resp.status_code, 201, resp.data)
-        self.assertEqual(resp.data['comprobantes'], 1)
-        self.assertIn('segundos', resp.data)
-        malo = excel([compra('011004', 4, 'F035', 2, 1, 1)[:12]])
-        malo.name = 'b.xlsx'
-        resp = self.client.post(url, {'archivos': [malo], 'proveedores': 'no-json'}, format='multipart', **self.headers)
-        self.assertEqual(resp.status_code, 400)
-        self.assertIn('proveedores', resp.data)
+        with tempfile.TemporaryDirectory() as tmp:
+            with override_settings(IMPORTACION_STAGING_DIR=tmp):
+                sin_ruc = excel([compra('011004', 3, 'F035', 1081, 20, 10)[:12]])
+                sin_ruc.name = 'compras.xlsx'
+                resp = self.client.post(url, {
+                    'archivos': [sin_ruc], 'almacen': self.almacen.id,
+                    'proveedores': '{"01-F035-1081-2026-01-03": "20555000111"}',
+                }, format='multipart', **self.headers)
+                self.assertEqual(resp.status_code, 202, resp.data)
+                self.assertEqual(resp.data['estado'], 'EN_COLA')
+                self.assertEqual(resp.data['tipo'], 'CONFIRMAR')
+
+                trabajo = procesar_siguiente_trabajo()
+                self.assertIsNotNone(trabajo)
+                self.assertEqual(trabajo.estado, 'COMPLETADO')
+                self.assertEqual(trabajo.resumen_json['comprobantes'], 1)
+                self.assertIn('segundos', trabajo.resumen_json)
+                self.assertEqual(ImportacionTrabajo.objects.get(pk=resp.data['trabajo_id']).estado, 'COMPLETADO')
+
+                malo = excel([compra('011004', 4, 'F035', 2, 1, 1)[:12]])
+                malo.name = 'b.xlsx'
+                resp = self.client.post(url, {'archivos': [malo], 'proveedores': 'no-json'}, format='multipart', **self.headers)
+                self.assertEqual(resp.status_code, 400)
+                self.assertIn('proveedores', resp.data)
 
     def test_limite_de_comprobantes_por_lote(self):
         with mock.patch('apps.documentos.importacion_kardex_excel.MAX_COMPROBANTES_LOTE', 2):
@@ -643,6 +658,9 @@ class AnularLoteTests(ImportacionKardexBase):
         self.assertIn('ANULADO', c['mensaje'])
 
     def test_endpoints_lista_y_anular_con_password(self):
+        from apps.documentos.importacion_worker import procesar_siguiente_trabajo
+        from apps.documentos.models import ImportacionTrabajo
+
         lote_id = self.importar()
         lista = self.client.get(reverse('importacion-lotes'), **self.headers)
         self.assertEqual(lista.status_code, 200)
@@ -654,8 +672,15 @@ class AnularLoteTests(ImportacionKardexBase):
         self.assertIn(mala.status_code, (400, 403))
         ok = self.client.post(url, {'motivo': 'Error de almacén', 'password_confirmacion': self.PASSWORD_PRUEBAS},
                               format='json', **self.headers)
-        self.assertEqual(ok.status_code, 200, ok.data)
-        self.assertEqual(ok.data['estado'], 'ANULADO')
+        self.assertEqual(ok.status_code, 202, ok.data)
+        self.assertEqual(ok.data['estado'], 'EN_COLA')
+        self.assertEqual(ok.data['tipo'], 'ANULAR')
+        trabajo_db = ImportacionTrabajo.objects.get(pk=ok.data['trabajo_id'])
+        self.assertNotIn('password_confirmacion', trabajo_db.parametros_json)
+
+        trabajo = procesar_siguiente_trabajo()
+        self.assertEqual(trabajo.estado, 'COMPLETADO')
+        self.assertEqual(ImportacionLote.objects.get(pk=lote_id).estado, 'ANULADO')
         usuario = Usuario.objects.create(username='usuario_lote', email='l@test.pe', password_hash='x')
         UsuarioEmpresa.objects.create(usuario=usuario, empresa=self.empresa, rol='USUARIO')
         self.client.force_authenticate(user=usuario)

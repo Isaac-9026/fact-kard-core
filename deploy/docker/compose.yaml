@@ -84,7 +84,7 @@ services:
     networks: [datos, app]
     mem_limit: 1g
 
-  # Tareas automáticas: respaldo completo diario (base + media) con retención.
+  # Tareas automáticas: worker de importaciones masivas + respaldo completo diario (base + media).
   # Misma imagen del backend; sin salida a Internet ni puertos.
   tareas:
     build:

@@ -104,9 +104,11 @@ class ComposeCoreTests(SimpleTestCase):
         self.assertEqual(tareas['environment']['FACT_KARD_BACKUP_DIR'], '/srv/fact-kard/datos/respaldos')
         volumenes = tareas['volumes']
         self.assertIn('media:/srv/fact-kard/datos/media:ro', volumenes)  # solo lee lo que respalda
+        self.assertIn('importaciones_staging:/app/storage/importaciones', volumenes)
         self.assertTrue(any(v.endswith(':/srv/fact-kard/datos/respaldos') for v in volumenes))
         script = (DOCKER / 'backend-tareas.sh').read_text(encoding='utf-8')
         self.assertIn('python manage.py respaldo crear', script)
+        self.assertIn('python manage.py procesar_trabajos_importacion', script)
         self.assertIn("FK_RESPALDO_HORA:-04:00", script)
 
     @skipUnless(shutil.which('sh') and os.name != 'nt', 'requiere sh (Linux)')

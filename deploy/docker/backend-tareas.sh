@@ -1,10 +1,11 @@
 #!/bin/sh
 # Tareas automáticas de Fact-Kard Core (servicio "tareas" de compose.yaml).
 #
-# Respaldo completo diario (base de datos + media) con `manage.py respaldo crear`,
-# que además aplica la retención (diarios / semanales / mensuales). Hora: FK_RESPALDO_HORA (HH:MM,
-# hora de Lima; 04:00 por defecto, después del respaldo de FACT-KARD (03:30)).
-# Un fallo no detiene el servicio: se registra y se reintenta al día siguiente.
+# Ejecuta de forma concurrente y sin bloquearse entre sí:
+#   1. Worker continuo de cola de importaciones y anulaciones (`manage.py procesar_trabajos_importacion`).
+#   2. Respaldo completo diario (base de datos + media) a las FK_RESPALDO_HORA (04:00 America/Lima por defecto)
+#      con `manage.py respaldo crear`.
+# Un fallo no detiene el servicio: se registra y se reintenta.
 set -eu
 
 HORA="${FK_RESPALDO_HORA:-04:00}"
@@ -13,11 +14,25 @@ case "$HORA" in
     *) echo "[tareas] FK_RESPALDO_HORA inválida: '$HORA' (use HH:MM)" >&2; exit 1 ;;
 esac
 
-# Señal de vida para el healthcheck y salida limpia al detener el contenedor.
+INTERVALO="${FK_IMPORTACION_INTERVALO:-2}"
 VIVO=/tmp/fk-tareas.vivo
-trap 'rm -f "$VIVO"; exit 0' TERM INT
+RESPALDO_PID=""
+WORKER_PID=""
+WAIT_PID=""
+
+apagar() {
+    rm -f "$VIVO"
+    [ -n "$WAIT_PID" ] && kill "$WAIT_PID" 2>/dev/null || true
+    [ -n "$WORKER_PID" ] && kill "$WORKER_PID" 2>/dev/null || true
+    [ -n "$RESPALDO_PID" ] && kill "$RESPALDO_PID" 2>/dev/null || true
+    wait 2>/dev/null || true
+    exit 0
+}
+trap apagar TERM INT
+
 date '+%F %T' > "$VIVO"
 echo "[tareas] Respaldo diario programado a las $HORA (America/Lima)."
+echo "[tareas] Worker de importaciones iniciado (intervalo=${INTERVALO}s)."
 
 segundos_hasta() {
     ahora=$(date +%s)
@@ -28,17 +43,39 @@ segundos_hasta() {
     echo $((objetivo - ahora))
 }
 
+ciclo_respaldo() {
+    SLEEP_PID=""
+    trap '[ -n "$SLEEP_PID" ] && kill "$SLEEP_PID" 2>/dev/null || true; exit 0' TERM INT
+    while :; do
+        espera=$(segundos_hasta "$HORA")
+        sleep "$espera" &
+        SLEEP_PID=$!
+        wait "$SLEEP_PID" || true
+        SLEEP_PID=""
+        date '+%F %T' > "$VIVO"
+        echo "[tareas] $(date '+%F %T') Iniciando respaldo completo."
+        if python manage.py respaldo crear; then
+            echo "[tareas] $(date '+%F %T') Respaldo terminado."
+        else
+            echo "[tareas] $(date '+%F %T') ERROR: el respaldo falló; se reintentará mañana. Revise los logs." >&2
+        fi
+        sleep 61 &
+        SLEEP_PID=$!
+        wait "$SLEEP_PID" || true
+        SLEEP_PID=""
+    done
+}
+
+ciclo_respaldo &
+RESPALDO_PID=$!
+
 while :; do
-    espera=$(segundos_hasta "$HORA")
-    sleep "$espera" &
-    wait $! || true
-    date '+%F %T' > "$VIVO"
-    echo "[tareas] $(date '+%F %T') Iniciando respaldo completo."
-    if python manage.py respaldo crear; then
-        echo "[tareas] $(date '+%F %T') Respaldo terminado."
-    else
-        echo "[tareas] $(date '+%F %T') ERROR: el respaldo falló; se reintentará mañana. Revise los logs." >&2
-    fi
-    sleep 61 &
-    wait $! || true
+    python manage.py procesar_trabajos_importacion --intervalo "$INTERVALO" --archivo-vivo "$VIVO" &
+    WORKER_PID=$!
+    wait "$WORKER_PID" || true
+    WORKER_PID=""
+    sleep 3 &
+    WAIT_PID=$!
+    wait "$WAIT_PID" || true
+    WAIT_PID=""
 done

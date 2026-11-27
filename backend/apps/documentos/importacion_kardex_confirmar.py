@@ -207,7 +207,9 @@ def _completar_comprobante(*, empresa_id, usuario, lote, existente_id, lineas, c
     return creadas
 
 
-def confirmar_importacion_kardex(*, empresa_id, usuario, archivos, almacen_id=None, proveedores=None) -> dict:
+def confirmar_importacion_kardex(*, empresa_id, usuario, archivos, almacen_id=None, proveedores=None, on_progreso=None) -> dict:
+    if on_progreso:
+        on_progreso('ANALIZANDO', 'Leyendo y validando archivos Excel...', 0, 1)
     contenidos = _leer_bytes(archivos)
     repetidos = ImportacionArchivo.objects.filter(
         empresa_id=empresa_id, sha256__in=[h for _, _, h in contenidos], lote__estado='CONFIRMADO',
@@ -262,6 +264,10 @@ def confirmar_importacion_kardex(*, empresa_id, usuario, archivos, almacen_id=No
         ])
 
         try:
+            por_procesar = sum(1 for c, _ in ctx['ordenados'] if ctx['estados'][c] in ('NUEVO', 'COMPLETAR'))
+            procesados = 0
+            if on_progreso and por_procesar:
+                on_progreso('GRABANDO_COMPROBANTES', f'Grabando comprobantes (0/{por_procesar})...', 0, por_procesar)
             with modo_lote_kardex(empresa_id=empresa_id, usuario_id=usuario.id):
                 for clave, lineas in ctx['ordenados']:
                     if ctx['estados'][clave] == 'COMPLETAR':
@@ -275,6 +281,13 @@ def confirmar_importacion_kardex(*, empresa_id, usuario, archivos, almacen_id=No
                             raise ValidationError({
                                 'importacion': f'No se grabó nada. No se pudo completar {_etiqueta(lineas)}: {_mensaje(exc)}',
                             })
+                        procesados += 1
+                        if on_progreso:
+                            on_progreso(
+                                'GRABANDO_COMPROBANTES',
+                                f'Grabando comprobantes ({procesados}/{por_procesar})...',
+                                procesados, por_procesar,
+                            )
                         continue
                     if ctx['estados'][clave] != 'NUEVO':
                         continue
@@ -363,10 +376,19 @@ def confirmar_importacion_kardex(*, empresa_id, usuario, archivos, almacen_id=No
                         confirmar_documento_validacion(documento_id=documento.id, empresa_id=empresa_id, usuario_id=usuario.id)
                         documento.refresh_from_db()
                         creados[clave] = documento
+                        procesados += 1
+                        if on_progreso:
+                            on_progreso(
+                                'GRABANDO_COMPROBANTES',
+                                f'Grabando comprobantes ({procesados}/{por_procesar})...',
+                                procesados, por_procesar,
+                            )
                     except ValidationError as exc:
                         raise ValidationError({
                             'importacion': f'No se grabó nada. El comprobante {_etiqueta(lineas)} fue rechazado: {_mensaje(exc)}',
                         })
+                if on_progreso and por_procesar:
+                    on_progreso('RECALCULANDO_KARDEX', 'Validando y recalculando saldos de Kardex...', por_procesar, por_procesar)
         except ValidationError as exc:
             if isinstance(exc.detail, dict) and 'importacion' in exc.detail:
                 raise
@@ -477,7 +499,7 @@ def _revertir_lineas(*, empresa_id, usuario, lote, motivo):
     return lineas
 
 
-def anular_lote_importacion(*, empresa_id, lote_id, usuario, motivo) -> dict:
+def anular_lote_importacion(*, empresa_id, lote_id, usuario, motivo, on_progreso=None) -> dict:
     """
     Anula un lote completo o nada: primero valida que todos sus comprobantes se puedan anular
     (período abierto, sin pagos, sin notas fuera del lote, sin líneas vigentes agregadas por otro
@@ -491,6 +513,9 @@ def anular_lote_importacion(*, empresa_id, lote_id, usuario, motivo) -> dict:
     motivo = (motivo or '').strip()
     if len(motivo) < 5:
         raise ValidationError({'motivo': 'Indique el motivo de la anulación (mínimo 5 caracteres).'})
+
+    if on_progreso:
+        on_progreso('VALIDANDO_ANULACION', 'Validando comprobantes y dependencias del lote...', 0, 1)
 
     with transaction.atomic():
         lote = ImportacionLote.objects.select_for_update().filter(pk=lote_id, empresa_id=empresa_id).first()
@@ -564,8 +589,11 @@ def anular_lote_importacion(*, empresa_id, lote_id, usuario, motivo) -> dict:
         documentos.sort(key=lambda d: d.id, reverse=True)
         from apps.documentos.services import anular_documento
         try:
+            total_docs = len(documentos)
+            if on_progreso and total_docs:
+                on_progreso('ANULANDO_COMPROBANTES', f'Anulando comprobantes (0/{total_docs})...', 0, total_docs)
             with modo_lote_kardex(empresa_id=empresa_id, usuario_id=usuario.id):
-                for documento in documentos:
+                for idx, documento in enumerate(documentos, start=1):
                     try:
                         anular_documento(documento.id, empresa_id, usuario.id, f'Anulación del lote de importación {lote.id}: {motivo}')
                     except ValidationError as exc:
@@ -573,6 +601,10 @@ def anular_lote_importacion(*, empresa_id, lote_id, usuario, motivo) -> dict:
                             f'No se anuló nada. El comprobante {documento.serie_normalizada}-{documento.numero_normalizado} '
                             f'no se pudo anular: {_mensaje(exc)}'
                         )})
+                    if on_progreso:
+                        on_progreso('ANULANDO_COMPROBANTES', f'Anulando comprobantes ({idx}/{total_docs})...', idx, total_docs)
+                if on_progreso:
+                    on_progreso('RECALCULANDO_KARDEX', 'Revirtiendo líneas y recalculando saldos de Kardex...', total_docs, total_docs or 1)
                 revertidas = _revertir_lineas(empresa_id=empresa_id, usuario=usuario, lote=lote, motivo=motivo)
         except ValidationError as exc:
             if isinstance(exc.detail, dict) and 'lote' in exc.detail:

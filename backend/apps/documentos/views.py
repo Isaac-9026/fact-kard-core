@@ -40,6 +40,9 @@ from apps.documentos.importacion_kardex_confirmar import anular_lote_importacion
 from apps.documentos.importacion_kardex_excel import (
     MAX_ARCHIVOS, generar_plantilla_entradas_salidas, previsualizar_importacion_kardex,
 )
+from apps.documentos.importacion_worker import (
+    encolar_anulacion_lote, encolar_confirmacion_importacion, serializar_trabajo,
+)
 from apps.usuarios.permissions import EsAdminEmpresa, RequiereConfirmacionPassword, TieneEmpresaActiva
 
 
@@ -367,17 +370,20 @@ class ImportacionKardexPrevisualizarView(APIView):
 class ImportacionKardexConfirmarView(APIView):
     """
     POST /api/documentos/importacion/entradas-salidas/confirmar/ (multipart: archivos, almacen, proveedores).
-    Vuelve a validar todo y graba los comprobantes nuevos en un lote, todo o nada. Solo administradores.
+    Valida parámetros básicos, guarda los archivos en staging y encola el trabajo (202 Accepted).
     """
     permission_classes = [TieneEmpresaActiva, EsAdminEmpresa]
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
-        resultado = confirmar_importacion_kardex(
-            empresa_id=request.empresa_id, usuario=request.user, archivos=_archivos_importacion(request),
-            almacen_id=entero_param(request.data, 'almacen'), proveedores=_proveedores_importacion(request),
+        trabajo = encolar_confirmacion_importacion(
+            empresa_id=request.empresa_id,
+            usuario=request.user,
+            archivos=_archivos_importacion(request),
+            almacen_id=entero_param(request.data, 'almacen'),
+            proveedores=_proveedores_importacion(request),
         )
-        return Response(resultado, status=status.HTTP_201_CREATED)
+        return Response(serializar_trabajo(trabajo), status=status.HTTP_202_ACCEPTED)
 
 
 def _lote_dict(lote):
@@ -419,15 +425,53 @@ class ImportacionLoteListView(APIView):
 class ImportacionLoteAnularView(APIView):
     """
     POST /api/documentos/importacion/lotes/<id>/anular/ (motivo, password_confirmacion).
-    Anula todo el lote o nada, revirtiendo el Kardex. Solo administradores, con contraseña.
+    Valida contraseña y motivo, verifica que no exista otra anulación activa y encola (202 Accepted).
     """
     permission_classes = [TieneEmpresaActiva, EsAdminEmpresa, RequiereConfirmacionPassword]
 
     def post(self, request, pk):
-        return Response(anular_lote_importacion(
-            empresa_id=request.empresa_id, lote_id=pk, usuario=request.user,
+        trabajo = encolar_anulacion_lote(
+            empresa_id=request.empresa_id,
+            lote_id=pk,
+            usuario=request.user,
             motivo=request.data.get('motivo'),
-        ))
+        )
+        return Response(serializar_trabajo(trabajo), status=status.HTTP_202_ACCEPTED)
+
+
+class ImportacionTrabajoListView(APIView):
+    """GET /api/documentos/importacion/trabajos/ — trabajos recientes/activos de la empresa activa."""
+    permission_classes = [TieneEmpresaActiva, EsAdminEmpresa]
+
+    def get(self, request):
+        from apps.documentos.models import ImportacionTrabajo
+        qs = (
+            ImportacionTrabajo.objects.filter(empresa_id=request.empresa_id)
+            .select_related('almacen', 'lote')
+        )
+        estado = (request.query_params.get('estado') or '').strip().upper()
+        if estado:
+            qs = qs.filter(estado=estado)
+        tipo = (request.query_params.get('tipo') or '').strip().upper()
+        if tipo:
+            qs = qs.filter(tipo=tipo)
+        return Response([serializar_trabajo(t) for t in qs[:50]])
+
+
+class ImportacionTrabajoDetailView(APIView):
+    """GET /api/documentos/importacion/trabajos/<id>/ — estado en BD + progreso en Redis."""
+    permission_classes = [TieneEmpresaActiva, EsAdminEmpresa]
+
+    def get(self, request, pk):
+        from apps.documentos.models import ImportacionTrabajo
+        trabajo = (
+            ImportacionTrabajo.objects.filter(pk=pk, empresa_id=request.empresa_id)
+            .select_related('almacen', 'lote')
+            .first()
+        )
+        if trabajo is None:
+            return Response({'detail': 'Trabajo de importación no encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(serializar_trabajo(trabajo))
 
 
 class ImportacionLoteDiferenciasView(APIView):
