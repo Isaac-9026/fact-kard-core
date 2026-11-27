@@ -40,6 +40,12 @@ from apps.documentos.importacion_kardex_confirmar import anular_lote_importacion
 from apps.documentos.importacion_kardex_excel import (
     MAX_ARCHIVOS, generar_plantilla_entradas_salidas, previsualizar_importacion_kardex,
 )
+from apps.documentos.importacion_previsualizaciones import (
+    construir_respuesta_previsualizacion_inicial,
+    exportar_errores_previsualizacion_excel,
+    normalizar_paginacion,
+    obtener_pagina_previsualizacion,
+)
 from apps.documentos.importacion_worker import (
     encolar_anulacion_lote, encolar_confirmacion_importacion, serializar_trabajo,
 )
@@ -355,16 +361,62 @@ class ImportacionKardexPlantillaView(APIView):
 class ImportacionKardexPrevisualizarView(APIView):
     """
     POST /api/documentos/importacion/entradas-salidas/previsualizar/ (multipart: archivos, proveedores).
-    Diagnóstico del Excel Entradas y salidas sin grabar nada. Solo administradores.
+    Guarda el diagnóstico completo en staging temporal y devuelve contadores totales + primera página.
     """
     permission_classes = [TieneEmpresaActiva, EsAdminEmpresa]
     parser_classes = [MultiPartParser, FormParser]
 
     def post(self, request):
-        return Response(previsualizar_importacion_kardex(
-            empresa_id=request.empresa_id, archivos=_archivos_importacion(request),
+        _, page_size = normalizar_paginacion(
+            1,
+            request.query_params.get('page_size') or request.data.get('page_size'),
+        )
+        resultado = previsualizar_importacion_kardex(
+            empresa_id=request.empresa_id,
+            archivos=_archivos_importacion(request),
             proveedores=_proveedores_importacion(request),
+        )
+        return Response(construir_respuesta_previsualizacion_inicial(
+            empresa_id=request.empresa_id,
+            resultado=resultado,
+            page_size=page_size,
         ))
+
+
+class ImportacionPrevisualizacionComprobantesView(APIView):
+    """GET /api/documentos/importacion/previsualizaciones/<id>/comprobantes/?page=&page_size=&filtro="""
+    permission_classes = [TieneEmpresaActiva, EsAdminEmpresa]
+
+    def get(self, request, previsualizacion_id):
+        incluir_claves = str(request.query_params.get('incluir_claves') or '').lower() in ('1', 'true', 'si')
+        return Response(obtener_pagina_previsualizacion(
+            previsualizacion_id=previsualizacion_id,
+            empresa_id=request.empresa_id,
+            page_raw=request.query_params.get('page'),
+            page_size_raw=request.query_params.get('page_size'),
+            filtro_raw=request.query_params.get('filtro'),
+            incluir_claves=incluir_claves,
+        ))
+
+
+class ImportacionPrevisualizacionErroresExcelView(APIView):
+    """GET /api/documentos/importacion/previsualizaciones/<id>/errores-excel/ — exporta todos los errores/observaciones."""
+    permission_classes = [TieneEmpresaActiva, EsAdminEmpresa]
+
+    def get(self, request, previsualizacion_id):
+        from django.http import HttpResponse
+        archivo = exportar_errores_previsualizacion_excel(
+            previsualizacion_id=previsualizacion_id,
+            empresa_id=request.empresa_id,
+        )
+        respuesta = HttpResponse(
+            archivo.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+        respuesta['Content-Disposition'] = (
+            f'attachment; filename="errores_previsualizacion_{previsualizacion_id[:8]}.xlsx"'
+        )
+        return respuesta
 
 
 class ImportacionKardexConfirmarView(APIView):

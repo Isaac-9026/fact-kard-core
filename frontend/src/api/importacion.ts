@@ -2,6 +2,16 @@ import apiClient from './http';
 
 export type EstadoComprobanteImportado = 'NUEVO' | 'COMPLETAR' | 'YA_EXISTE' | 'CONFLICTO' | 'ERROR';
 
+export type FiltroServidorPrevisualizacion =
+  | 'todos'
+  | 'nuevos'
+  | 'a_completar'
+  | 'ya_existen'
+  | 'errores'
+  | 'conflictos'
+  | 'sin_proveedor'
+  | 'observaciones';
+
 /** Línea del Excel que se agregará a un comprobante ya importado («Completar comprobante»). */
 export interface LineaPorAgregar {
   archivo: string;
@@ -50,16 +60,23 @@ export interface FilaImportada {
 export interface ResumenImportacion {
   archivos: number;
   filas: number;
+  total_filas?: number;
   filas_con_error: number;
   filas_con_observacion: number;
   comprobantes: number;
+  total_comprobantes?: number;
   nuevos: number;
   completar: number;
+  a_completar?: number;
   lineas_a_agregar: number;
   ya_existen: number;
   conflictos: number;
   con_error: number;
+  errores?: number;
   requieren_proveedor: number;
+  sin_proveedor?: number;
+  observaciones?: number;
+  periodos_detectados?: string[];
   productos: number;
   desde: string | null;
   hasta: string | null;
@@ -68,11 +85,44 @@ export interface ResumenImportacion {
   puede_confirmar: boolean;
 }
 
+export interface ContadoresPrevisualizacion {
+  todos: number;
+  nuevos: number;
+  a_completar: number;
+  ya_existen: number;
+  errores: number;
+  conflictos: number;
+  sin_proveedor: number;
+  observaciones: number;
+}
+
+export interface PrevisualizacionPaginacion {
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+  has_next: boolean;
+  has_previous: boolean;
+}
+
 export interface PrevisualizacionImportacion {
+  previsualizacion_id?: string;
+  expira_en?: string;
   formato: 'ENTRADAS_SALIDAS';
   resumen: ResumenImportacion;
+  contadores?: ContadoresPrevisualizacion;
+  paginacion?: PrevisualizacionPaginacion;
   comprobantes: ComprobanteImportado[];
   filas: FilaImportada[];
+}
+
+export interface RespuestaPaginaPrevisualizacion {
+  previsualizacion_id: string;
+  filtro: FiltroServidorPrevisualizacion;
+  contadores?: ContadoresPrevisualizacion;
+  paginacion: PrevisualizacionPaginacion;
+  comprobantes: ComprobanteImportado[];
+  claves_sin_proveedor?: string[];
 }
 
 export interface ResultadoImportacion {
@@ -82,6 +132,37 @@ export interface ResultadoImportacion {
   lineas_agregadas: number;
   omitidos: number;
   segundos: number;
+}
+
+export type EstadoTrabajoImportacion = 'EN_COLA' | 'PROCESANDO' | 'COMPLETADO' | 'ERROR';
+export type TipoTrabajoImportacion = 'CONFIRMAR' | 'ANULAR';
+
+export interface ProgresoTrabajoImportacion {
+  trabajo_id: number;
+  fase: string;
+  actual: number;
+  total: number;
+  porcentaje: number;
+  mensaje: string;
+  heartbeat?: string;
+}
+
+export interface TrabajoImportacion {
+  id: number;
+  trabajo_id: number;
+  tipo: TipoTrabajoImportacion;
+  estado: EstadoTrabajoImportacion;
+  lote_id: number | null;
+  lote: number | null;
+  almacen: { id: number; codigo: string; nombre: string } | null;
+  archivos: string[];
+  intentos: number;
+  resumen: Record<string, unknown>;
+  error_detalle: string;
+  progreso: ProgresoTrabajoImportacion | null;
+  creado_en: string;
+  iniciado_en: string | null;
+  finalizado_en: string | null;
 }
 
 export interface LoteImportacion {
@@ -118,24 +199,56 @@ export const descargarPlantillaEntradasSalidas = async (): Promise<Blob> =>
   (await apiClient.get(`${BASE}/entradas-salidas/plantilla/`, { responseType: 'blob' })).data;
 
 export const previsualizarImportacion = async (
-  archivos: File[], proveedores: Record<string, string>,
+  archivos: File[],
+  proveedores: Record<string, string>,
+  pageSize = 100,
 ): Promise<PrevisualizacionImportacion> =>
   (await apiClient.post<PrevisualizacionImportacion>(
     `${BASE}/entradas-salidas/previsualizar/`,
-    formulario(archivos, Object.keys(proveedores).length ? { proveedores: JSON.stringify(proveedores) } : {}),
+    formulario(archivos, {
+      page_size: String(pageSize),
+      ...(Object.keys(proveedores).length ? { proveedores: JSON.stringify(proveedores) } : {}),
+    }),
     MULTIPART,
   )).data;
 
+export const obtenerComprobantesPrevisualizacion = async (
+  previsualizacionId: string,
+  params: {
+    page?: number;
+    page_size?: number;
+    filtro?: FiltroServidorPrevisualizacion;
+    incluir_claves?: boolean;
+  } = {},
+): Promise<RespuestaPaginaPrevisualizacion> =>
+  (await apiClient.get<RespuestaPaginaPrevisualizacion>(
+    `${BASE}/previsualizaciones/${previsualizacionId}/comprobantes/`,
+    {
+      params: {
+        ...(params.page ? { page: params.page } : {}),
+        ...(params.page_size ? { page_size: params.page_size } : {}),
+        ...(params.filtro ? { filtro: params.filtro } : {}),
+        ...(params.incluir_claves ? { incluir_claves: 1 } : {}),
+      },
+    },
+  )).data;
+
+export const descargarErroresPrevisualizacion = async (previsualizacionId: string): Promise<Blob> =>
+  (await apiClient.get(`${BASE}/previsualizaciones/${previsualizacionId}/errores-excel/`, {
+    responseType: 'blob',
+    timeout: 120_000,
+  })).data;
+
 export const confirmarImportacion = async (
   archivos: File[], almacenId: number | null, proveedores: Record<string, string>,
-): Promise<ResultadoImportacion> =>
-  (await apiClient.post<ResultadoImportacion>(
+): Promise<TrabajoImportacion> =>
+  (await apiClient.post<TrabajoImportacion>(
     `${BASE}/entradas-salidas/confirmar/`,
     formulario(archivos, {
       ...(almacenId ? { almacen: String(almacenId) } : {}),
       ...(Object.keys(proveedores).length ? { proveedores: JSON.stringify(proveedores) } : {}),
     }),
-    { ...MULTIPART, timeout: 180_000 },
+    { ...MULTIPART, timeout: 120_000 },
   )).data;
 
 export const listarLotesImportacion = async (): Promise<LoteImportacion[]> =>
@@ -149,8 +262,17 @@ export interface ResultadoAnulacionLote {
   comprobantes_revertidos: string[];
 }
 
-export const anularLoteImportacion = async (id: number, motivo: string): Promise<ResultadoAnulacionLote> =>
-  (await apiClient.post<ResultadoAnulacionLote>(`${BASE}/lotes/${id}/anular/`, { motivo }, { timeout: 180_000 })).data;
+export const anularLoteImportacion = async (id: number, motivo: string): Promise<TrabajoImportacion> =>
+  (await apiClient.post<TrabajoImportacion>(`${BASE}/lotes/${id}/anular/`, { motivo }, { timeout: 60_000 })).data;
+
+export const obtenerTrabajoImportacion = async (trabajoId: number): Promise<TrabajoImportacion> =>
+  (await apiClient.get<TrabajoImportacion>(`${BASE}/trabajos/${trabajoId}/`)).data;
+
+export const listarTrabajosImportacion = async (params?: {
+  estado?: EstadoTrabajoImportacion;
+  tipo?: TipoTrabajoImportacion;
+}): Promise<TrabajoImportacion[]> =>
+  (await apiClient.get<TrabajoImportacion[]>(`${BASE}/trabajos/`, { params })).data;
 
 export type NivelDiferencia = 'VERDE' | 'AMBAR' | 'ROJO';
 

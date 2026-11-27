@@ -309,12 +309,18 @@ class EndpointTests(ImportacionKardexBase):
         return self.client.post(self.url, {'archivos': list(archivos)}, format='multipart', **(headers or self.headers))
 
     def test_previsualiza_varios_archivos_sin_grabar(self):
+        import tempfile
+        from django.test import override_settings
+
         a = excel([venta('011004', 5, 3, 'BS01', 500, 1, 10)])
         b = excel([venta('011049', 5, 3, 'BS01', 500, 2, 20)])
         a.name, b.name = '011004.xlsx', '011049.xlsx'
         antes = Documento.objects.count()
-        resp = self.subir(a, b)
+        with tempfile.TemporaryDirectory() as tmp:
+            with override_settings(IMPORTACION_STAGING_DIR=tmp):
+                resp = self.subir(a, b)
         self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertIn('previsualizacion_id', resp.data)
         self.assertEqual(resp.data['resumen']['comprobantes'], 1)
         self.assertEqual({f['archivo'] for f in resp.data['filas']}, {'011004.xlsx', '011049.xlsx'})
         self.assertEqual(Documento.objects.count(), antes)

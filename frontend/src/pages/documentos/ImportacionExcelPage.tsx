@@ -1,13 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  AlertCircle, ArrowLeft, CheckCircle2, Download, FileSpreadsheet, History, Loader2, Lock, Scale, Upload, XCircle,
+  AlertCircle, ArrowLeft, CheckCircle2, ChevronLeft, ChevronRight, Download, FileSpreadsheet, History, Loader2, Lock, Scale, Upload, XCircle,
 } from 'lucide-react';
 import { useAuth } from '../../context/useAuth';
 import { getAlmacenes, getTerceros, type Almacen, type Tercero } from '../../api/inventario';
 import {
-  anularLoteImportacion, confirmarImportacion, descargarPlantillaEntradasSalidas, listarLotesImportacion,
-  previsualizarImportacion, type LoteImportacion, type PrevisualizacionImportacion, type ResultadoImportacion,
+  anularLoteImportacion, confirmarImportacion, descargarErroresPrevisualizacion, descargarPlantillaEntradasSalidas,
+  listarLotesImportacion, listarTrabajosImportacion, obtenerComprobantesPrevisualizacion, obtenerTrabajoImportacion,
+  previsualizarImportacion, type ComprobanteImportado, type LoteImportacion, type PrevisualizacionImportacion,
+  type PrevisualizacionPaginacion, type ResultadoImportacion, type TrabajoImportacion,
 } from '../../api/importacion';
 import { PageHeader } from '../../components/ui/page-header';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../components/ui/card';
@@ -20,8 +22,11 @@ import { descargarBlob } from '../../utils/descargaArchivo';
 import { diferirCarga } from '../../utils/efectos';
 import { mensajesDeErrorApi } from '../../utils/errores';
 import {
-  ETIQUETA_ESTADO, ETIQUETA_OPERACION, ETIQUETA_TIPO, aplicarProveedorATodas, archivosXlsx, asignarProveedor,
-  contarPorFiltro, fechaCorta, filtrarComprobantes, motivoNoConfirmable, textoPorGrabar, type FiltroImportacion,
+  ETIQUETA_ESTADO, ETIQUETA_OPERACION, ETIQUETA_TIPO, FILTRO_A_SERVIDOR, aplicarProveedorAClaves,
+  aplicarProveedorATodas, archivosXlsx, asignarProveedor, contadoresDesdePrevia, debeContinuarPolling,
+  etiquetaFaseTrabajo, fechaCorta, filtrarComprobantes, hayErroresParaDescargar, motivoNoConfirmable, rangoPagina,
+  resultadoDesdeTrabajo, resumenAnulacionDesdeTrabajo, textoPorGrabar, textoProgresoTrabajo, trabajoActivo,
+  type FiltroImportacion,
 } from '../../utils/importacionExcel';
 
 const VARIANTE_ESTADO = {
@@ -39,12 +44,34 @@ const FILTROS: { valor: FiltroImportacion; etiqueta: string }[] = [
   { valor: 'OBSERVADOS', etiqueta: 'Observaciones' },
 ];
 
-const Procesando: React.FC<{ texto: string }> = ({ texto }) => (
-  <div role="status" className="flex items-center gap-3 rounded-lg border border-indigo-200 bg-indigo-50 p-3.5 text-sm text-indigo-800">
-    <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
-    <span><b>{texto}</b> No cierres esta ventana.</span>
-  </div>
-);
+const TAMANOS_PAGINA = [50, 100, 150, 200] as const;
+const POLLING_MS = 2000;
+
+const IndicadorTrabajo: React.FC<{ trabajo: TrabajoImportacion; titulo: string }> = ({ trabajo, titulo }) => {
+  const progreso = trabajo.progreso;
+  const pct = progreso?.porcentaje ?? 0;
+  return (
+    <div role="status" className="space-y-2 rounded-lg border border-indigo-200 bg-indigo-50 p-3.5 text-xs text-indigo-900">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 font-semibold">
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin text-indigo-600" />
+          <span>{titulo} · #{trabajo.id}</span>
+          <Badge variant="info" size="xs">{etiquetaFaseTrabajo(progreso?.fase ?? trabajo.estado)}</Badge>
+        </div>
+        <span className="tabular-nums font-medium">{textoProgresoTrabajo(trabajo)}</span>
+      </div>
+      <div className="h-2 w-full overflow-hidden rounded-full bg-indigo-100">
+        <div
+          className="h-full rounded-full bg-indigo-600 transition-all duration-300"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <p className="text-[11px] text-indigo-700">
+        {progreso?.mensaje || 'Procesando en segundo plano…'} Puedes recargar o cambiar de pestaña; el proceso continúa en el servidor.
+      </p>
+    </div>
+  );
+};
 
 const Aviso: React.FC<{ tipo: 'error' | 'ok'; children: React.ReactNode }> = ({ tipo, children }) => (
   <div
@@ -65,9 +92,14 @@ const NuevaImportacion: React.FC<{ onImportado: () => void }> = ({ onImportado }
   const [proveedores, setProveedores] = useState<Record<string, string>>({});
   const [paraTodas, setParaTodas] = useState('');
   const [previa, setPrevia] = useState<PrevisualizacionImportacion | null>(null);
+  const [comprobantesPagina, setComprobantesPagina] = useState<ComprobanteImportado[]>([]);
+  const [paginacion, setPaginacion] = useState<PrevisualizacionPaginacion | null>(null);
+  const [pageSize, setPageSize] = useState<number>(100);
+  const [cargandoPagina, setCargandoPagina] = useState(false);
   const [desactualizada, setDesactualizada] = useState(false);
   const [filtro, setFiltro] = useState<FiltroImportacion>('TODOS');
-  const [trabajando, setTrabajando] = useState<'' | 'previa' | 'confirmar' | 'plantilla'>('');
+  const [trabajando, setTrabajando] = useState<'' | 'previa' | 'confirmar' | 'plantilla' | 'errores' | 'proveedores'>('');
+  const [trabajoConfirmar, setTrabajoConfirmar] = useState<TrabajoImportacion | null>(null);
   const [errores, setErrores] = useState<string[]>([]);
   const [resultado, setResultado] = useState<ResultadoImportacion | null>(null);
 
@@ -80,31 +112,114 @@ const NuevaImportacion: React.FC<{ onImportado: () => void }> = ({ onImportado }
     getTerceros({ tipo: 'proveedor' }).then((lista) => {
       setProveedoresLista(lista.filter((t) => t.estado === 'ACTIVO' && t.numero_documento.length === 11));
     }).catch(() => setProveedoresLista([]));
+
+    // Recuperar trabajo activo si el usuario recargó o volvió a abrir la pestaña
+    listarTrabajosImportacion({ tipo: 'CONFIRMAR' })
+      .then((trabajos) => {
+        const enCurso = trabajos.find((t) => trabajoActivo(t));
+        if (enCurso) setTrabajoConfirmar(enCurso);
+      })
+      .catch(() => {});
   }, []);
+
+  const trabajoConfirmarId = trabajoConfirmar && debeContinuarPolling(trabajoConfirmar) ? trabajoConfirmar.id : null;
+
+  useEffect(() => {
+    if (!trabajoConfirmarId) return;
+    let cancelado = false;
+
+    const consultar = async () => {
+      try {
+        const actualizado = await obtenerTrabajoImportacion(trabajoConfirmarId);
+        if (cancelado) return;
+        setTrabajoConfirmar(actualizado);
+        if (actualizado.estado === 'COMPLETADO') {
+          const res = resultadoDesdeTrabajo(actualizado);
+          if (res) setResultado(res);
+          setPrevia(null);
+          setComprobantesPagina([]);
+          setPaginacion(null);
+          setArchivos([]);
+          setProveedores({});
+          setTrabajoConfirmar(null);
+          onImportado();
+        } else if (actualizado.estado === 'ERROR') {
+          setErrores([actualizado.error_detalle || 'La importación falló en segundo plano. No se grabó nada.']);
+          setTrabajoConfirmar(null);
+        }
+      } catch {
+        // Si falla un tick de red, el siguiente intervalo reintenta sin perder el estado
+      }
+    };
+
+    const timer = window.setInterval(consultar, POLLING_MS);
+    return () => {
+      cancelado = true;
+      window.clearInterval(timer);
+    };
+  }, [trabajoConfirmarId, onImportado]);
 
   const elegirArchivos = (lista: FileList | null) => {
     const { validos, rechazados } = archivosXlsx(Array.from(lista ?? []));
     setArchivos(validos);
     setPrevia(null);
+    setComprobantesPagina([]);
+    setPaginacion(null);
     setProveedores({});
     setResultado(null);
     setErrores(rechazados.length ? [`Se ignoraron archivos que no son .xlsx: ${rechazados.join(', ')}.`] : []);
   };
 
-  const previsualizar = async (conProveedores = proveedores) => {
+  const previsualizar = async (conProveedores = proveedores, tamano = pageSize) => {
     if (!archivos.length) return;
     setTrabajando('previa');
     setErrores([]);
     setResultado(null);
     try {
-      setPrevia(await previsualizarImportacion(archivos, conProveedores));
+      const data = await previsualizarImportacion(archivos, conProveedores, tamano);
+      setPrevia(data);
+      setComprobantesPagina(data.comprobantes);
+      setPaginacion(data.paginacion ?? {
+        page: 1,
+        page_size: tamano,
+        total: data.comprobantes.length,
+        total_pages: 1,
+        has_next: false,
+        has_previous: false,
+      });
       setDesactualizada(false);
       setFiltro('TODOS');
     } catch (err) {
       setPrevia(null);
+      setComprobantesPagina([]);
+      setPaginacion(null);
       setErrores(mensajesDeErrorApi(err, 'No se pudieron leer los archivos.'));
     } finally {
       setTrabajando('');
+    }
+  };
+
+  const cargarPagina = async (nuevoFiltro: FiltroImportacion, nuevaPagina: number, nuevoTamano = pageSize) => {
+    setFiltro(nuevoFiltro);
+    if (!previa?.previsualizacion_id) {
+      setComprobantesPagina(filtrarComprobantes(previa?.comprobantes ?? [], nuevoFiltro, proveedores));
+      return;
+    }
+    setCargandoPagina(true);
+    setErrores([]);
+    try {
+      const resp = await obtenerComprobantesPrevisualizacion(previa.previsualizacion_id, {
+        page: nuevaPagina,
+        page_size: nuevoTamano,
+        filtro: FILTRO_A_SERVIDOR[nuevoFiltro],
+      });
+      setComprobantesPagina(resp.comprobantes);
+      setPaginacion(resp.paginacion);
+      setPageSize(nuevoTamano);
+    } catch (err) {
+      setErrores(mensajesDeErrorApi(err, 'No se pudo cargar la página de previsualización.'));
+    } finally {
+      setCargandoPagina(false);
     }
   };
 
@@ -113,19 +228,67 @@ const NuevaImportacion: React.FC<{ onImportado: () => void }> = ({ onImportado }
     setDesactualizada(true);
   };
 
+  const aplicarATodasSinRuc = async () => {
+    if (!paraTodas || !previa) return;
+    if (!previa.previsualizacion_id) {
+      cambiarProveedores(aplicarProveedorATodas(previa.comprobantes, proveedores, paraTodas));
+      return;
+    }
+    setTrabajando('proveedores');
+    try {
+      const resp = await obtenerComprobantesPrevisualizacion(previa.previsualizacion_id, {
+        filtro: 'sin_proveedor',
+        page: 1,
+        page_size: 50,
+        incluir_claves: true,
+      });
+      const claves = resp.claves_sin_proveedor ?? [];
+      cambiarProveedores(
+        claves.length
+          ? aplicarProveedorAClaves(claves, proveedores, paraTodas)
+          : aplicarProveedorATodas(comprobantesPagina, proveedores, paraTodas),
+      );
+    } catch (err) {
+      setErrores(mensajesDeErrorApi(err, 'No se pudieron obtener todas las compras sin RUC.'));
+    } finally {
+      setTrabajando('');
+    }
+  };
+
+  const descargarErrores = async () => {
+    if (!previa?.previsualizacion_id || trabajando) return;
+    setTrabajando('errores');
+    try {
+      const blob = await descargarErroresPrevisualizacion(previa.previsualizacion_id);
+      descargarBlob(blob, `errores_previsualizacion_${previa.previsualizacion_id.slice(0, 8)}.xlsx`);
+    } catch (err) {
+      setErrores(mensajesDeErrorApi(err, 'No se pudo descargar el Excel de errores.'));
+    } finally {
+      setTrabajando('');
+    }
+  };
+
   const confirmar = async () => {
-    if (trabajando) return;
+    if (trabajando || trabajoActivo(trabajoConfirmar)) return;
     setTrabajando('confirmar');
     setErrores([]);
+    setResultado(null);
     try {
-      const r = await confirmarImportacion(archivos, almacenId, proveedores);
-      setResultado(r);
-      setPrevia(null);
-      setArchivos([]);
-      setProveedores({});
-      onImportado();
+      const trabajo = await confirmarImportacion(archivos, almacenId, proveedores);
+      setTrabajoConfirmar(trabajo);
+      if (trabajo.estado === 'COMPLETADO') {
+        const res = resultadoDesdeTrabajo(trabajo);
+        if (res) setResultado(res);
+        setPrevia(null);
+        setComprobantesPagina([]);
+        setPaginacion(null);
+        setArchivos([]);
+        setProveedores({});
+        setTrabajoConfirmar(null);
+        onImportado();
+      }
     } catch (err) {
-      setErrores(mensajesDeErrorApi(err, 'No se pudo grabar la importación. No se grabó nada.'));
+      setErrores(mensajesDeErrorApi(err, 'No se pudo encolar la importación. No se grabó nada.'));
     } finally {
       setTrabajando('');
     }
@@ -142,12 +305,14 @@ const NuevaImportacion: React.FC<{ onImportado: () => void }> = ({ onImportado }
     }
   };
 
-  const conteo = useMemo(() => contarPorFiltro(previa?.comprobantes ?? [], proveedores), [previa, proveedores]);
-  const visibles = useMemo(
-    () => filtrarComprobantes(previa?.comprobantes ?? [], filtro, proveedores), [previa, filtro, proveedores],
-  );
+  const conteo = useMemo(() => contadoresDesdePrevia(previa, proveedores), [previa, proveedores]);
+  const visibles = previa?.previsualizacion_id ? comprobantesPagina : filtrarComprobantes(comprobantesPagina, filtro, proveedores);
   const bloqueo = motivoNoConfirmable({ previa, desactualizada, almacenId, proveedores });
-  const ocupado = trabajando !== '';
+  const enProceso = trabajando !== '' || trabajoActivo(trabajoConfirmar);
+  const pagActual = paginacion?.page ?? 1;
+  const totalPaginas = paginacion?.total_pages ?? 1;
+  const totalFiltrado = paginacion?.total ?? visibles.length;
+  const rango = rangoPagina(pagActual, paginacion?.page_size ?? pageSize, totalFiltrado);
 
   return (
     <div className="space-y-4">
@@ -161,7 +326,7 @@ const NuevaImportacion: React.FC<{ onImportado: () => void }> = ({ onImportado }
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Button variant="outline" size="sm" onClick={descargarPlantilla} disabled={ocupado}>
+          <Button variant="outline" size="sm" onClick={descargarPlantilla} disabled={enProceso}>
             <Download className="mr-1.5 h-3.5 w-3.5" /> Descargar plantilla
           </Button>
         </CardContent>
@@ -173,7 +338,7 @@ const NuevaImportacion: React.FC<{ onImportado: () => void }> = ({ onImportado }
             <label className="block text-xs font-medium text-slate-700">
               Archivos Excel (.xlsx)
               <input
-                type="file" accept=".xlsx" multiple disabled={ocupado}
+                type="file" accept=".xlsx" multiple disabled={enProceso}
                 onChange={(e) => elegirArchivos(e.target.files)}
                 className="mt-1 block w-full text-xs file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-xs file:font-semibold"
                 data-testid="importacion-archivos"
@@ -183,14 +348,14 @@ const NuevaImportacion: React.FC<{ onImportado: () => void }> = ({ onImportado }
               Almacén de los movimientos
               <select
                 className="mt-1 block h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm"
-                value={almacenId ?? ''} disabled={ocupado}
+                value={almacenId ?? ''} disabled={enProceso}
                 onChange={(e) => { setAlmacenId(e.target.value ? Number(e.target.value) : null); }}
               >
                 {almacenes.length === 0 && <option value="">Sin almacenes activos</option>}
                 {almacenes.map((a) => <option key={a.id} value={a.id}>{a.codigo} · {a.nombre}</option>)}
               </select>
             </label>
-            <Button variant="primary" onClick={() => previsualizar()} disabled={!archivos.length || ocupado}>
+            <Button variant="primary" onClick={() => previsualizar()} disabled={!archivos.length || enProceso}>
               {trabajando === 'previa' ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Upload className="mr-1.5 h-4 w-4" />}
               Previsualizar
             </Button>
@@ -210,22 +375,40 @@ const NuevaImportacion: React.FC<{ onImportado: () => void }> = ({ onImportado }
             {resultado.omitidos ? ` (${resultado.omitidos} ya existían y se omitieron)` : ''}. El Kardex quedó actualizado.</p>
         </Aviso>
       )}
-      {trabajando === 'confirmar' && <Procesando texto="Procesando comprobantes y recalculando el Kardex…" />}
+      {trabajoConfirmar && trabajoActivo(trabajoConfirmar) && (
+        <IndicadorTrabajo trabajo={trabajoConfirmar} titulo="Importando comprobantes y recalculando Kardex" />
+      )}
 
       {previa && (
         <Card data-testid="importacion-previa">
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm">Previsualización · nada se ha grabado todavía</CardTitle>
-            <CardDescription className="text-xs">
-              {previa.resumen.filas} filas de {previa.resumen.archivos} archivo(s) · {previa.resumen.comprobantes} comprobantes ·
-              del {fechaCorta(previa.resumen.desde)} al {fechaCorta(previa.resumen.hasta)}
-            </CardDescription>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <CardTitle className="text-sm">Previsualización · nada se ha grabado todavía</CardTitle>
+                <CardDescription className="text-xs">
+                  {previa.resumen.total_filas ?? previa.resumen.filas} filas de {previa.resumen.archivos} archivo(s) ·{' '}
+                  {previa.resumen.total_comprobantes ?? previa.resumen.comprobantes} comprobantes ·{' '}
+                  del {fechaCorta(previa.resumen.desde)} al {fechaCorta(previa.resumen.hasta)}
+                  {previa.resumen.periodos_detectados?.length ? ` · Períodos: ${previa.resumen.periodos_detectados.join(', ')}` : ''}
+                </CardDescription>
+              </div>
+              {hayErroresParaDescargar(previa) && previa.previsualizacion_id && (
+                <Button
+                  size="sm" variant="outline" onClick={descargarErrores} disabled={enProceso}
+                  data-testid="importacion-descargar-errores"
+                >
+                  {trabajando === 'errores' ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Download className="mr-1.5 h-3.5 w-3.5" />}
+                  Descargar errores (.xlsx)
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filtrar comprobantes">
               {FILTROS.map((f) => (
                 <button
-                  key={f.valor} type="button" onClick={() => setFiltro(f.valor)}
+                  key={f.valor} type="button" disabled={cargandoPagina}
+                  onClick={() => cargarPagina(f.valor, 1)}
                   className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
                     filtro === f.valor ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
                 >
@@ -245,9 +428,10 @@ const NuevaImportacion: React.FC<{ onImportado: () => void }> = ({ onImportado }
                   {proveedoresLista.map((t) => <option key={t.id} value={t.numero_documento}>{t.numero_documento} · {t.razon_social}</option>)}
                 </select>
                 <Button
-                  size="sm" variant="outline" disabled={!paraTodas}
-                  onClick={() => cambiarProveedores(aplicarProveedorATodas(previa.comprobantes, proveedores, paraTodas))}
+                  size="sm" variant="outline" disabled={!paraTodas || enProceso}
+                  onClick={aplicarATodasSinRuc}
                 >
+                  {trabajando === 'proveedores' && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
                   Aplicar a todas las compras sin RUC
                 </Button>
               </div>
@@ -256,7 +440,7 @@ const NuevaImportacion: React.FC<{ onImportado: () => void }> = ({ onImportado }
             {desactualizada && (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-indigo-200 bg-indigo-50 p-3 text-xs text-indigo-800">
                 <span>Cambiaste proveedores: vuelve a previsualizar para validarlos.</span>
-                <Button size="sm" variant="primary" onClick={() => previsualizar()} disabled={ocupado}>Volver a previsualizar</Button>
+                <Button size="sm" variant="primary" onClick={() => previsualizar()} disabled={enProceso}>Volver a previsualizar</Button>
               </div>
             )}
 
@@ -274,7 +458,7 @@ const NuevaImportacion: React.FC<{ onImportado: () => void }> = ({ onImportado }
                 </thead>
                 <tbody>
                   {visibles.map((c) => (
-                    <tr key={c.clave + c.fecha} className="border-t border-slate-100 align-top">
+                    <tr key={`${c.clave}-${c.fecha ?? ''}`} className="border-t border-slate-100 align-top">
                       <td className="whitespace-nowrap px-2 py-2 tabular-nums">{fechaCorta(c.fecha)}</td>
                       <td className="whitespace-nowrap px-2 py-2">
                         <span className="font-mono font-semibold text-slate-800">{c.serie}-{c.numero}</span>
@@ -315,15 +499,49 @@ const NuevaImportacion: React.FC<{ onImportado: () => void }> = ({ onImportado }
                     </tr>
                   ))}
                   {!visibles.length && (
-                    <tr><td colSpan={6} className="px-2 py-6 text-center text-slate-400">Sin comprobantes en este filtro.</td></tr>
+                    <tr><td colSpan={6} className="px-2 py-6 text-center text-slate-400">{cargandoPagina ? 'Cargando página…' : 'Sin comprobantes en este filtro.'}</td></tr>
                   )}
                 </tbody>
               </table>
             </div>
 
+            {previa.previsualizacion_id && (
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600" data-testid="importacion-paginacion">
+                <span className="tabular-nums">
+                  {totalFiltrado > 0 ? `Mostrando ${rango.desde}–${rango.hasta} de ${totalFiltrado} comprobante(s)` : '0 comprobantes'}
+                </span>
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-1.5">
+                    <span>Por página:</span>
+                    <select
+                      className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs"
+                      value={pageSize}
+                      disabled={cargandoPagina}
+                      onChange={(e) => cargarPagina(filtro, 1, parseInt(e.target.value, 10))}
+                    >
+                      {TAMANOS_PAGINA.map((n) => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                  </label>
+                  <Button
+                    size="xs" variant="outline" disabled={cargandoPagina || pagActual <= 1}
+                    onClick={() => cargarPagina(filtro, pagActual - 1)}
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" /> Anterior
+                  </Button>
+                  <span className="tabular-nums font-medium">Pág. {pagActual} / {totalPaginas}</span>
+                  <Button
+                    size="xs" variant="outline" disabled={cargandoPagina || pagActual >= totalPaginas}
+                    onClick={() => cargarPagina(filtro, pagActual + 1)}
+                  >
+                    Siguiente <ChevronRight className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
               <p className="text-xs text-slate-500">{bloqueo ?? `Se grabarán ${textoPorGrabar(previa.resumen)}. Todo o nada.`}</p>
-              <Button variant="success" onClick={confirmar} disabled={Boolean(bloqueo) || ocupado} data-testid="importacion-confirmar">
+              <Button variant="success" onClick={confirmar} disabled={Boolean(bloqueo) || enProceso} data-testid="importacion-confirmar">
                 {trabajando === 'confirmar' ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-1.5 h-4 w-4" />}
                 Confirmar importación
               </Button>
@@ -342,13 +560,20 @@ const LotesImportados: React.FC<{ recarga: number }> = ({ recarga }) => {
   const [viendo, setViendo] = useState<number | null>(null);
   const [motivo, setMotivo] = useState('');
   const [procesando, setProcesando] = useState(false);
+  const [trabajoAnular, setTrabajoAnular] = useState<TrabajoImportacion | null>(null);
   const [errores, setErrores] = useState<string[]>([]);
   const [exito, setExito] = useState('');
 
   const cargar = useCallback(async () => {
     setCargando(true);
     try {
-      setLotes(await listarLotesImportacion());
+      const [lista, trabajos] = await Promise.all([
+        listarLotesImportacion(),
+        listarTrabajosImportacion({ tipo: 'ANULAR' }).catch(() => [] as TrabajoImportacion[]),
+      ]);
+      setLotes(lista);
+      const activo = trabajos.find((t) => trabajoActivo(t)) ?? null;
+      if (activo) setTrabajoAnular(activo);
     } catch (err) {
       setErrores(mensajesDeErrorApi(err, 'No se pudieron cargar los lotes.'));
     } finally {
@@ -358,21 +583,64 @@ const LotesImportados: React.FC<{ recarga: number }> = ({ recarga }) => {
 
   useEffect(() => { diferirCarga(cargar); }, [cargar, recarga]);
 
+  const trabajoAnularId = trabajoAnular && debeContinuarPolling(trabajoAnular) ? trabajoAnular.id : null;
+
+  useEffect(() => {
+    if (!trabajoAnularId) return;
+    let cancelado = false;
+
+    const consultar = async () => {
+      try {
+        const actualizado = await obtenerTrabajoImportacion(trabajoAnularId);
+        if (cancelado) return;
+        setTrabajoAnular(actualizado);
+        if (actualizado.estado === 'COMPLETADO') {
+          const r = resumenAnulacionDesdeTrabajo(actualizado);
+          if (r) {
+            setExito(
+              `Lote ${r.lote} anulado: ${r.comprobantes_anulados} comprobantes y su efecto en el Kardex revertidos.`
+              + (r.lineas_revertidas
+                ? ` Se revirtieron ${r.lineas_revertidas} línea(s) que el lote había agregado a ${r.comprobantes_revertidos.join(', ')}; las demás líneas de esos comprobantes siguen vigentes.`
+                : ''),
+            );
+          }
+          setTrabajoAnular(null);
+          await cargar();
+        } else if (actualizado.estado === 'ERROR') {
+          setErrores([actualizado.error_detalle || 'No se pudo anular el lote. No se anuló nada.']);
+          setTrabajoAnular(null);
+          await cargar();
+        }
+      } catch {
+        // Reintenta en el siguiente intervalo
+      }
+    };
+
+    const timer = window.setInterval(consultar, POLLING_MS);
+    return () => {
+      cancelado = true;
+      window.clearInterval(timer);
+    };
+  }, [trabajoAnularId, cargar]);
+
   const anular = async () => {
     if (!anulando || procesando) return;
     setProcesando(true);
     setErrores([]);
+    setExito('');
     try {
-      const r = await anularLoteImportacion(anulando.id, motivo.trim());
-      setExito(
-        `Lote ${anulando.id} anulado: ${r.comprobantes_anulados} comprobantes y su efecto en el Kardex revertidos.`
-        + (r.lineas_revertidas
-          ? ` Se revirtieron ${r.lineas_revertidas} línea(s) que el lote había agregado a ${r.comprobantes_revertidos.join(', ')}; las demás líneas de esos comprobantes siguen vigentes.`
-          : ''),
-      );
+      const trabajo = await anularLoteImportacion(anulando.id, motivo.trim());
       setAnulando(null);
       setMotivo('');
-      await cargar();
+      if (trabajo.estado === 'COMPLETADO') {
+        const r = resumenAnulacionDesdeTrabajo(trabajo);
+        if (r) {
+          setExito(`Lote ${r.lote} anulado: ${r.comprobantes_anulados} comprobantes revertidos.`);
+        }
+        await cargar();
+      } else {
+        setTrabajoAnular(trabajo);
+      }
     } catch (err) {
       setErrores(mensajesDeErrorApi(err, 'No se pudo anular el lote. No se anuló nada.'));
     } finally {
@@ -384,6 +652,12 @@ const LotesImportados: React.FC<{ recarga: number }> = ({ recarga }) => {
     <div className="space-y-3">
       {errores.length > 0 && !anulando && <Aviso tipo="error">{errores.map((e) => <p key={e}>{e}</p>)}</Aviso>}
       {exito && <Aviso tipo="ok"><p>{exito}</p></Aviso>}
+      {trabajoAnular && trabajoActivo(trabajoAnular) && (
+        <IndicadorTrabajo
+          trabajo={trabajoAnular}
+          titulo={`Anulando lote #${trabajoAnular.lote_id ?? ''}`}
+        />
+      )}
       <Card>
         <CardContent className="overflow-x-auto p-0">
           <table className="w-full text-xs">
@@ -401,44 +675,51 @@ const LotesImportados: React.FC<{ recarga: number }> = ({ recarga }) => {
               </tr>
             </thead>
             <tbody>
-              {lotes.map((l) => (
-                <tr key={l.id} className="border-t border-slate-100 align-top">
-                  <td className="px-3 py-2 font-mono font-semibold">#{l.id}</td>
-                  <td className="whitespace-nowrap px-3 py-2">{fechaCorta(l.creado_en)}</td>
-                  <td className="px-3 py-2">
-                    <Badge variant={l.estado === 'CONFIRMADO' ? 'success' : 'neutral'} size="xs">
-                      {l.estado === 'CONFIRMADO' ? 'Activo' : 'Anulado'}
-                    </Badge>
-                    {l.estado === 'ANULADO' && (
-                      <span className="mt-1 block text-[10px] text-slate-400">{fechaCorta(l.anulado_en)} · {l.anulado_por} · {l.motivo_anulacion}</span>
-                    )}
-                  </td>
-                  <td className="max-w-64 px-3 py-2 text-slate-600">{l.archivos.join(', ')}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">
-                    {l.comprobantes}
-                    {l.completados > 0 && (
-                      <span className="block text-[10px] text-indigo-700" title={l.comprobantes_completados.join(', ')}>
-                        + {l.lineas_agregadas} línea(s) en {l.completados} completado(s)
-                      </span>
-                    )}
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2">{fechaCorta(l.desde)} – {fechaCorta(l.hasta)}</td>
-                  <td className="px-3 py-2">{l.almacen.codigo}</td>
-                  <td className="px-3 py-2">{l.creado_por ?? '—'}</td>
-                  <td className="px-3 py-2 text-right">
-                    {l.estado === 'CONFIRMADO' && (
-                      <div className="flex justify-end gap-1.5">
-                        <Button size="xs" variant={viendo === l.id ? 'primary' : 'outline'} onClick={() => setViendo(viendo === l.id ? null : l.id)}>
-                          <Scale className="mr-1 h-3.5 w-3.5" /> Diferencias
-                        </Button>
-                        <Button size="xs" variant="outline" className="text-rose-700" onClick={() => { setAnulando(l); setMotivo(''); setErrores([]); setExito(''); }}>
-                          <XCircle className="mr-1 h-3.5 w-3.5" /> Anular lote
-                        </Button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
+              {lotes.map((l) => {
+                const anularEnCurso = trabajoAnular && trabajoActivo(trabajoAnular) && trabajoAnular.lote_id === l.id;
+                return (
+                  <tr key={l.id} className="border-t border-slate-100 align-top">
+                    <td className="px-3 py-2 font-mono font-semibold">#{l.id}</td>
+                    <td className="whitespace-nowrap px-3 py-2">{fechaCorta(l.creado_en)}</td>
+                    <td className="px-3 py-2">
+                      <Badge variant={l.estado === 'CONFIRMADO' ? 'success' : 'neutral'} size="xs">
+                        {l.estado === 'CONFIRMADO' ? 'Activo' : 'Anulado'}
+                      </Badge>
+                      {l.estado === 'ANULADO' && (
+                        <span className="mt-1 block text-[10px] text-slate-400">{fechaCorta(l.anulado_en)} · {l.anulado_por} · {l.motivo_anulacion}</span>
+                      )}
+                    </td>
+                    <td className="max-w-64 px-3 py-2 text-slate-600">{l.archivos.join(', ')}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {l.comprobantes}
+                      {l.completados > 0 && (
+                        <span className="block text-[10px] text-indigo-700" title={l.comprobantes_completados.join(', ')}>
+                          + {l.lineas_agregadas} línea(s) en {l.completados} completado(s)
+                        </span>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2">{fechaCorta(l.desde)} – {fechaCorta(l.hasta)}</td>
+                    <td className="px-3 py-2">{l.almacen.codigo}</td>
+                    <td className="px-3 py-2">{l.creado_por ?? '—'}</td>
+                    <td className="px-3 py-2 text-right">
+                      {l.estado === 'CONFIRMADO' && (
+                        <div className="flex justify-end gap-1.5">
+                          <Button size="xs" variant={viendo === l.id ? 'primary' : 'outline'} onClick={() => setViendo(viendo === l.id ? null : l.id)}>
+                            <Scale className="mr-1 h-3.5 w-3.5" /> Diferencias
+                          </Button>
+                          <Button
+                            size="xs" variant="outline" className="text-rose-700" disabled={Boolean(anularEnCurso)}
+                            onClick={() => { setAnulando(l); setMotivo(''); setErrores([]); setExito(''); }}
+                          >
+                            {anularEnCurso ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <XCircle className="mr-1 h-3.5 w-3.5" />}
+                            {anularEnCurso ? 'Anulando…' : 'Anular lote'}
+                          </Button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
               {!lotes.length && (
                 <tr><td colSpan={9} className="px-3 py-8 text-center text-slate-400">{cargando ? 'Cargando…' : 'Aún no hay lotes importados.'}</td></tr>
               )}
@@ -475,7 +756,6 @@ const LotesImportados: React.FC<{ recarga: number }> = ({ recarga }) => {
             />
           </label>
           <p className="text-xs text-slate-500">Al confirmar, el sistema te pedirá tu contraseña.</p>
-          {procesando && <Procesando texto="Anulando comprobantes y recalculando el Kardex…" />}
           {errores.length > 0 && <Aviso tipo="error">{errores.map((e) => <p key={e}>{e}</p>)}</Aviso>}
         </div>
       </Modal>

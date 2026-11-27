@@ -793,22 +793,42 @@ def _analizar(*, empresa_id, archivos, proveedores=None):
         })
 
     contar = lambda e: sum(1 for c in comprobantes if c['estado'] == e)
+    observados = sum(1 for c in comprobantes if c['observaciones'])
+    sin_proveedor_total = sum(1 for c in comprobantes if c['requiere_proveedor'])
     fechas = [f.fecha for f in filas if f.fecha]
+    periodos_detectados = sorted({f'{f.fecha:%Y-%m}' for f in filas if f.fecha})
+    contadores = {
+        'todos': len(comprobantes),
+        'nuevos': contar('NUEVO'),
+        'a_completar': contar('COMPLETAR'),
+        'ya_existen': contar('YA_EXISTE'),
+        'errores': contar('ERROR'),
+        'conflictos': contar('CONFLICTO'),
+        'sin_proveedor': sin_proveedor_total,
+        'observaciones': observados,
+    }
     resultado = {
         'formato': 'ENTRADAS_SALIDAS',
         'resumen': {
             'archivos': len(archivos),
             'filas': len(filas),
+            'total_filas': len(filas),
             'filas_con_error': sum(1 for f in detalle_filas if f['estado'] == 'ERROR'),
             'filas_con_observacion': sum(1 for f in detalle_filas if f['observaciones']),
             'comprobantes': len(comprobantes),
+            'total_comprobantes': len(comprobantes),
             'nuevos': contar('NUEVO'),
             'completar': contar('COMPLETAR'),
+            'a_completar': contar('COMPLETAR'),
             'lineas_a_agregar': sum(len(c['agregar']) for c in comprobantes),
             'ya_existen': contar('YA_EXISTE'),
             'conflictos': contar('CONFLICTO'),
             'con_error': contar('ERROR'),
-            'requieren_proveedor': sum(1 for c in comprobantes if c['requiere_proveedor']),
+            'errores': contar('ERROR'),
+            'requieren_proveedor': sin_proveedor_total,
+            'sin_proveedor': sin_proveedor_total,
+            'observaciones': observados,
+            'periodos_detectados': periodos_detectados,
             'productos': len({f.codigo for f in filas if f.codigo}),
             'desde': min(fechas).isoformat() if fechas else None,
             'hasta': max(fechas).isoformat() if fechas else None,
@@ -819,6 +839,7 @@ def _analizar(*, empresa_id, archivos, proveedores=None):
                 and contar('ERROR') == 0 and contar('CONFLICTO') == 0
             ),
         },
+        'contadores': contadores,
         'comprobantes': comprobantes,
         'filas': detalle_filas,
     }
