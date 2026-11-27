@@ -306,6 +306,51 @@ class ImportacionWorkerPaso3Tests(Bloque2Fixture, TestCase):
                     403,
                 )
 
+    def test_progreso_actualiza_heartbeat_durante_recalculo_kardex(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / 'staging'
+            with override_settings(IMPORTACION_STAGING_DIR=root):
+                # Sembramos primero una venta posterior para forzar recálculo retroactivo en la importación
+                confirmar_previo = encolar_confirmacion_importacion(
+                    empresa_id=self.empresa.id,
+                    usuario=self.usuario,
+                    archivos=[(
+                        'compra_inicial.xlsx',
+                        excel([
+                            compra('011004', 2, 'F035', 1, 10, 10),
+                            venta('011004', 10, 1, 'F001', 2, 2, 10, ('',)),
+                        ], OPC),
+                    )],
+                    almacen_id=self.almacen.id,
+                    proveedores={'20555000111': '20555000111'},
+                )
+                self.assertEqual(procesar_siguiente_trabajo().estado, 'COMPLETADO', confirmar_previo.id)
+
+                trabajo = encolar_confirmacion_importacion(
+                    empresa_id=self.empresa.id,
+                    usuario=self.usuario,
+                    archivos=[('retroactivo.xlsx', excel([compra('011004', 5, 'F035', 3, 10, 12)], OPC))],
+                    almacen_id=self.almacen.id,
+                    proveedores={'20555000111': '20555000111'},
+                )
+                caches['default'].delete(clave_progreso(trabajo.id))
+
+                fases = []
+                orig_reportar = reportar_progreso
+
+                def captura_progreso(trabajo_id, fase, actual=0, total=0, mensaje='', **kwargs):
+                    fases.append((fase, actual, total))
+                    return orig_reportar(trabajo_id, fase, actual, total, mensaje, **kwargs)
+
+                with mock.patch('apps.documentos.importacion_worker.reportar_progreso', side_effect=captura_progreso):
+                    procesado = procesar_siguiente_trabajo()
+
+                self.assertEqual(procesado.estado, 'COMPLETADO')
+                recalc = [f for f in fases if f[0] == 'RECALCULANDO_KARDEX']
+                self.assertGreaterEqual(len(recalc), 2)
+                self.assertEqual(recalc[-1], ('RECALCULANDO_KARDEX', 1, 1))
+                self.assertEqual(leer_progreso(trabajo.id)['fase'], 'COMPLETADO')
+
 
 class ImportacionConcurrenciaWorkerTests(Bloque2Fixture, TransactionTestCase):
     """Pruebas multi-conexión en PostgreSQL: `SKIP LOCKED` y `pg_advisory_xact_lock` por empresa."""

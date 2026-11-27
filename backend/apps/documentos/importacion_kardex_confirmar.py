@@ -22,9 +22,12 @@ from apps.catalogos.models import TipoOperacion
 from apps.documentos.afectacion_igv import GRAVADO, SIN_IGV, igv_esperado, tasa_igv
 from apps.documentos.importacion_kardex_excel import CERO, _analizar, comparar_con_registrado
 from apps.documentos.models import Documento, DocumentoDetalle, ImportacionArchivo, ImportacionLote
-from apps.documentos.services import confirmar_documento_validacion, crear_documento, revisar_documento
+from apps.documentos.services import (
+    _tasa_igv_lote, confirmar_documento_validacion, crear_documento, ctx_lote_documentos,
+    modo_lote_documentos, revisar_documento,
+)
 from apps.inventario.documentos_identidad import SIN_RUC
-from apps.inventario.models import Almacen, Tercero
+from apps.inventario.models import Almacen, ProductoUnidad, Tercero
 from apps.kardex.services import modo_lote_kardex
 
 OPERACION_INTERNA = {'01': 'VENTA', '02': 'COMPRA', '05': 'DEVOLUCION_VENTA', '06': 'DEVOLUCION_COMPRA'}
@@ -129,13 +132,22 @@ def _completar_comprobante(*, empresa_id, usuario, lote, existente_id, lineas, c
     plan = comparar_con_registrado(documento, lineas, ctx['productos'])
     if plan['estado'] != 'COMPLETAR':
         raise ValidationError({'detalles': plan['mensaje']})
-    periodo = Periodo.objects.select_for_update().get(pk=documento.periodo_id, empresa_id=empresa_id)
-    validar_fecha_en_periodo_abierto(empresa_id=empresa_id, periodo=periodo, fecha=documento.fecha_emision)
+    ctx_docs = ctx_lote_documentos(empresa_id)
+    if ctx_docs is not None and documento.periodo_id in ctx_docs['periodos']:
+        periodo = ctx_docs['periodos'][documento.periodo_id]
+        periodos_no_abiertos = ctx_docs['periodos_no_abiertos']
+    else:
+        periodo = Periodo.objects.select_for_update().get(pk=documento.periodo_id, empresa_id=empresa_id)
+        periodos_no_abiertos = None
+    validar_fecha_en_periodo_abierto(
+        empresa_id=empresa_id, periodo=periodo, fecha=documento.fecha_emision,
+        periodos_no_abiertos=periodos_no_abiertos,
+    )
     if documento.moneda_codigo_id == 'USD' and not (documento.monto_tc and documento.monto_tc > CERO):
         raise ValidationError({'tipo_cambio': 'El comprobante está en USD y no tiene un tipo de cambio válido.'})
 
     porcentaje_cf = obtener_porcentaje_credito_fiscal(empresa_id, periodo)
-    tasa = tasa_igv(empresa_id, documento.fecha_emision)
+    tasa = _tasa_igv_lote(empresa_id, documento.fecha_emision)
     siguiente = (documento.detalles.order_by('-linea').values_list('linea', flat=True).first() or 0) + 1
     subtotal = documento.subtotal or CERO
     igv_total = documento.igv or CERO
@@ -245,10 +257,15 @@ def confirmar_importacion_kardex(*, empresa_id, usuario, archivos, almacen_id=No
     from apps.documentos.importacion_kardex_excel import _periodo_de
     inicio = time.monotonic()
     creados = {}
+    creados_detalles = {}
     completados = {}
     terceros = _Terceros(empresa_id)
     tasas = {}
-    unidades = {}
+    producto_ids = [p.id for p in ctx['productos'].values()]
+    unidades = {
+        pu.producto_id: pu
+        for pu in ProductoUnidad.objects.filter(producto_id__in=producto_ids, es_base=True)
+    }
 
     with transaction.atomic():
         lote = ImportacionLote.objects.create(
@@ -268,7 +285,9 @@ def confirmar_importacion_kardex(*, empresa_id, usuario, archivos, almacen_id=No
             procesados = 0
             if on_progreso and por_procesar:
                 on_progreso('GRABANDO_COMPROBANTES', f'Grabando comprobantes (0/{por_procesar})...', 0, por_procesar)
-            with modo_lote_kardex(empresa_id=empresa_id, usuario_id=usuario.id):
+            with modo_lote_documentos(empresa_id=empresa_id, preload_duplicados=True), modo_lote_kardex(
+                empresa_id=empresa_id, usuario_id=usuario.id, on_progreso=on_progreso,
+            ):
                 for clave, lineas in ctx['ordenados']:
                     if ctx['estados'][clave] == 'COMPLETAR':
                         try:
@@ -305,7 +324,9 @@ def confirmar_importacion_kardex(*, empresa_id, usuario, archivos, almacen_id=No
                                 unidades[producto.id] = producto.unidades.get(es_base=True)
                             detalle_origen = None
                             if l.origen and l.origen[0] == 'EXCEL' and l.origen[1] in creados:
-                                detalle_origen = DocumentoDetalle.objects.get(documento=creados[l.origen[1]], linea=l.origen[2] + 1)
+                                detalle_origen = creados_detalles.get((l.origen[1], l.origen[2] + 1)) or DocumentoDetalle.objects.get(
+                                    documento=creados[l.origen[1]], linea=l.origen[2] + 1,
+                                )
                             elif l.origen and l.origen[0] == 'EXCEL':
                                 # El origen ya estaba registrado (YA_EXISTE): se usa su línea del mismo producto y cantidad.
                                 detalle_origen = DocumentoDetalle.objects.filter(
@@ -325,7 +346,7 @@ def confirmar_importacion_kardex(*, empresa_id, usuario, archivos, almacen_id=No
                                 precio = detalle_origen.precio_unitario if detalle_origen else CERO
                             afectacion = producto.afectacion_igv_defecto or GRAVADO
                             if l.fecha not in tasas:
-                                tasas[l.fecha] = tasa_igv(empresa_id, l.fecha)
+                                tasas[l.fecha] = _tasa_igv_lote(empresa_id, l.fecha)
                             base = precio * l.cantidad
                             igv = igv_esperado(base, tasas[l.fecha]) if afectacion == GRAVADO else CERO
                             if afectacion in SIN_IGV:
@@ -336,6 +357,8 @@ def confirmar_importacion_kardex(*, empresa_id, usuario, archivos, almacen_id=No
                                 'cantidad_original': l.cantidad, 'precio_unitario': precio, 'igv': igv,
                                 'afectacion_igv': afectacion, 'detalle_origen': detalle_origen,
                                 'linea': i + 1,
+                                'costo_unitario_importado': l.costo_unitario,
+                                'costo_total_importado': l.costo_total,
                             })
 
                         if documento_origen is not None:
@@ -368,13 +391,16 @@ def confirmar_importacion_kardex(*, empresa_id, usuario, archivos, almacen_id=No
                         documento = crear_documento(
                             empresa_id=empresa_id, usuario_id=usuario.id, datos_cabecera=cabecera, detalles_datos=detalles,
                         )
-                        for i, l in enumerate(lineas):
-                            DocumentoDetalle.objects.filter(documento=documento, linea=i + 1).update(
-                                costo_unitario_importado=l.costo_unitario, costo_total_importado=l.costo_total,
-                            )
-                        revisar_documento(documento.id, empresa_id, usuario.id, 'REVISADO', motivo=f'Importación Excel, lote {lote.id}')
-                        confirmar_documento_validacion(documento_id=documento.id, empresa_id=empresa_id, usuario_id=usuario.id)
-                        documento.refresh_from_db()
+                        for det in getattr(documento, '_detalles_creados', ()):
+                            creados_detalles[(clave, det.linea)] = det
+                        documento = revisar_documento(
+                            documento.id, empresa_id, usuario.id, 'REVISADO',
+                            motivo=f'Importación Excel, lote {lote.id}', documento=documento,
+                        )
+                        documento = confirmar_documento_validacion(
+                            documento_id=documento.id, empresa_id=empresa_id, usuario_id=usuario.id,
+                            documento=documento,
+                        )
                         creados[clave] = documento
                         procesados += 1
                         if on_progreso:
@@ -525,7 +551,8 @@ def anular_lote_importacion(*, empresa_id, lote_id, usuario, motivo, on_progreso
             raise ValidationError({'lote': 'El lote ya está anulado.'})
 
         documentos = list(
-            Documento.objects.filter(importacion_lote=lote, empresa_id=empresa_id, estado='CONFIRMADO')
+            Documento.objects.select_for_update(of=('self',))
+            .filter(importacion_lote=lote, empresa_id=empresa_id, estado='CONFIRMADO')
             .select_related('periodo').order_by('-id')
         )
         ids = {d.id for d in documentos}
@@ -588,14 +615,35 @@ def anular_lote_importacion(*, empresa_id, lote_id, usuario, motivo, on_progreso
         # notas después de su origen): así cada salida se revierte antes que la entrada que la cubría.
         documentos.sort(key=lambda d: d.id, reverse=True)
         from apps.documentos.services import anular_documento
+        from apps.kardex.models import Movimiento
+
+        movs_por_doc = {}
+        if ids:
+            for m in (
+                Movimiento.objects.filter(
+                    empresa_id=empresa_id, documento_detalle__documento_id__in=ids, extornos__isnull=True,
+                ).select_related('tipo_operacion', 'valorizacion', 'documento_detalle').order_by('id')
+            ):
+                movs_por_doc.setdefault(m.documento_detalle.documento_id, []).append(m)
+
         try:
             total_docs = len(documentos)
             if on_progreso and total_docs:
                 on_progreso('ANULANDO_COMPROBANTES', f'Anulando comprobantes (0/{total_docs})...', 0, total_docs)
-            with modo_lote_kardex(empresa_id=empresa_id, usuario_id=usuario.id):
+            with modo_lote_documentos(
+                empresa_id=empresa_id, preload_duplicados=False, preload_anulacion=True,
+            ) as ctx_docs, modo_lote_kardex(
+                empresa_id=empresa_id, usuario_id=usuario.id, on_progreso=on_progreso,
+            ):
+                ctx_docs['sin_pagos_ids'] = ids
+                ctx_docs['movimientos_por_doc'] = movs_por_doc
                 for idx, documento in enumerate(documentos, start=1):
                     try:
-                        anular_documento(documento.id, empresa_id, usuario.id, f'Anulación del lote de importación {lote.id}: {motivo}')
+                        anular_documento(
+                            documento.id, empresa_id, usuario.id,
+                            f'Anulación del lote de importación {lote.id}: {motivo}',
+                            documento=documento,
+                        )
                     except ValidationError as exc:
                         raise ValidationError({'lote': (
                             f'No se anuló nada. El comprobante {documento.serie_normalizada}-{documento.numero_normalizado} '

@@ -57,7 +57,7 @@ def periodo_abierto_para_fecha(*, empresa_id, fecha, campo='fecha_emision'):
     return abiertos[0]
 
 
-def validar_fecha_en_periodo_abierto(*, empresa_id, periodo, fecha, campo='fecha_emision'):
+def validar_fecha_en_periodo_abierto(*, empresa_id, periodo, fecha, campo='fecha_emision', periodos_no_abiertos=None):
     """
     Revalidación defensiva previa a generar movimientos: el período asignado debe
     estar ABIERTO, contener la fecha y no existir otro período no abierto que la contenga.
@@ -73,9 +73,13 @@ def validar_fecha_en_periodo_abierto(*, empresa_id, periodo, fecha, campo='fecha
                 f'{etiqueta_periodo(periodo)} ({periodo.fecha_inicio} al {periodo.fecha_fin}).'
             )
         })
-    otro_no_abierto = Periodo.objects.filter(
-        empresa_id=empresa_id, fecha_inicio__lte=fecha, fecha_fin__gte=fecha,
-    ).exclude(estado='ABIERTO').order_by('orden').first()
+    if periodos_no_abiertos is not None:
+        traslapados = [p for p in periodos_no_abiertos if p.fecha_inicio <= fecha <= p.fecha_fin]
+        otro_no_abierto = min(traslapados, key=lambda p: (p.orden, p.id)) if traslapados else None
+    else:
+        otro_no_abierto = Periodo.objects.filter(
+            empresa_id=empresa_id, fecha_inicio__lte=fecha, fecha_fin__gte=fecha,
+        ).exclude(estado='ABIERTO').order_by('orden').first()
     if otro_no_abierto is not None:
         raise ValidationError({
             campo: (

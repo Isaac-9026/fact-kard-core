@@ -4,9 +4,10 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import transaction
 from django.db.models import Max, Q, Sum
+from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from apps.auditoria.services import registrar_auditoria
+from apps.auditoria.services import buffer_auditoria_lote, registrar_auditoria
 from apps.catalogos.models import TipoOperacion
 from apps.empresas.models import ConfigEmpresa, Periodo
 from apps.empresas.periodos import validar_fecha_en_periodo_abierto
@@ -30,13 +31,53 @@ def _pendientes_lote():
     return getattr(_lote, 'pendientes', None)
 
 
+def _ctx_lote(empresa_id=None):
+    ctx = getattr(_lote, 'ctx', None)
+    if ctx is None:
+        return None
+    if empresa_id is not None and ctx['empresa_id'] != empresa_id:
+        return None
+    return ctx
+
+
+def _flush_saldos_stocks_pendientes(ctx, *, excluir_productos=()):
+    ahora = timezone.now()
+    excluir = set(excluir_productos)
+    saldos_dirty = [
+        saldo
+        for (eid, pid), saldo in ctx['saldos'].items()
+        if (eid, pid) in ctx['saldos_sucios'] and pid not in excluir
+    ]
+    if saldos_dirty:
+        for saldo in saldos_dirty:
+            saldo.actualizado_en = ahora
+        SaldoCppActual.objects.bulk_update(
+            saldos_dirty,
+            ['cantidad_total', 'valor_total_pen', 'cpp_pen', 'ultimo_movimiento', 'actualizado_en'],
+            batch_size=500,
+        )
+    stocks_dirty = [
+        stock
+        for (eid, aid, pid), stock in ctx['stocks'].items()
+        if (eid, aid, pid) in ctx['stocks_sucios'] and pid not in excluir
+    ]
+    if stocks_dirty:
+        for stock in stocks_dirty:
+            stock.actualizado_en = ahora
+        StockAlmacen.objects.bulk_update(
+            stocks_dirty,
+            ['cantidad_actual', 'actualizado_en'],
+            batch_size=500,
+        )
+
+
 @contextmanager
-def modo_lote_kardex(*, empresa_id, usuario_id=None):
+def modo_lote_kardex(*, empresa_id, usuario_id=None, on_progreso=None):
     """
     Difiere los recálculos de los movimientos retroactivos hasta el final del bloque y los ejecuta
     una vez por producto, desde su fecha más antigua, bloqueando los saldos en orden de producto.
-    Si el recálculo final deja stock negativo en cualquier punto posterior, lanza ValidationError
-    (el `transaction.atomic()` que lo envuelve revierte todo). El estado se limpia siempre.
+    Difiere también las escrituras repetidas sobre `saldo_cpp_actual` y `stock_almacen` a un único
+    UPDATE consolidado al cierre, y agrupa auditorías en bloque.
     """
     if not transaction.get_connection().in_atomic_block:
         raise RuntimeError('modo_lote_kardex debe usarse dentro de transaction.atomic().')
@@ -44,30 +85,62 @@ def modo_lote_kardex(*, empresa_id, usuario_id=None):
         raise RuntimeError('modo_lote_kardex no admite bloques anidados.')
     ultima_incidencia = Incidencia.objects.aggregate(m=Max('id'))['m'] or 0
     _lote.pendientes = {}
+    ctx = {
+        'empresa_id': empresa_id,
+        'saldos': {},
+        'stocks': {},
+        'saldos_sucios': set(),
+        'stocks_sucios': set(),
+        'secuencias': {},
+        'productos_secuencia_cargados': set(),
+        'max_clave_producto': {},
+        'tipos_extorno': {},
+        'tolerancia': (
+            ConfigEmpresa.objects.filter(empresa_id=empresa_id)
+            .values_list('tolerancia_residuo_pen', flat=True)
+            .first()
+            or Decimal('0.05000000')
+        ),
+        'tipo_residuo': TipoOperacion.objects.filter(codigo_interno='RESIDUO_AUTOMATICO').first(),
+    }
+    _lote.ctx = ctx
     try:
-        yield
-        pendientes, _lote.pendientes = _lote.pendientes, None
-        productos = sorted(pid for (eid, pid) in pendientes if eid == empresa_id)
-        list(SaldoCppActual.objects.select_for_update().filter(
-            empresa_id=empresa_id, producto_id__in=productos,
-        ).order_by('producto_id').values_list('id', flat=True))
-        for producto_id in productos:
-            ejecutar_recalculo_producto(
-                empresa_id=empresa_id, producto_id=producto_id,
-                fecha_desde=pendientes[(empresa_id, producto_id)], usuario_id=usuario_id,
-            )
-        negativos = Incidencia.objects.filter(
-            id__gt=ultima_incidencia, empresa_id=empresa_id, producto_id__in=productos, tipo='STOCK_INSUFICIENTE',
-        ).select_related('producto', 'movimiento')
-        if negativos:
-            detalle = ', '.join(
-                f'{i.producto.codigo_interno} el {i.movimiento.fecha_movimiento:%d/%m/%Y}' if i.movimiento_id
-                else i.producto.codigo_interno
-                for i in negativos[:10]
-            )
-            raise ValidationError({'stock': f'El recálculo deja stock negativo: {detalle}.'})
+        with buffer_auditoria_lote():
+            yield
+            pendientes, _lote.pendientes = _lote.pendientes, None
+            productos = sorted(pid for (eid, pid) in pendientes if eid == empresa_id)
+            # Productos sin movimientos retroactivos se persisten en bloque una sola vez.
+            _flush_saldos_stocks_pendientes(ctx, excluir_productos=productos)
+            if productos:
+                list(SaldoCppActual.objects.select_for_update().filter(
+                    empresa_id=empresa_id, producto_id__in=productos,
+                ).order_by('producto_id').values_list('id', flat=True))
+                total_productos = len(productos)
+                for idx, producto_id in enumerate(productos, start=1):
+                    if on_progreso:
+                        on_progreso(
+                            'RECALCULANDO_KARDEX',
+                            f'Recalculando Kardex (producto {idx}/{total_productos})...',
+                            idx,
+                            total_productos,
+                        )
+                    ejecutar_recalculo_producto(
+                        empresa_id=empresa_id, producto_id=producto_id,
+                        fecha_desde=pendientes[(empresa_id, producto_id)], usuario_id=usuario_id,
+                    )
+                negativos = Incidencia.objects.filter(
+                    id__gt=ultima_incidencia, empresa_id=empresa_id, producto_id__in=productos, tipo='STOCK_INSUFICIENTE',
+                ).select_related('producto', 'movimiento')
+                if negativos:
+                    detalle = ', '.join(
+                        f'{i.producto.codigo_interno} el {i.movimiento.fecha_movimiento:%d/%m/%Y}' if i.movimiento_id
+                        else i.producto.codigo_interno
+                        for i in negativos[:10]
+                    )
+                    raise ValidationError({'stock': f'El recálculo deja stock negativo: {detalle}.'})
     finally:
         _lote.pendientes = None
+        _lote.ctx = None
 
 
 def q8(value):
@@ -78,7 +151,34 @@ def cpp(value, quantity):
     return ZERO if quantity == ZERO else (value / quantity).quantize(Q6, rounding=ROUND_HALF_UP)
 
 
+@contextmanager
+def _atomic_kardex_o_lote(empresa_id=None):
+    """Evita SAVEPOINT anidados en lotes masivos sin cambiar atomicidad de llamadas manuales."""
+    if getattr(_lote, 'ctx', None) is not None and (
+        empresa_id is None or _lote.ctx['empresa_id'] == empresa_id
+    ):
+        yield
+    else:
+        with transaction.atomic():
+            yield
+
+
 def siguiente_secuencia_movimiento(*, empresa_id, producto_id, fecha_movimiento, prioridad_dia):
+    ctx = _ctx_lote(empresa_id)
+    if ctx is not None:
+        # El producto está bloqueado por SaldoCppActual.select_for_update() durante todo el lote.
+        if producto_id not in ctx['productos_secuencia_cargados']:
+            for fila in (
+                Movimiento.objects.filter(empresa_id=empresa_id, producto_id=producto_id)
+                .values('fecha_movimiento', 'prioridad_dia')
+                .annotate(valor=Max('secuencia'))
+            ):
+                ctx['secuencias'][(producto_id, fila['fecha_movimiento'], fila['prioridad_dia'])] = fila['valor'] or 0
+            ctx['productos_secuencia_cargados'].add(producto_id)
+        clave = (producto_id, fecha_movimiento, prioridad_dia)
+        ctx['secuencias'][clave] = ctx['secuencias'].get(clave, 0) + 1
+        return ctx['secuencias'][clave]
+
     ultima = Movimiento.objects.filter(
         empresa_id=empresa_id,
         producto_id=producto_id,
@@ -88,8 +188,48 @@ def siguiente_secuencia_movimiento(*, empresa_id, producto_id, fecha_movimiento,
     return (ultima or 0) + 1
 
 
+def _actualizar_max_clave_lote(ctx, movimiento):
+    if ctx is None or movimiento.transferencia_id:
+        return
+    clave_prod = (movimiento.empresa_id, movimiento.producto_id)
+    clave_mov = (
+        movimiento.fecha_movimiento,
+        movimiento.prioridad_dia,
+        movimiento.secuencia,
+        movimiento.id,
+    )
+    actual = ctx['max_clave_producto'].get(clave_prod)
+    if actual is None or clave_mov > actual:
+        ctx['max_clave_producto'][clave_prod] = clave_mov
+
+
 def hay_movimientos_posteriores(movimiento):
     """Indica si el movimiento quedó antes de otro en el orden oficial del Kardex."""
+    ctx = _ctx_lote(movimiento.empresa_id)
+    if ctx is not None and not movimiento.transferencia_id:
+        clave_prod = (movimiento.empresa_id, movimiento.producto_id)
+        if clave_prod not in ctx['max_clave_producto']:
+            ctx['max_clave_producto'][clave_prod] = (
+                Movimiento.objects.filter(
+                    empresa_id=movimiento.empresa_id, producto_id=movimiento.producto_id,
+                )
+                .exclude(id=movimiento.id)
+                .order_by('-fecha_movimiento', '-prioridad_dia', '-secuencia', '-id')
+                .values_list('fecha_movimiento', 'prioridad_dia', 'secuencia', 'id')
+                .first()
+            )
+        max_prev = ctx['max_clave_producto'][clave_prod]
+        clave_actual = (
+            movimiento.fecha_movimiento,
+            movimiento.prioridad_dia,
+            movimiento.secuencia,
+            movimiento.id,
+        )
+        if max_prev is not None and clave_actual < max_prev:
+            return True
+        ctx['max_clave_producto'][clave_prod] = clave_actual
+        return False
+
     posteriores = Movimiento.objects.filter(
         empresa_id=movimiento.empresa_id,
         producto_id=movimiento.producto_id,
@@ -117,23 +257,39 @@ def hay_movimientos_posteriores(movimiento):
 
 
 def _saldo(empresa_id, producto_id):
+    ctx = _ctx_lote(empresa_id)
+    clave = (empresa_id, producto_id)
+    if ctx is not None and clave in ctx['saldos']:
+        return ctx['saldos'][clave]
     saldo = SaldoCppActual.objects.select_for_update().filter(
         empresa_id=empresa_id, producto_id=producto_id,
     ).first()
-    return saldo or SaldoCppActual.objects.create(
-        empresa_id=empresa_id, producto_id=producto_id,
-        cantidad_total=ZERO, valor_total_pen=ZERO, cpp_pen=ZERO,
-    )
+    if saldo is None:
+        saldo = SaldoCppActual.objects.create(
+            empresa_id=empresa_id, producto_id=producto_id,
+            cantidad_total=ZERO, valor_total_pen=ZERO, cpp_pen=ZERO,
+        )
+    if ctx is not None:
+        ctx['saldos'][clave] = saldo
+    return saldo
 
 
 def _stock(empresa_id, almacen_id, producto_id):
+    ctx = _ctx_lote(empresa_id)
+    clave = (empresa_id, almacen_id, producto_id)
+    if ctx is not None and clave in ctx['stocks']:
+        return ctx['stocks'][clave]
     stock = StockAlmacen.objects.select_for_update().filter(
         empresa_id=empresa_id, almacen_id=almacen_id, producto_id=producto_id,
     ).first()
-    return stock or StockAlmacen.objects.create(
-        empresa_id=empresa_id, almacen_id=almacen_id,
-        producto_id=producto_id, cantidad_actual=ZERO,
-    )
+    if stock is None:
+        stock = StockAlmacen.objects.create(
+            empresa_id=empresa_id, almacen_id=almacen_id,
+            producto_id=producto_id, cantidad_actual=ZERO,
+        )
+    if ctx is not None:
+        ctx['stocks'][clave] = stock
+    return stock
 
 
 def _incidencia(**kwargs):
@@ -172,9 +328,13 @@ def _estado_previo(movimiento):
 def _residuo(saldo, movimiento, periodo):
     if saldo.cantidad_total != ZERO or saldo.valor_total_pen == ZERO:
         return
-    tolerancia = ConfigEmpresa.objects.filter(empresa_id=saldo.empresa_id).values_list(
-        'tolerancia_residuo_pen', flat=True,
-    ).first() or Decimal('0.05000000')
+    ctx = _ctx_lote(saldo.empresa_id)
+    if ctx is not None:
+        tolerancia = ctx['tolerancia']
+    else:
+        tolerancia = ConfigEmpresa.objects.filter(empresa_id=saldo.empresa_id).values_list(
+            'tolerancia_residuo_pen', flat=True,
+        ).first() or Decimal('0.05000000')
     if abs(saldo.valor_total_pen) > tolerancia:
         _incidencia(
             empresa_id=saldo.empresa_id, periodo_id=periodo.id, producto_id=saldo.producto_id,
@@ -184,7 +344,8 @@ def _residuo(saldo, movimiento, periodo):
         )
         saldo.cpp_pen = ZERO
         return
-    tipo = TipoOperacion.objects.get(codigo_interno='RESIDUO_AUTOMATICO')
+    tipo = (ctx['tipo_residuo'] if ctx is not None and ctx['tipo_residuo'] is not None
+            else TipoOperacion.objects.get(codigo_interno='RESIDUO_AUTOMATICO'))
     ajuste = Movimiento.objects.create(
         empresa_id=saldo.empresa_id, producto_id=saldo.producto_id,
         almacen_id=movimiento.almacen_id, periodo=periodo, tipo_operacion=tipo,
@@ -211,13 +372,27 @@ def _residuo(saldo, movimiento, periodo):
     saldo.valor_total_pen = ZERO
     saldo.cpp_pen = ZERO
     saldo.ultimo_movimiento = ajuste
+    _actualizar_max_clave_lote(ctx, ajuste)
 
 
-@transaction.atomic
 def aplicar_movimiento(*, empresa_id, producto_id, almacen_id, periodo, tipo_operacion,
                        fecha, cantidad, usuario_id, costo_unitario=None, valor_ajuste=None,
                        documento_detalle=None, movimiento_origen=None, es_extorno=False,
                        movimiento_extornado=None):
+    with _atomic_kardex_o_lote(empresa_id):
+        return _aplicar_movimiento_impl(
+            empresa_id=empresa_id, producto_id=producto_id, almacen_id=almacen_id,
+            periodo=periodo, tipo_operacion=tipo_operacion, fecha=fecha, cantidad=cantidad,
+            usuario_id=usuario_id, costo_unitario=costo_unitario, valor_ajuste=valor_ajuste,
+            documento_detalle=documento_detalle, movimiento_origen=movimiento_origen,
+            es_extorno=es_extorno, movimiento_extornado=movimiento_extornado,
+        )
+
+
+def _aplicar_movimiento_impl(*, empresa_id, producto_id, almacen_id, periodo, tipo_operacion,
+                             fecha, cantidad, usuario_id, costo_unitario=None, valor_ajuste=None,
+                             documento_detalle=None, movimiento_origen=None, es_extorno=False,
+                             movimiento_extornado=None):
     cantidad = q8(cantidad)
     saldo = _saldo(empresa_id, producto_id)
     stock = _stock(empresa_id, almacen_id, producto_id)
@@ -268,13 +443,22 @@ def aplicar_movimiento(*, empresa_id, producto_id, almacen_id, periodo, tipo_ope
             descripcion='El valor del inventario resultó negativo.',
             detalle={'valor': str(saldo.valor_total_pen)},
         )
-    saldo.save(update_fields=['cantidad_total', 'valor_total_pen', 'cpp_pen', 'ultimo_movimiento', 'actualizado_en'])
-    stock.save(update_fields=['cantidad_actual', 'actualizado_en'])
-    ValorizacionMovimiento.objects.create(
+    if ctx_lote := _ctx_lote(empresa_id):
+        ctx_lote['saldos_sucios'].add((empresa_id, producto_id))
+        ctx_lote['stocks_sucios'].add((empresa_id, almacen_id, producto_id))
+    else:
+        saldo.save(update_fields=['cantidad_total', 'valor_total_pen', 'cpp_pen', 'ultimo_movimiento', 'actualizado_en'])
+        stock.save(update_fields=['cantidad_actual', 'actualizado_en'])
+    val_mov = ValorizacionMovimiento.objects.create(
         movimiento=movimiento, costo_unitario_pen=costo,
         valor_movimiento_pen=valor, saldo_cantidad_empresa=saldo.cantidad_total,
         saldo_valor_empresa=saldo.valor_total_pen, cpp_empresa=saldo.cpp_pen,
     )
+    movimiento._valorizacion_cache = val_mov
+    if documento_detalle is not None:
+        from apps.documentos.services import ctx_lote_documentos
+        if (ctx_docs := ctx_lote_documentos(empresa_id)) is not None:
+            ctx_docs['movimientos_por_detalle'][documento_detalle.id] = movimiento
     if tiene_posteriores:
         pendientes = _pendientes_lote()
         if pendientes is not None:
@@ -312,15 +496,21 @@ def _crear_residuo_en_recalculo(*, movimiento, tipo, importe, usuario_id, estado
     return ajuste
 
 
-@transaction.atomic
 def ejecutar_recalculo_producto(*, empresa_id, producto_id, fecha_desde, usuario_id=None):
+    with _atomic_kardex_o_lote(empresa_id):
+        return _ejecutar_recalculo_producto_impl(
+            empresa_id=empresa_id, producto_id=producto_id, fecha_desde=fecha_desde, usuario_id=usuario_id,
+        )
+
+
+def _ejecutar_recalculo_producto_impl(*, empresa_id, producto_id, fecha_desde, usuario_id=None):
     _saldo(empresa_id, producto_id)
     stocks = {}
     movimientos_base = Movimiento.objects.filter(
         empresa_id=empresa_id, producto_id=producto_id,
     ).select_related(
         'tipo_operacion', 'periodo', 'saldo_inicial', 'nota_interna_detalle',
-        'movimiento_origen__valorizacion', 'movimiento_extornado__valorizacion',
+        'valorizacion', 'movimiento_origen__valorizacion', 'movimiento_extornado__valorizacion',
     ).order_by('fecha_movimiento', 'prioridad_dia', 'secuencia', 'id')
 
     # Bloque 6: la historia anterior a fecha_desde no se carga en memoria. Solo hace
@@ -391,10 +581,15 @@ def ejecutar_recalculo_producto(*, empresa_id, producto_id, fecha_desde, usuario
     # CON-005: los RESIDUO_AUTOMATICO del tramo se reevalúan. Su valor se decide en
     # el punto en que la cantidad vuelve a 0 ese mismo día (el ajuste se registra con
     # prioridad 3 y queda ordenado antes de la salida que lo originó).
-    tipo_residuo = TipoOperacion.objects.filter(codigo_interno='RESIDUO_AUTOMATICO').first()
-    tolerancia = ConfigEmpresa.objects.filter(empresa_id=empresa_id).values_list(
-        'tolerancia_residuo_pen', flat=True,
-    ).first() or Decimal('0.05000000')
+    ctx_lote = _ctx_lote(empresa_id)
+    if ctx_lote is not None:
+        tipo_residuo = ctx_lote['tipo_residuo']
+        tolerancia = ctx_lote['tolerancia']
+    else:
+        tipo_residuo = TipoOperacion.objects.filter(codigo_interno='RESIDUO_AUTOMATICO').first()
+        tolerancia = ConfigEmpresa.objects.filter(empresa_id=empresa_id).values_list(
+            'tolerancia_residuo_pen', flat=True,
+        ).first() or Decimal('0.05000000')
 
     def es_residuo(m):
         return bool(
@@ -575,24 +770,29 @@ def ejecutar_recalculo_producto(*, empresa_id, producto_id, fecha_desde, usuario
             detalle={'pendientes': {str(k): str(v) for k, v in cambios.items()}},
         ))
 
+    recalculo_detalles_bulk = []
+    valorizaciones_bulk = []
+
     def guardar_valorizacion(movimiento, anterior, costo, movimiento_valor, saldo_cant, saldo_valor):
         nuevo_cpp = cpp(saldo_valor, saldo_cant)
         if not anterior:
             return
-        RecalculoDetalle.objects.create(
+        recalculo_detalles_bulk.append(RecalculoDetalle(
             recalculo=recalculo, movimiento=movimiento, cpp_anterior=anterior.cpp_empresa,
             cpp_nuevo=nuevo_cpp, valor_anterior=anterior.valor_movimiento_pen,
             valor_nuevo=movimiento_valor, saldo_anterior=anterior.saldo_valor_empresa,
             saldo_nuevo=saldo_valor,
-        )
-        ValorizacionMovimiento.objects.filter(pk=anterior.pk).update(
-            costo_unitario_pen=costo, valor_movimiento_pen=movimiento_valor,
-            saldo_cantidad_empresa=saldo_cant, saldo_valor_empresa=saldo_valor,
-            cpp_empresa=nuevo_cpp, recalculo=recalculo,
-            version_actual=anterior.version_actual + 1,
-        )
+        ))
+        anterior.costo_unitario_pen = costo
+        anterior.valor_movimiento_pen = movimiento_valor
+        anterior.saldo_cantidad_empresa = saldo_cant
+        anterior.saldo_valor_empresa = saldo_valor
+        anterior.cpp_empresa = nuevo_cpp
+        anterior.recalculo = recalculo
+        anterior.version_actual = anterior.version_actual + 1
+        valorizaciones_bulk.append(anterior)
 
-    # Escrituras: una sola vez, con el resultado convergido.
+    # Escrituras: una sola vez, con el resultado convergido, en bloque.
     for escritura in resultado['escrituras']:
         guardar_valorizacion(*escritura)
     for kwargs in resultado['incidencias']:
@@ -611,19 +811,39 @@ def ejecutar_recalculo_producto(*, empresa_id, producto_id, fecha_desde, usuario
         importe = resultado['residuos_resueltos'].get(movimiento.id, ZERO)
         # CON-014: saldo en la posición del residuo + su importe (continuidad del Kardex).
         guardar_valorizacion(movimiento, anterior, ZERO, importe, cant_pos, q8(valor_pos + importe))
+
+    if recalculo_detalles_bulk:
+        RecalculoDetalle.objects.bulk_create(recalculo_detalles_bulk, batch_size=500)
+    if valorizaciones_bulk:
+        ValorizacionMovimiento.objects.bulk_update(
+            valorizaciones_bulk,
+            [
+                'costo_unitario_pen', 'valor_movimiento_pen', 'saldo_cantidad_empresa',
+                'saldo_valor_empresa', 'cpp_empresa', 'recalculo', 'version_actual',
+            ],
+            batch_size=500,
+        )
+
     cantidad, valor = resultado['cantidad'], resultado['valor']
     stocks = resultado['stocks']
-    saldo = SaldoCppActual.objects.select_for_update().get(empresa_id=empresa_id, producto_id=producto_id)
-    saldo.cantidad_total=cantidad; saldo.valor_total_pen=valor; saldo.cpp_pen=cpp(valor, cantidad)
+    saldo = _saldo(empresa_id, producto_id)
+    saldo.cantidad_total = cantidad
+    saldo.valor_total_pen = valor
+    saldo.cpp_pen = cpp(valor, cantidad)
     ultimo_movimiento = (
         movimientos_afectados[-1] if movimientos_afectados else ultimo_anterior
     )
-    saldo.ultimo_movimiento=ultimo_movimiento; saldo.save()
+    saldo.ultimo_movimiento = ultimo_movimiento
+    saldo.save(update_fields=['cantidad_total', 'valor_total_pen', 'cpp_pen', 'ultimo_movimiento', 'actualizado_en'])
     for almacen_id, cantidad_stock in stocks.items():
-        StockAlmacen.objects.update_or_create(
-            empresa_id=empresa_id, almacen_id=almacen_id, producto_id=producto_id,
-            defaults={'cantidad_actual': q8(cantidad_stock)},
-        )
+        stock = _stock(empresa_id, almacen_id, producto_id)
+        stock.cantidad_actual = q8(cantidad_stock)
+        stock.save(update_fields=['cantidad_actual', 'actualizado_en'])
+    if ctx_lote is not None:
+        ctx_lote['saldos_sucios'].discard((empresa_id, producto_id))
+        ctx_lote['max_clave_producto'].pop((empresa_id, producto_id), None)
+        for almacen_id in stocks:
+            ctx_lote['stocks_sucios'].discard((empresa_id, almacen_id, producto_id))
     recalculo.estado='OK'; recalculo.save(update_fields=['estado'])
     registrar_auditoria(empresa_id, usuario_id, 'RECALCULAR', 'RECALCULO', recalculo.id,
                         None, {'producto_id': producto_id, 'version': version})
@@ -638,14 +858,14 @@ def validar_cierre_periodo(*, empresa_id, periodo_id):
     return True
 
 
-def _validar_reglas_documento(documento, empresa_id):
+def _validar_reglas_documento(documento, empresa_id, *, detalles=None, origen_precargado=None):
     from apps.documentos.models import Documento
     from apps.documentos.reglas import (
         validar_cantidades_devolucion, validar_documento_origen,
         validar_linea_nota, validar_naturaleza_linea,
     )
-    origen = None
-    if documento.documento_origen_id:
+    origen = origen_precargado
+    if origen is None and documento.documento_origen_id:
         origen = Documento.objects.select_for_update().select_related('tipo_comprobante').filter(
             pk=documento.documento_origen_id, empresa_id=empresa_id,
         ).first()
@@ -655,7 +875,7 @@ def _validar_reglas_documento(documento, empresa_id):
         moneda_codigo=documento.moneda_codigo_id, fecha_emision=documento.fecha_emision, origen=origen,
     )
     lineas = []
-    for detalle in documento.detalles.all():
+    for detalle in (detalles if detalles is not None else documento.detalles.all()):
         validar_naturaleza_linea(
             clase=documento.clase, tipo_comprobante=documento.tipo_comprobante,
             tipo_operacion=detalle.tipo_operacion, linea_num=detalle.linea,
@@ -670,15 +890,40 @@ def _validar_reglas_documento(documento, empresa_id):
         validar_cantidades_devolucion(lineas, excluir_documento_id=documento.id)
 
 
-@transaction.atomic
-def confirmar_documento_motor(*, documento_id, empresa_id, usuario_id):
+def confirmar_documento_motor(*, documento_id, empresa_id, usuario_id, documento_precargado=None):
+    with _atomic_kardex_o_lote(empresa_id):
+        return _confirmar_documento_motor_impl(
+            documento_id=documento_id, empresa_id=empresa_id, usuario_id=usuario_id,
+            documento_precargado=documento_precargado,
+        )
+
+
+def _confirmar_documento_motor_impl(*, documento_id, empresa_id, usuario_id, documento_precargado=None):
     from django.utils import timezone
     from apps.documentos.models import Documento
-    documento = Documento.objects.select_for_update(of=('self',)).select_related(
-        'periodo', 'tipo_comprobante', 'documento_origen',
-    ).prefetch_related('detalles__tipo_operacion', 'detalles__detalle_origen').filter(
-        pk=documento_id, empresa_id=empresa_id,
-    ).first()
+    from apps.documentos.services import ctx_lote_documentos
+
+    ctx_docs = ctx_lote_documentos(empresa_id)
+    if (
+        documento_precargado is not None
+        and ctx_docs is not None
+        and documento_precargado.id == documento_id
+        and documento_precargado.empresa_id == empresa_id
+    ):
+        documento = documento_precargado
+        detalles = getattr(documento, '_detalles_creados', None)
+        if detalles is None:
+            detalles = list(documento.detalles.select_related('tipo_operacion', 'detalle_origen').all())
+        origen_precargado = documento.documento_origen if documento.documento_origen_id else None
+    else:
+        documento = Documento.objects.select_for_update(of=('self',)).select_related(
+            'periodo', 'tipo_comprobante', 'documento_origen',
+        ).prefetch_related('detalles__tipo_operacion', 'detalles__detalle_origen').filter(
+            pk=documento_id, empresa_id=empresa_id,
+        ).first()
+        detalles = None
+        origen_precargado = None
+
     if documento is None:
         raise ValidationError({'detail': 'El documento no existe o no pertenece a la empresa activa.'})
     if documento.estado != 'BORRADOR':
@@ -687,12 +932,18 @@ def confirmar_documento_motor(*, documento_id, empresa_id, usuario_id):
         raise ValidationError({'estado_revision': 'El documento debe estar REVISADO.'})
     # CON-007: revalidar reglas de la nota con el origen BLOQUEADO. Orden de bloqueo
     # consistente con la anulación: documento → documento de origen → período.
-    _validar_reglas_documento(documento, empresa_id)
+    _validar_reglas_documento(documento, empresa_id, detalles=detalles, origen_precargado=origen_precargado)
     # A-04: Bloquear el período con select_for_update para evitar condición de carrera frente al cierre
-    periodo = Periodo.objects.select_for_update().get(id=documento.periodo_id, empresa_id=empresa_id)
+    if ctx_docs is not None and documento.periodo_id in ctx_docs['periodos']:
+        periodo = ctx_docs['periodos'][documento.periodo_id]
+        periodos_no_abiertos = ctx_docs['periodos_no_abiertos']
+    else:
+        periodo = Periodo.objects.select_for_update().get(id=documento.periodo_id, empresa_id=empresa_id)
+        periodos_no_abiertos = None
     # CON-001: la seguridad no depende de cómo se creó el documento (manual o captura).
     validar_fecha_en_periodo_abierto(
         empresa_id=empresa_id, periodo=periodo, fecha=documento.fecha_emision,
+        periodos_no_abiertos=periodos_no_abiertos,
     )
     # CON-006: un documento en moneda extranjera sin TC válido no puede valorizarse en PEN.
     if documento.moneda_codigo_id != 'PEN':
@@ -702,7 +953,8 @@ def confirmar_documento_motor(*, documento_id, empresa_id, usuario_id):
             raise ValidationError({
                 'tipo_cambio': 'El documento está en USD y no tiene un tipo de cambio válido. No puede confirmarse.'
             })
-    detalles = list(documento.detalles.all())
+    if detalles is None:
+        detalles = list(documento.detalles.all())
     # CON-002: toda línea que afecta Kardex necesita producto. Se valida antes de
     # aplicar cualquier movimiento para no dejar documentos confirmados sin stock.
     sin_producto = [d.linea for d in detalles if d.afecta_kardex_aplicado and d.producto_id is None]
@@ -721,12 +973,15 @@ def confirmar_documento_motor(*, documento_id, empresa_id, usuario_id):
         costo = detalle.costo_unitario_pen
         origen = None
         if detalle.detalle_origen_id:
-            origen = Movimiento.objects.filter(
-                empresa_id=empresa_id, documento_detalle_id=detalle.detalle_origen_id,
-            ).select_related('valorizacion').order_by('id').first()
+            origen = ctx_docs['movimientos_por_detalle'].get(detalle.detalle_origen_id) if ctx_docs else None
+            if origen is None:
+                origen = Movimiento.objects.filter(
+                    empresa_id=empresa_id, documento_detalle_id=detalle.detalle_origen_id,
+                ).select_related('valorizacion').order_by('id').first()
             if origen is None:
                 raise ValidationError({'detalle_origen': 'No existe movimiento histórico para la línea origen.'})
-            costo = origen.valorizacion.costo_unitario_pen
+            val_orig = getattr(origen, '_valorizacion_cache', None) or origen.valorizacion
+            costo = val_orig.costo_unitario_pen
         valor_ajuste = None
         if detalle.tipo_operacion.naturaleza == 'AJUSTE_VALOR':
             # A-05: Multiplicar precio por cantidad si existe e incorporar IGV no recuperable
@@ -774,6 +1029,9 @@ CODIGO_SUNAT_EXTORNO = '99'
 
 
 def tipo_operacion_extorno(naturaleza):
+    ctx = getattr(_lote, 'ctx', None)
+    if ctx is not None and naturaleza in ctx['tipos_extorno']:
+        return ctx['tipos_extorno'][naturaleza]
     codigo, descripcion = TIPOS_EXTORNO[naturaleza]
     tipo, _ = TipoOperacion.objects.get_or_create(
         codigo_interno=codigo,
@@ -789,15 +1047,35 @@ def tipo_operacion_extorno(naturaleza):
                 'Corrija el catálogo de tipos de operación.'
             )
         })
+    if ctx is not None:
+        ctx['tipos_extorno'][naturaleza] = tipo
     return tipo
 
 
-@transaction.atomic
-def anular_documento_motor(*, documento_id, empresa_id, usuario_id, motivo):
+def anular_documento_motor(*, documento_id, empresa_id, usuario_id, motivo, documento_precargado=None):
+    with _atomic_kardex_o_lote(empresa_id):
+        return _anular_documento_motor_impl(
+            documento_id=documento_id, empresa_id=empresa_id, usuario_id=usuario_id,
+            motivo=motivo, documento_precargado=documento_precargado,
+        )
+
+
+def _anular_documento_motor_impl(*, documento_id, empresa_id, usuario_id, motivo, documento_precargado=None):
     from apps.documentos.models import Documento
-    documento = Documento.objects.select_for_update(of=('self',)).select_related('periodo').filter(
-        pk=documento_id, empresa_id=empresa_id,
-    ).first()
+    from apps.documentos.services import ctx_lote_documentos
+
+    ctx_docs = ctx_lote_documentos(empresa_id)
+    if (
+        documento_precargado is not None
+        and ctx_docs is not None
+        and documento_precargado.id == documento_id
+        and documento_precargado.empresa_id == empresa_id
+    ):
+        documento = documento_precargado
+    else:
+        documento = Documento.objects.select_for_update(of=('self',)).select_related('periodo').filter(
+            pk=documento_id, empresa_id=empresa_id,
+        ).first()
     if documento is None:
         raise ValidationError({'detail': 'El documento no existe o no pertenece a la empresa activa.'})
     # CON-008: una segunda anulación no debe generar extornos duplicados.
@@ -809,17 +1087,25 @@ def anular_documento_motor(*, documento_id, empresa_id, usuario_id, motivo):
         from apps.emision_electronica.coherencia import validar_anulacion_interna
         validar_anulacion_interna(documento)
     # CON-008: con notas CONFIRMADAS vigentes, anular el origen revertiría dos veces lo ya devuelto.
-    notas = list(
-        Documento.objects.filter(
-            empresa_id=empresa_id, documento_origen_id=documento.id, estado='CONFIRMADO',
-        ).order_by('id').values_list('serie_normalizada', 'numero_normalizado')
-    )
+    if ctx_docs is not None and ctx_docs['hijas_por_origen'] is not None:
+        notas = list(ctx_docs['hijas_por_origen'].get(documento.id, []))
+    else:
+        notas = list(
+            Documento.objects.filter(
+                empresa_id=empresa_id, documento_origen_id=documento.id, estado='CONFIRMADO',
+            ).order_by('id').values_list('serie_normalizada', 'numero_normalizado')
+        )
     if notas:
         listado = ', '.join(f'{serie}-{numero}' for serie, numero in notas)
         raise ValidationError({
             'detail': f'Debe anular primero las notas relacionadas confirmadas: {listado}.'
         })
-    periodo = Periodo.objects.select_for_update().get(id=documento.periodo_id, empresa_id=empresa_id)
+    if ctx_docs is not None and documento.periodo_id in ctx_docs['periodos']:
+        periodo = ctx_docs['periodos'][documento.periodo_id]
+        periodos_no_abiertos = ctx_docs['periodos_no_abiertos']
+    else:
+        periodo = Periodo.objects.select_for_update().get(id=documento.periodo_id, empresa_id=empresa_id)
+        periodos_no_abiertos = None
     if periodo.estado != 'ABIERTO':
         _incidencia(empresa_id=empresa_id, periodo_id=documento.periodo_id,
                     tipo='ANULACION_PERIODO_CERRADO', documento_id=documento.id,
@@ -829,13 +1115,18 @@ def anular_documento_motor(*, documento_id, empresa_id, usuario_id, motivo):
         # CON-001: los extornos se fechan con fecha_emision; debe seguir dentro del período abierto.
         validar_fecha_en_periodo_abierto(
             empresa_id=empresa_id, periodo=periodo, fecha=documento.fecha_emision,
+            periodos_no_abiertos=periodos_no_abiertos,
         )
     if documento.estado == 'CONFIRMADO':
         # Completar comprobante: una línea agregada por otro lote que ya se revirtió tiene su
         # extorno; no se vuelve a extornar.
-        for original in Movimiento.objects.filter(
-            empresa_id=empresa_id, documento_detalle__documento=documento, extornos__isnull=True,
-        ).select_related('tipo_operacion', 'valorizacion'):
+        if ctx_docs is not None and ctx_docs['movimientos_por_doc'] is not None:
+            originales = ctx_docs['movimientos_por_doc'].get(documento.id, [])
+        else:
+            originales = Movimiento.objects.filter(
+                empresa_id=empresa_id, documento_detalle__documento=documento, extornos__isnull=True,
+            ).select_related('tipo_operacion', 'valorizacion').order_by('id')
+        for original in originales:
             if original.naturaleza == 'AJUSTE_VALOR':
                 tipo = tipo_operacion_extorno('AJUSTE_VALOR')
                 monto_ajuste_original = original.valor_ajuste_pen
@@ -862,6 +1153,12 @@ def anular_documento_motor(*, documento_id, empresa_id, usuario_id, motivo):
                     movimiento_extornado=original,
                 )
     documento.estado='ANULADO'; documento.save(update_fields=['estado'])
+    if ctx_docs is not None and ctx_docs['hijas_por_origen'] is not None and documento.documento_origen_id:
+        hijas = ctx_docs['hijas_por_origen'].get(documento.documento_origen_id)
+        if hijas:
+            par = (documento.serie_normalizada, documento.numero_normalizado)
+            if par in hijas:
+                hijas.remove(par)
     registrar_auditoria(empresa_id, usuario_id, 'ANULAR', 'DOCUMENTO', documento.id,
                         {'estado': 'CONFIRMADO'}, {'estado': 'ANULADO'}, motivo)
     return documento

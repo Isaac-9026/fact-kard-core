@@ -35,10 +35,10 @@ from apps.documentos.services import MONEDAS_SOPORTADAS, normalizar_numero, norm
 from apps.empresas.models import Empresa, Periodo
 from apps.inventario.models import Producto
 
-MAX_FILAS = 5000
-# Medido con 810 comprobantes reales en modo lote: importar 19.6 s, anular 17.7 s, reimportar 30.9 s.
-# 1500 deja margen frente al límite de 120 s del servidor.
-MAX_COMPROBANTES_LOTE = 1500
+MAX_FILAS = 20000
+# Medido en worker en segundo plano (Paso 5): 20,000 filas / 5,807 comprobantes (~215 MB heap tracemalloc);
+# 6000 acota el pico real dentro de mem_limit 384m de `tareas` evitando riesgo OOM en VPS compartido.
+MAX_COMPROBANTES_LOTE = 6000
 MAX_ARCHIVOS = 50
 CERO = Decimal('0')
 # Diferencia máxima para considerar que el costo de una línea del Excel es el ya registrado.

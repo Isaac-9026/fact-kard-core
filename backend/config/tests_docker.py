@@ -135,6 +135,7 @@ class ComposeCoreTests(SimpleTestCase):
     def test_web_publica_solo_logos(self):
         self.assertIn('media:/srv/fact-kard/datos/media:ro', self.servicios['web']['volumes'])
         conf = (DOCKER / 'web-nginx.conf').read_text(encoding='utf-8')
+        self.assertIn('client_max_body_size 25m;', conf)
         self.assertIn('location ~ "^/media/(empresas/[0-9]+/logos/[0-9a-f]{32}\\.webp)$"', conf)
         self.assertIn('location /media/ {'+chr(10)+'        return 404;', conf)
 

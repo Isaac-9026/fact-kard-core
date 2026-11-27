@@ -341,15 +341,25 @@ def _tomar_trabajo_en_cola() -> ImportacionTrabajo | None:
 
 
 def _construir_callback_progreso(trabajo_id: int):
-    estado = {'fase': None, 'actual': -1}
+    import time
+
+    estado = {'fase': None, 'actual': -1, 'ultimo_ts': 0.0}
 
     def _callback(fase: str, mensaje: str, actual: int = 0, total: int = 0):
-        if fase == estado['fase'] and total > 0 and actual < total:
+        ahora = time.monotonic()
+        if (
+            fase == estado['fase']
+            and fase != 'RECALCULANDO_KARDEX'
+            and total > 0
+            and actual < total
+            and (ahora - estado['ultimo_ts']) < 30.0
+        ):
             paso = max(1, total // 25)
             if actual - estado['actual'] < paso:
                 return
         estado['fase'] = fase
         estado['actual'] = actual
+        estado['ultimo_ts'] = ahora
         reportar_progreso(trabajo_id, fase, actual, total, mensaje)
 
     return _callback

@@ -1,3 +1,5 @@
+import threading
+from contextlib import contextmanager
 from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Dict, List, Any, Optional
@@ -16,9 +18,95 @@ from apps.documentos.reglas import (
     validar_linea_nota,
     validar_naturaleza_linea,
 )
-from apps.documentos.afectacion_igv import resolver_afectacion, tasa_igv, validar_igv_linea
-from apps.empresas.models import Empresa, Periodo, ConfigIgvPeriodo
+from apps.documentos.afectacion_igv import CIEN, resolver_afectacion, tasa_igv, validar_igv_linea
+from apps.empresas.models import ConfigEmpresa, ConfigIgvPeriodo, Empresa, Periodo, TASA_IGV_POR_DEFECTO_PCT, TasaIgvVigencia
 from apps.inventario.models import Almacen, Producto, ProductoUnidad, Tercero, ProductoEquivalencia
+
+_lote_docs = threading.local()
+
+
+def ctx_lote_documentos(empresa_id: Optional[int] = None):
+    ctx = getattr(_lote_docs, 'ctx', None)
+    if ctx is None:
+        return None
+    if empresa_id is not None and ctx['empresa_id'] != empresa_id:
+        return None
+    return ctx
+
+
+@contextmanager
+def _atomic_docs_o_lote(empresa_id: Optional[int] = None):
+    """Evita SAVEPOINT anidados en lotes masivos sin cambiar atomicidad de llamadas manuales."""
+    if ctx_lote_documentos(empresa_id) is not None:
+        yield
+    else:
+        with transaction.atomic():
+            yield
+
+
+@contextmanager
+def modo_lote_documentos(*, empresa_id: int, preload_duplicados: bool = True, preload_anulacion: bool = False):
+    """
+    Precarga una única vez por lote los catálogos estables de la empresa (`Empresa`, `Moneda`,
+    `Periodo` bloqueados en orden, `ConfigIgvPeriodo`, `TasaIgvVigencia`, `ConfigEmpresa` y opcionalmente
+    claves de duplicados / dependencias de anulación) para evitar miles de SELECT idénticos.
+    """
+    if not transaction.get_connection().in_atomic_block:
+        raise RuntimeError('modo_lote_documentos debe usarse dentro de transaction.atomic().')
+    if getattr(_lote_docs, 'ctx', None) is not None:
+        raise RuntimeError('modo_lote_documentos no admite bloques anidados.')
+
+    periodos = {
+        p.id: p
+        for p in Periodo.objects.select_for_update().filter(empresa_id=empresa_id).order_by('id')
+    }
+    ctx = {
+        'empresa_id': empresa_id,
+        'empresa': Empresa.objects.get(id=empresa_id),
+        'monedas': {m.codigo: m for m in Moneda.objects.all()},
+        'config_igv_periodos': {
+            c.periodo_id: c for c in ConfigIgvPeriodo.objects.filter(empresa_id=empresa_id)
+        },
+        'tasas_vigencia': list(
+            TasaIgvVigencia.objects.filter(empresa_id=empresa_id).order_by('-vigente_desde')
+            .values_list('vigente_desde', 'tasa_pct')
+        ),
+        'tasa_defecto_pct': (
+            ConfigEmpresa.objects.filter(empresa_id=empresa_id)
+            .values_list('tasa_igv_pct', flat=True)
+            .first()
+        ),
+        'tasas_por_fecha': {},
+        'periodos': periodos,
+        'periodos_no_abiertos': [p for p in periodos.values() if p.estado != 'ABIERTO'],
+        'duplicados': (
+            set(
+                Documento.objects.filter(empresa_id=empresa_id)
+                .exclude(estado='ANULADO', importacion_lote__isnull=False)
+                .values_list('ruc_emisor', 'tipo_comprobante_id', 'serie_normalizada', 'numero_normalizado')
+            )
+            if preload_duplicados else None
+        ),
+        'sin_pagos_ids': None,
+        'hijas_por_origen': None,
+        'movimientos_por_doc': None,
+        'movimientos_por_detalle': {},
+    }
+    if preload_anulacion:
+        hijas = {}
+        for orig_id, serie, numero in (
+            Documento.objects.filter(
+                empresa_id=empresa_id, estado='CONFIRMADO', documento_origen_id__isnull=False,
+            ).order_by('id').values_list('documento_origen_id', 'serie_normalizada', 'numero_normalizado')
+        ):
+            hijas.setdefault(orig_id, []).append((serie, numero))
+        ctx['hijas_por_origen'] = hijas
+
+    _lote_docs.ctx = ctx
+    try:
+        yield ctx
+    finally:
+        _lote_docs.ctx = None
 
 
 # CON-009 / Bloque 3: el IGV se valida por línea según su afectación (afectacion_igv.py).
@@ -97,7 +185,11 @@ def obtener_porcentaje_credito_fiscal(empresa_id: int, periodo: Periodo) -> Deci
     PRORRATA: porcentaje_recuperable configurado
     Si no existe configuración para el período, se asume TOTAL (100%).
     """
-    config = ConfigIgvPeriodo.objects.filter(empresa_id=empresa_id, periodo=periodo).first()
+    ctx = ctx_lote_documentos(empresa_id)
+    if ctx is not None:
+        config = ctx['config_igv_periodos'].get(periodo.id)
+    else:
+        config = ConfigIgvPeriodo.objects.filter(empresa_id=empresa_id, periodo=periodo).first()
     if not config:
         return Decimal('100.0000')
 
@@ -111,6 +203,25 @@ def obtener_porcentaje_credito_fiscal(empresa_id: int, periodo: Periodo) -> Deci
     return Decimal('100.0000')
 
 
+def _tasa_igv_lote(empresa_id: int, fecha_emision: date) -> Decimal:
+    ctx = ctx_lote_documentos(empresa_id)
+    if ctx is None:
+        return tasa_igv(empresa_id, fecha_emision)
+    cache = ctx['tasas_por_fecha']
+    if fecha_emision in cache:
+        return cache[fecha_emision]
+    pct = None
+    for vigente_desde, tasa_pct in ctx['tasas_vigencia']:
+        if vigente_desde <= fecha_emision:
+            pct = tasa_pct
+            break
+    if pct is None:
+        pct = ctx['tasa_defecto_pct']
+    res = (pct if pct is not None else TASA_IGV_POR_DEFECTO_PCT) / CIEN
+    cache[fecha_emision] = res
+    return res
+
+
 def validar_duplicado_documento(
     empresa_id: int,
     ruc_emisor: str,
@@ -120,6 +231,16 @@ def validar_duplicado_documento(
     excluir_id: Optional[int] = None
 ) -> None:
     """Verifica la clave lógica de comprobante único para la empresa."""
+    ctx = ctx_lote_documentos(empresa_id)
+    if ctx is not None and ctx['duplicados'] is not None and excluir_id is None:
+        existe = (ruc_emisor, tipo_comprobante_id, serie_normalizada, numero_normalizado) in ctx['duplicados']
+        if existe:
+            raise ValidationError(
+                f"Ya existe un comprobante registrado con RUC emisor '{ruc_emisor}', "
+                f"serie '{serie_normalizada}' y número '{numero_normalizado}'."
+            )
+        return
+
     qs = Documento.objects.filter(
         empresa_id=empresa_id,
         ruc_emisor=ruc_emisor,
@@ -161,7 +282,6 @@ def validar_tercero_comercial(*, clase, tipo_comprobante, tercero, origen=None, 
             raise ValidationError({'tercero': 'Una factura de venta requiere un cliente identificado con RUC (11 dígitos).'})
 
 
-@transaction.atomic
 def crear_documento(
     empresa_id: int,
     usuario_id: int,
@@ -172,7 +292,23 @@ def crear_documento(
     Crea un comprobante comercial (Documento) y sus líneas de detalle (DocumentoDetalle)
     aplicando todas las reglas de dominio, normalización y cálculos contables oficiales.
     """
-    empresa = Empresa.objects.get(id=empresa_id)
+    with _atomic_docs_o_lote(empresa_id):
+        return _crear_documento_impl(
+            empresa_id=empresa_id,
+            usuario_id=usuario_id,
+            datos_cabecera=datos_cabecera,
+            detalles_datos=detalles_datos,
+        )
+
+
+def _crear_documento_impl(
+    empresa_id: int,
+    usuario_id: int,
+    datos_cabecera: Dict[str, Any],
+    detalles_datos: List[Dict[str, Any]]
+) -> Documento:
+    ctx_lote = ctx_lote_documentos(empresa_id)
+    empresa = ctx_lote['empresa'] if ctx_lote is not None else Empresa.objects.get(id=empresa_id)
 
     # 1. Validar Período
     periodo_val = datos_cabecera.get('periodo') or datos_cabecera.get('periodo_id')
@@ -315,10 +451,13 @@ def crear_documento(
         raise ValidationError({
             'moneda_codigo': f"La moneda '{moneda_codigo}' no está soportada para valorizar (solo PEN o USD)."
         })
-    try:
-        moneda = Moneda.objects.get(codigo=moneda_codigo)
-    except Moneda.DoesNotExist:
-        raise ValidationError({'moneda_codigo': f"La moneda '{moneda_codigo}' no está registrada en el sistema."})
+    if ctx_lote is not None and moneda_codigo in ctx_lote['monedas']:
+        moneda = ctx_lote['monedas'][moneda_codigo]
+    else:
+        try:
+            moneda = Moneda.objects.get(codigo=moneda_codigo)
+        except Moneda.DoesNotExist:
+            raise ValidationError({'moneda_codigo': f"La moneda '{moneda_codigo}' no está registrada en el sistema."})
 
     fecha_emision = datos_cabecera.get('fecha_emision')
     if isinstance(fecha_emision, str):
@@ -404,11 +543,12 @@ def crear_documento(
         raise ValidationError({'detalles': 'El comprobante debe contener al menos una línea de detalle.'})
 
     porcentaje_cf = obtener_porcentaje_credito_fiscal(empresa_id, periodo)
-    tasa = tasa_igv(empresa_id, fecha_emision)  # Bloque 5: tasa vigente en la fecha del comprobante
+    tasa = _tasa_igv_lote(empresa_id, fecha_emision)  # Bloque 5: tasa vigente en la fecha del comprobante
 
     subtotal_acum = Decimal('0.00000000')
     igv_acum = Decimal('0.00000000')
     lineas_devolucion = []
+    detalles_a_crear = []
 
     for idx, linea_data in enumerate(detalles_datos, start=1):
         linea_num = linea_data.get('linea') or idx
@@ -585,8 +725,8 @@ def crear_documento(
             except ProductoEquivalencia.DoesNotExist:
                 raise ValidationError({'detalles': f"Línea {linea_num}: La equivalencia no existe o no pertenece a la empresa activa."})
 
-        # Crear línea
-        DocumentoDetalle.objects.create(
+        # Preparar línea (insertadas en bloque cuando hay más de una o en modo lote)
+        detalles_a_crear.append(DocumentoDetalle(
             documento=documento,
             linea=linea_num,
             producto=producto,
@@ -606,11 +746,18 @@ def crear_documento(
             es_bonificacion=es_bonificacion,
             afectacion_igv=afectacion_igv,
             codigo_afectacion_igv=codigo_afectacion_igv,
-            detalle_origen=detalle_origen
-        )
+            detalle_origen=detalle_origen,
+            costo_unitario_importado=linea_data.get('costo_unitario_importado'),
+            costo_total_importado=linea_data.get('costo_total_importado'),
+        ))
 
         subtotal_acum += (precio_unitario * cantidad_original)
         igv_acum += igv_linea
+
+    detalles_creados = DocumentoDetalle.objects.bulk_create(detalles_a_crear)
+    documento._detalles_creados = detalles_creados
+    if ctx_lote is not None and ctx_lote['duplicados'] is not None:
+        ctx_lote['duplicados'].add((ruc_emisor, tipo_comprobante.id, serie_normalizada, numero_normalizado))
 
     # CON-007: no devolver más de lo disponible en cada línea de origen.
     if tipo_comprobante.es_nota:
@@ -632,7 +779,8 @@ def crear_documento(
         cuotas=datos_cabecera.get('cuotas'), total=documento.total, fecha_emision=fecha_emision,
         es_nota=tipo_comprobante.es_nota,
     )
-    finanzas.guardar_condicion_pago(documento, condicion, vencimiento, cuotas)
+    if not (condicion == 'CONTADO' and vencimiento is None and not cuotas):
+        finanzas.guardar_condicion_pago(documento, condicion, vencimiento, cuotas)
 
     registrar_auditoria(
         empresa_id=empresa_id,
@@ -658,22 +806,44 @@ def crear_documento(
     return documento
 
 
-@transaction.atomic
 def revisar_documento(
     documento_id: int,
     empresa_id: int,
     usuario_id: int,
     nuevo_estado_revision: str,
-    motivo: Optional[str] = None
+    motivo: Optional[str] = None,
+    documento: Optional[Documento] = None,
 ) -> Documento:
     """
     Actualiza el estado de revisión de un comprobante (PENDIENTE, EN_REVISION, REVISADO, OBSERVADO)
     y registra la auditoría inmutable correspondiente.
     """
-    try:
-        doc = Documento.objects.get(id=documento_id, empresa_id=empresa_id)
-    except Documento.DoesNotExist:
-        raise ValidationError({'detail': 'El documento no existe o no pertenece a la empresa activa.'})
+    with _atomic_docs_o_lote(empresa_id):
+        return _revisar_documento_impl(
+            documento_id=documento_id,
+            empresa_id=empresa_id,
+            usuario_id=usuario_id,
+            nuevo_estado_revision=nuevo_estado_revision,
+            motivo=motivo,
+            documento=documento,
+        )
+
+
+def _revisar_documento_impl(
+    documento_id: int,
+    empresa_id: int,
+    usuario_id: int,
+    nuevo_estado_revision: str,
+    motivo: Optional[str] = None,
+    documento: Optional[Documento] = None,
+) -> Documento:
+    if documento is not None and documento.id == documento_id and documento.empresa_id == empresa_id:
+        doc = documento
+    else:
+        try:
+            doc = Documento.objects.get(id=documento_id, empresa_id=empresa_id)
+        except Documento.DoesNotExist:
+            raise ValidationError({'detail': 'El documento no existe o no pertenece a la empresa activa.'})
 
     estados_validos = ('PENDIENTE', 'EN_REVISION', 'REVISADO', 'OBSERVADO')
     if nuevo_estado_revision not in estados_validos:
@@ -699,11 +869,11 @@ def revisar_documento(
     return doc
 
 
-@transaction.atomic
 def confirmar_documento_validacion(
     documento_id: int,
     empresa_id: int,
-    usuario_id: int
+    usuario_id: int,
+    documento: Optional[Documento] = None,
 ) -> Documento:
     """
     Valida las condiciones estrictas para confirmar un comprobante comercial:
@@ -712,23 +882,28 @@ def confirmar_documento_validacion(
     - Estado documental DEBE ser 'BORRADOR'.
     """
     from apps.kardex.services import confirmar_documento_motor
-    return confirmar_documento_motor(
-        documento_id=documento_id, empresa_id=empresa_id, usuario_id=usuario_id,
-    )
+    with _atomic_docs_o_lote(empresa_id):
+        return confirmar_documento_motor(
+            documento_id=documento_id, empresa_id=empresa_id, usuario_id=usuario_id,
+            documento_precargado=documento,
+        )
 
 
-@transaction.atomic
 def anular_documento(
     documento_id: int,
     empresa_id: int,
     usuario_id: int,
-    motivo: str
+    motivo: str,
+    documento: Optional[Documento] = None,
 ) -> Documento:
     """Anula un documento en borrador o confirmado."""
     from apps.kardex.services import anular_documento_motor
-    # Bloque 16: con pagos vigentes no se anula (primero se anulan los pagos).
-    finanzas.validar_anulacion_sin_pagos(documento_id, empresa_id)
-    return anular_documento_motor(
-        documento_id=documento_id, empresa_id=empresa_id, usuario_id=usuario_id,
-        motivo=motivo,
-    )
+    with _atomic_docs_o_lote(empresa_id):
+        ctx = ctx_lote_documentos(empresa_id)
+        if not (ctx is not None and ctx['sin_pagos_ids'] is not None and documento_id in ctx['sin_pagos_ids']):
+            # Bloque 16: con pagos vigentes no se anula (primero se anulan los pagos).
+            finanzas.validar_anulacion_sin_pagos(documento_id, empresa_id)
+        return anular_documento_motor(
+            documento_id=documento_id, empresa_id=empresa_id, usuario_id=usuario_id,
+            motivo=motivo, documento_precargado=documento,
+        )
